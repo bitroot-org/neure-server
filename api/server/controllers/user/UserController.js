@@ -9,7 +9,7 @@ class UserController {
   // User registration
   static async register(req, res) {
     try {
-      const { username, email, password } = req.body;
+      const { username, email, password ,role_id} = req.body;
       console.log(req.body);
 
       // Check if user already exists
@@ -23,15 +23,15 @@ class UserController {
 
       // Create new user
       const [result] = await db.query(
-        'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-        [username, email, hashedPassword]
+        'INSERT INTO users (username, email, password,role_id) VALUES (?, ?, ?,?)',
+        [username, email, hashedPassword,role_id]
       );
 
       // Generate JWT token
       const token = jwt.sign(
         { id: result.insertId }, 
         process.env.JWT_SECRET, 
-        { expiresIn: '1h' }
+        { expiresIn: '5h' }
       );
 
       res.status(201).json({ token });
@@ -64,7 +64,7 @@ class UserController {
       const token = jwt.sign(
         { id: user.id }, 
         process.env.JWT_SECRET, 
-        { expiresIn: '1h' }
+        { expiresIn: '5h' }
       );
 
       res.json({ token });
