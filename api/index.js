@@ -1,7 +1,8 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const packageJson = require('../package.json');
-const companyRoutes = require('./server/routes/companyRoutes');
+const companyRoutes = require('./server/routes/company/companyRoutes');
+const userRoutes = require('../api/server/routes/user/UserRoutes');
 
 // Initialize environment variables
 dotenv.config();
@@ -13,6 +14,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/company', companyRoutes);
+app.use('/api/user', userRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;

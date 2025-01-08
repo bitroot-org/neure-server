@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const tokenValidator = require('../../auth/tokenValidator.js');
+const tokenValidator = require('../../../auth/tokenValidator.js');
 const { authorization } = tokenValidator;
 
 
-const { registerCompany } = require('../controllers/companyController');
+const { registerCompany } = require('../../controllers/company/companyController.js');
 
 
 // POST route for company registration

@@ -1,4 +1,4 @@
-const companyService = require('../services/companyService');
+const companyService = require('../../services/company/companyService');
 
 
 const registerCompany = async (req, res) => {
