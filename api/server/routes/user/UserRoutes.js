@@ -1,12 +1,11 @@
 const express = require('express');
-const {register, login} = require('../../controllers/user/UserController');
+const { register, login, logout } = require('../../controllers/user/UserController.js');
+const { authorization } = require('../../../auth/tokenValidator.js');
 
 const router = express.Router();
 
-// User registration route
 router.post('/register', register);
-
-// User login route
 router.post('/login', login);
+router.post('/logout',authorization, logout);
 
 module.exports = router;

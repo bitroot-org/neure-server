@@ -1,40 +1,57 @@
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
+const db = require("../../api/config/db");
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET; 
-// const JWT_EXPIRATION = process.env.JWT_EXPIRATION || "4h";
+const JWT_SECRET = process.env.JWT_SECRET;
 
-const authorization = (req, res, next) => {
-  // Extract token from the Authorization header
-  const authHeader = req.headers["authorization"];
+const authorization = async (req, res, next) => {
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).send({
-      success: false,
-      message: "Access Denied! Token not provided or invalid format.",
-    });
-  }
+  console.log("Hello from tokenValidator");
+  try {
+    const authHeader = req.headers["authorization"];
 
-  const token = authHeader.split(" ")[1]; // Extract the token after "Bearer"
-
-  // Verify the JWT token
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) {
-      console.error("Error verifying token:", err);
-      return res.status(403).send({
+    if (!authHeader || !authHeader.startsWith("Bearer ")  || authHeader.split(" ")[1] === "") {
+      return res.status(401).json({
         success: false,
-        message: "Invalid or expired token!",
+        message: "Access Denied! Token not provided or invalid format.",
       });
     }
 
-    // Attach decoded user information to the request
-    req.user = decoded;
-    console.log("Token verified successfully!", decoded);
+    const token = authHeader.split(" ")[1];
 
-    next();
-  });
+    // Check if token is blacklisted
+    const [blacklistedToken] = await db.query(
+      'SELECT * FROM blacklisted_tokens WHERE token = ?',
+      [token]
+    );
+
+    if (blacklistedToken.length > 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Token has been invalidated",
+      });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+      if (err) {
+        return res.status(403).json({
+          success: false,
+          message: "Invalid or expired token!",
+        });
+      }
+
+      req.user = decoded;
+      req.token = token;
+      next();
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error validating token",
+    });
+  }
 };
 
 module.exports = { authorization };
