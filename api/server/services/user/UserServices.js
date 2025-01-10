@@ -117,6 +117,7 @@ class UserServices {
       console.error('Token cleanup failed:', error);
     }
   }
+  
 }
 
 module.exports = UserServices;

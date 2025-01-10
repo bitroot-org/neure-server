@@ -4,6 +4,7 @@ const cors = require('cors');
 const packageJson = require('../package.json');
 const companyRoutes = require('./server/routes/company/companyRoutes');
 const userRoutes = require('../api/server/routes/user/UserRoutes');
+const workshopRoutes = require('../api/server/routes/company/workshopRoutes');
 
 // Initialize environment variables
 dotenv.config();
@@ -16,6 +17,7 @@ app.use(cors());
 
 // Routes
 app.use('/api/company', companyRoutes);
+app.use('/api/workshop', workshopRoutes);
 app.use('/api/user', userRoutes);
 
 // Start server

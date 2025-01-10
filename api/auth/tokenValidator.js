@@ -8,7 +8,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 const authorization = async (req, res, next) => {
 
-  console.log("Hello from tokenValidator");
   try {
     const authHeader = req.headers["authorization"];
 
