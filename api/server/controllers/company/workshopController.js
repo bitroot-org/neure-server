@@ -27,7 +27,44 @@ class workshopController {
     }
   }
 
+  static async getWorkshopsByCompanyId(req, res) {
+    try {
+      const company_id = parseInt(req.query.company_id);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.pageSize) || 6;
+      const start_time = req.query.start_time;
 
+      const result = await workshopService.getWorkshopsByCompanyId(
+        company_id, 
+        page, 
+        limit,
+        start_time
+      );
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
+
+  static async getWorkshopDates(req, res) {
+    try {
+      const company_id = parseInt(req.query.company_id);
+      const result = await workshopService.getWorkshopDates(company_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
 
 }
 

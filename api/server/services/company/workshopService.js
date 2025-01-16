@@ -1,6 +1,6 @@
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const db = require('../../../config/db');
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const db = require("../../../config/db");
 
 class workshopService {
   static async getWorkshopDetails(workshop_id, company_id) {
@@ -52,6 +52,80 @@ class workshopService {
     }
   }
 
+  static async getWorkshopsByCompanyId(company_id, page = 1, limit = 6, start_time = null) {
+    try {
+      let timeFilterQuery = '';
+      const queryParams = [company_id];
+
+      if (start_time) {
+        timeFilterQuery = 'AND DATE(ws.start_time) = ?';
+        queryParams.push(start_time);
+      }
+
+      const [totalRows] = await db.query(
+        `SELECT COUNT(DISTINCT w.id) as count
+         FROM workshops w
+         INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
+         WHERE ws.company_id = ? AND w.is_active = 1 ${timeFilterQuery}`,
+        queryParams
+      );
+
+      const offset = (page - 1) * limit;
+      
+      const [workshops] = await db.query(
+        `SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
+                ws.start_time, ws.end_time, ws.status, ws.max_participants, w.location, w.poster_image 
+         FROM workshops w
+         INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
+         WHERE ws.company_id = ? AND w.is_active = 1 ${timeFilterQuery}
+         ORDER BY ws.start_time ASC
+         LIMIT ? OFFSET ?`,
+        [...queryParams, limit, offset]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshops fetched successfully',
+        data: {
+          workshops,
+          pagination: {
+            total: totalRows[0].count,
+            currentPage: page,
+            totalPages: Math.ceil(totalRows[0].count / limit),
+            limit
+          }
+        }
+      };
+    } catch (error) {
+      throw new Error('Error fetching workshops: ' + error.message);
+    }
+  }
+
+  static async getWorkshopDates(company_id) {
+    try {
+      const [dates] = await db.query(
+        `SELECT DISTINCT ws.start_time as date
+         FROM workshop_schedules ws
+         INNER JOIN workshops w ON w.id = ws.workshop_id
+         WHERE ws.company_id = ? AND w.is_active = 1
+         ORDER BY ws.start_time ASC`,
+        [company_id]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop dates fetched successfully',
+        data: dates.map(row => {
+          const date = new Date(row.date);
+          return date.toISOString().split('T')[0];
+        })
+      };
+    } catch (error) {
+      throw new Error('Error fetching workshop dates: ' + error.message);
+    }
+  }
 }
 
 module.exports = workshopService;
