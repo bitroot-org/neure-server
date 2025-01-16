@@ -50,6 +50,11 @@ class UserServices {
 
   static async login(userData) {
     try {
+      // Validate JWT secrets first
+      if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
+        throw new Error('JWT configuration missing');
+      }
+
       const { email, password } = userData;
       
       // Find user
@@ -64,13 +69,27 @@ class UserServices {
         throw new Error('Invalid credentials');
       }
 
-      // Generate token
-      const token = jwt.sign(
+      // Generate tokens
+      const accessToken = jwt.sign(
         { userId: users[0].id, email },
         process.env.JWT_SECRET,
         { expiresIn: '5h' }
       );
 
+      const refreshToken = jwt.sign(
+        { userId: users[0].id },
+        process.env.REFRESH_TOKEN_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      // Store refresh token
+      await db.query(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+        [users[0].id, refreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+      );
+
+      const decoded = jwt.decode(accessToken);
+      const loginTime = new Date().toISOString();
       const { password: _, ...userWithoutPassword } = users[0];
       
       return {
@@ -78,7 +97,10 @@ class UserServices {
         code: 200,
         message: 'Login successful',
         data: {
-          token,
+          accessToken,
+          refreshToken,
+          loginAt: loginTime,
+          expiresAt: new Date(decoded.exp * 1000).toISOString(),
           user: userWithoutPassword
         }
       };
@@ -115,6 +137,41 @@ class UserServices {
       await db.query('DELETE FROM blacklisted_tokens WHERE expires_at < NOW()');
     } catch (error) {
       console.error('Token cleanup failed:', error);
+    }
+  }
+
+  static async refreshToken(token) {
+    try {
+      const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+      
+      // Check if refresh token exists and is valid
+      const [tokens] = await db.query(
+        'SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()',
+        [token]
+      );
+
+      if (tokens.length === 0) {
+        throw new Error('Invalid refresh token');
+      }
+
+      // Generate new access token
+      const newAccessToken = jwt.sign(
+        { userId: decoded.userId },
+        process.env.JWT_SECRET,
+        { expiresIn: '5h' }
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: 'Token refreshed successfully',
+        data: {
+          accessToken: newAccessToken,
+          expiresAt: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString()
+        }
+      };
+    } catch (error) {
+      throw new Error('Error refreshing token: ' + error.message);
     }
   }
   

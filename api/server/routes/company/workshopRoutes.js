@@ -10,7 +10,7 @@ const {
 
 
 router.get('/getWorkshopDetails', authorization, getWorkshopDetails);
-router.get('/getWorkshopsByCompanyId', getWorkshopsByCompanyId);
+router.get('/getWorkshopsByCompanyId',authorization, getWorkshopsByCompanyId);
 router.get('/getWorkshopDates', getWorkshopDates);
 
 

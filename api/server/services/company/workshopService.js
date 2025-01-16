@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
 
 class workshopService {
-  static async getWorkshopDetails(workshop_id, company_id) {
+  static async getWorkshopDetails(workshop_id) {
     try {
       // Fetch workshop details
       const [workshops] = await db.query(
@@ -22,8 +22,8 @@ class workshopService {
 
       // Fetch schedule details for the workshop
       const [schedules] = await db.query(
-        "SELECT start_time,end_time,status,max_participants FROM workshop_schedules WHERE workshop_id = ? AND company_id = ?",
-        [workshop_id, company_id]
+        "SELECT start_time,end_time,status,max_participants FROM workshop_schedules WHERE workshop_id = ?",
+        [workshop_id]
       );
 
       if (schedules.length === 0) {

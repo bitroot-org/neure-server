@@ -5,8 +5,8 @@ const { getWorkshopDetails } = require('../../services/company/workshopService')
 class workshopController {
   static async getWorkshopDetails(req, res) {
     try {
-      const { workshop_id, company_id } = req.body;
-      if (!workshop_id || !company_id) {
+      const { workshop_id, company_id } = req.query;
+      if (!workshop_id ) {
         return res.status(400).json({
           status: false,
           code: 400,
@@ -15,7 +15,7 @@ class workshopController {
         });
       }
 
-      const result = await getWorkshopDetails(workshop_id, company_id);
+      const result = await getWorkshopDetails(workshop_id);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
