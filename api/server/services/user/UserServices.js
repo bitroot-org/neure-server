@@ -71,13 +71,13 @@ class UserServices {
 
       // Generate tokens
       const accessToken = jwt.sign(
-        { userId: users[0].id, email },
+        { userId: users[0].user_id, email },
         process.env.JWT_SECRET,
         { expiresIn: '5h' }
       );
 
       const refreshToken = jwt.sign(
-        { userId: users[0].id },
+        { userId: users[0].user_id },
         process.env.REFRESH_TOKEN_SECRET,
         { expiresIn: '7d' }
       );
@@ -85,7 +85,7 @@ class UserServices {
       // Store refresh token
       await db.query(
         'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-        [users[0].id, refreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+        [users[0].user_id, refreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
       );
 
       const decoded = jwt.decode(accessToken);

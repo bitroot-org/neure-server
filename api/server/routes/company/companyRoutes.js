@@ -4,12 +4,13 @@ const tokenValidator = require('../../../auth/tokenValidator.js');
 const { authorization } = tokenValidator;
 
 
-const { registerCompany, getCompanyById, updateCompany } = require('../../controllers/company/companyController.js');
+const { registerCompany, getCompanyById, updateCompany, getCompanyEmployees } = require('../../controllers/company/companyController.js');
 
 
 // POST route for company registration
 router.post('/registerCompany', authorization, registerCompany);
 router.get('/getCompanyInfo', authorization, getCompanyById);
-router.put('/updateCompany', authorization, updateCompany);
+router.put('/updateCompanyInfo', authorization, updateCompany);
+router.get('/getCompanyEmployees', authorization, getCompanyEmployees);
 
 module.exports = router;

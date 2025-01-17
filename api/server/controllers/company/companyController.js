@@ -92,4 +92,32 @@ const updateCompany = async (req, res) => {
   }
 };
 
-module.exports = { registerCompany, getCompanyById, updateCompany };
+const getCompanyEmployees = async (req, res) => {
+  try {
+    const company_id = req.query.company_id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (!company_id) {
+      return res.status(400).json({
+        status: false,
+        code: 400,
+        message: "Company ID is required",
+        data: null
+      });
+    }
+
+    const result = await companyService.getCompanyEmployees(company_id, page, limit);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      status: false,
+      code: 500,
+      message: "An error occurred while fetching company employees",
+      data: null
+    });
+  }
+};
+
+module.exports = { registerCompany, getCompanyById, updateCompany, getCompanyEmployees };

@@ -21,17 +21,20 @@ const registerCompany = async (companyName, emailDomain) => {
   }
 };
 
-const getCompanyById = async (id) => {
+const getCompanyById = async (company_id) => {
+console.log(" Company id: ",company_id);
   try {
     const [rows] = await db.query(
       `SELECT 
         c.*,
         u.*
       FROM companies c
-      LEFT JOIN users u ON c.contact_person_id = u.id
+      LEFT JOIN users u ON c.contact_person_id = u.user_id
       WHERE c.id = ?`,
-      [id]
+      [company_id]
     );
+
+    console.log(rows);
 
     if (!rows[0]) return null;
 
@@ -46,9 +49,8 @@ const getCompanyById = async (id) => {
         status: rows[0].status,
         contact_person_id: rows[0].contact_person_id,
       },
-      contact_person: rows[0].id
-        ? {
-            id: rows[0].id,
+      contact_person: {
+            user_id: rows[0].contact_person_id,
             email: rows[0].email,
             username: rows[0].username,
             first_name: rows[0].first_name,
@@ -64,8 +66,7 @@ const getCompanyById = async (id) => {
             is_active: rows[0].is_active,
             user_type: rows[0].user_type,
             role_id: rows[0].role_id,
-          }
-        : null,
+          },
     };
 
     return {
@@ -80,6 +81,8 @@ const getCompanyById = async (id) => {
 };
 
 const updateCompany = async (companyData, contactPersonData) => {
+
+    console.log("Contact Person Data: ",contactPersonData);
   try {
     // Update company information
     await db.query(
@@ -117,7 +120,7 @@ const updateCompany = async (companyData, contactPersonData) => {
              phone = ?,
              user_type = ?,
              role_id = ?
-         WHERE id = ?`,
+         WHERE user_id = ?`,
         [
           contactPersonData.email,
           contactPersonData.username,
@@ -130,7 +133,7 @@ const updateCompany = async (companyData, contactPersonData) => {
           contactPersonData.phone,
           contactPersonData.user_type,
           contactPersonData.role_id,
-          contactPersonData.id
+          contactPersonData.user_id
         ]
       );
     }
@@ -146,4 +149,85 @@ const updateCompany = async (companyData, contactPersonData) => {
   }
 };
 
-module.exports = { registerCompany, getCompanyById, updateCompany };
+const getCompanyEmployees = async (company_id, page = 1, limit = 10) => {
+  try {
+    const offset = (page - 1) * limit;
+
+    const [totalRows] = await db.query(
+      `SELECT COUNT(*) as count 
+       FROM company_employees ce 
+       WHERE ce.company_id = ? AND ce.is_active = 1`,
+      [company_id]
+    );
+
+    const [rows] = await db.query(
+      `SELECT 
+        u.user_id,
+        u.email,
+        u.phone,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.gender,
+        u.date_of_birth,
+        u.age,
+        u.Workshop_attended,
+        u.Task_completed,
+        u.EngagementScore,
+        u.job_title,
+        u.user_type,
+        ce.employee_code,
+        ce.joined_date,
+        d.id as department_id,
+        d.department_name,
+        ud.assigned_date as department_assigned_date
+       FROM company_employees ce
+       JOIN users u ON ce.user_id = u.user_id
+       LEFT JOIN user_departments ud ON u.user_id = ud.user_id
+       LEFT JOIN departments d ON ud.department_id = d.id
+       WHERE ce.company_id = ? AND ce.is_active = 1
+       ORDER BY u.EngagementScore DESC
+       LIMIT ? OFFSET ?`,
+      [company_id, limit, offset]
+    );
+
+    const totalPages = Math.ceil(totalRows[0].count / limit);
+
+    return {
+      status: true,
+      code: 200,
+      message: "Company employees retrieved successfully",
+      data: {
+        employees: rows.map(row => ({
+          user_id: row.user_id,
+          email: row.email,
+          phone: row.phone,
+          username: row.username,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          gender: row.gender,
+          date_of_birth: row.date_of_birth,
+          age: row.age,
+          Workshop_attended: row.Workshop_attended,
+          Task_completed: row.Task_completed,
+          EngagementScore: row.EngagementScore,
+          job_title: row.job_title,
+          user_type: row.user_type,
+          employee_code: row.employee_code,
+          joined_date: row.joined_date,
+          department: row.department_id ? row.department_name : null
+        })),
+        pagination: {
+          total: totalRows[0].count,
+          current_page: page,
+          total_pages: totalPages,
+          per_page: limit
+        }
+      }
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
+module.exports = { registerCompany, getCompanyById, updateCompany, getCompanyEmployees };
