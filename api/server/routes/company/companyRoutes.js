@@ -5,7 +5,7 @@ const { authorization } = tokenValidator;
 
 
 
-const { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees } = require('../../controllers/company/companyController.js');
+const { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees ,getQna} = require('../../controllers/company/companyController.js');
 
 
 
@@ -14,5 +14,6 @@ router.get('/getCompanyInfo', authorization, getCompanyById);
 router.put('/updateCompanyInfo', authorization, updateCompany);
 router.get('/getTopPerformingEmployee', authorization, getTopPerformingEmployee);
 router.get('/getCompanyEmployees', authorization, getCompanyEmployees);
+router.post('/getQna', authorization, getQna);
 
 module.exports = router;
