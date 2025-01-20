@@ -4,7 +4,7 @@ const {
   updateCompany,
   getTopPerformingEmployee,
   getCompanyEmployees,
-} = require
+} = require ('../../services/company/companyService');
 
 class CompanyController {
   static async registerCompany(req, res) {
@@ -154,4 +154,4 @@ class CompanyController {
 
 }
 
-module.exports = { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees };
+module.exports = CompanyController;

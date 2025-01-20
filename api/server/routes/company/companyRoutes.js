@@ -8,7 +8,7 @@ const { authorization } = tokenValidator;
 const { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees } = require('../../controllers/company/companyController.js');
 
 
-// POST route for company registration
+
 router.post('/registerCompany', authorization, registerCompany);
 router.get('/getCompanyInfo', authorization, getCompanyById);
 router.put('/updateCompanyInfo', authorization, updateCompany);
