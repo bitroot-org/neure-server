@@ -50,6 +50,7 @@ class UserServices {
 
   static async login(userData) {
     try {
+      console.log("Login data:", userData);
       // Validate JWT secrets first
       if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
         throw new Error('JWT configuration missing');
@@ -62,6 +63,7 @@ class UserServices {
       if (users.length === 0) {
         throw new Error('Invalid credentials');
       }
+      console.log("User found:", users[0]);
 
       // Verify password
       const isMatch = await bcrypt.compare(password, users[0].password);
@@ -71,13 +73,13 @@ class UserServices {
 
       // Generate tokens
       const accessToken = jwt.sign(
-        { userId: users[0].id, email },
+        { userId: users[0].user_id, email },
         process.env.JWT_SECRET,
         { expiresIn: '5h' }
       );
 
       const refreshToken = jwt.sign(
-        { userId: users[0].id },
+        { userId: users[0].user_id },
         process.env.REFRESH_TOKEN_SECRET,
         { expiresIn: '7d' }
       );
@@ -85,7 +87,7 @@ class UserServices {
       // Store refresh token
       await db.query(
         'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-        [users[0].id, refreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+        [users[0].user_id, refreshToken, new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
       );
 
       const decoded = jwt.decode(accessToken);
