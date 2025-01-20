@@ -1,7 +1,12 @@
-const companyService = require("../../services/company/companyService");
+const {
+  registerCompany,
+  getCompanyById,
+  updateCompany,
+  getTopPerformingEmployee,
+  getCompanyEmployees,
+} = require
 
 class CompanyController {
-  // Register a new company
   static async registerCompany(req, res) {
     const { companyName, emailDomain } = req.body;
 
@@ -31,7 +36,6 @@ class CompanyController {
     }
   }
 
-  // Get company details by ID
   static async getCompanyById(req, res) {
     const company_id = req.query.company_id || req.body.company_id;
 
@@ -66,87 +70,88 @@ class CompanyController {
     }
   }
 
-  // Update company details
   static async updateCompany(req, res) {
     try {
       const { company, contact_person } = req.body;
 
-    if (!company || !company.id) {
-      return res.status(400).json({
+      if (!company || !company.id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company data is required",
+          data: null
+        });
+      }
+
+      const result = await companyService.updateCompany(company, contact_person);
+      res.status(200).json(result);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
         status: false,
-        code: 400,
-        message: "Company data is required",
+        code: 500,
+        message: "An error occurred while updating company information",
         data: null
       });
     }
-
-    const result = await companyService.updateCompany(company, contact_person);
-    res.status(200).json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: false,
-      code: 500,
-      message: "An error occurred while updating company information",
-      data: null
-    });
   }
+
+  static async getTopPerformingEmployee(req, res) {
+    try {
+      const company_id = req.query.company_id;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+          data: null
+        });
+      }
+
+      const result = await getTopPerformingEmployee(company_id, page, limit);
+      res.status(200).json(result);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching company employees",
+        data: null
+      });
+    }
+  }
+
+  static async getCompanyEmployees(req, res) {
+    try {
+      const company_id = req.query.company_id;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+          data: null
+        });
+      }
+
+      const result = await getCompanyEmployees(company_id, page, limit);
+      res.status(200).json(result);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching company employees",
+        data: null
+      });
+    }
+  }
+
 }
-
-const getTopPerformingEmployee = async (req, res) => {
-  try {
-    const company_id = req.query.company_id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-
-    if (!company_id) {
-      return res.status(400).json({
-        status: false,
-        code: 400,
-        message: "Company ID is required",
-        data: null
-      });
-    }
-
-    const result = await companyService.getTopPerformingEmployee(company_id, page, limit);
-    res.status(200).json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: false,
-      code: 500,
-      message: "An error occurred while fetching company employees",
-      data: null
-    });
-  }
-};
-
-const getCompanyEmployees = async (req, res) => {
-  try {
-    const company_id = req.query.company_id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-
-    if (!company_id) {
-      return res.status(400).json({
-        status: false,
-        code: 400,
-        message: "Company ID is required",
-        data: null
-      });
-    }
-
-    const result = await companyService.getCompanyEmployees(company_id, page, limit);
-    res.status(200).json(result);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      status: false,
-      code: 500,
-      message: "An error occurred while fetching company employees",
-      data: null
-    });
-  }
-};
 
 module.exports = { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees };
