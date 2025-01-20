@@ -6,7 +6,7 @@ class UserServices {
   static async register(userData) {
     try {
       const { username, email, password, role_id } = userData;
-      
+
       // Check existing user
       const [existingUsers] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
       if (existingUsers.length > 0) {
@@ -15,7 +15,7 @@ class UserServices {
 
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
-      
+
       // Create user
       const [result] = await db.query(
         'INSERT INTO users (username, email, password, role_id) VALUES (?, ?, ?, ?)',
@@ -50,18 +50,20 @@ class UserServices {
 
   static async login(userData) {
     try {
+      console.log("Login data:", userData);
       // Validate JWT secrets first
       if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
         throw new Error('JWT configuration missing');
       }
 
       const { email, password } = userData;
-      
+
       // Find user
       const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
       if (users.length === 0) {
         throw new Error('Invalid credentials');
       }
+      console.log("User found:", users[0]);
 
       // Verify password
       const isMatch = await bcrypt.compare(password, users[0].password);
@@ -91,7 +93,7 @@ class UserServices {
       const decoded = jwt.decode(accessToken);
       const loginTime = new Date().toISOString();
       const { password: _, ...userWithoutPassword } = users[0];
-      
+
       return {
         status: true,
         code: 200,
@@ -143,7 +145,7 @@ class UserServices {
   static async refreshToken(token) {
     try {
       const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-      
+
       // Check if refresh token exists and is valid
       const [tokens] = await db.query(
         'SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()',
@@ -174,7 +176,7 @@ class UserServices {
       throw new Error('Error refreshing token: ' + error.message);
     }
   }
-  
+
 }
 
 module.exports = UserServices;

@@ -1,4 +1,11 @@
-const articleService = require('../../services/articles/articleService');
+const {
+  getArticles,
+  getArticleById,
+  createArticle,
+  updateArticle,
+  deleteArticle,
+
+} = require("../../services/articles/articleService");
 
 class articleController {
   // Get all articles
@@ -6,7 +13,7 @@ class articleController {
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-      const result = await articleService.getArticles(page, limit);
+      const result = await getArticles(page, limit);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -22,7 +29,7 @@ class articleController {
   static async getArticleById(req, res) {
     try {
       const { articleId } = req.params;
-      const result = await articleService.getArticleById(articleId);
+      const result = await getArticleById(articleId);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -38,7 +45,7 @@ class articleController {
   static async createArticle(req, res) {
     try {
       const articleData = req.body;
-      const result = await articleService.createArticle(articleData);
+      const result = await createArticle(articleData);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -55,7 +62,7 @@ class articleController {
     try {
       const { articleId } = req.params;
       const articleData = req.body;
-      const result = await articleService.updateArticle(articleId, articleData);
+      const result = await updateArticle(articleId, articleData);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -71,7 +78,7 @@ class articleController {
   static async deleteArticle(req, res) {
     try {
       const { articleId } = req.params;
-      const result = await articleService.deleteArticle(articleId);
+      const result = await deleteArticle(articleId);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

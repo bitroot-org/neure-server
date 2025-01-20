@@ -1,9 +1,14 @@
 const UserServices = require("../../services/user/UserServices");
+const{
+  register,
+  login,
+  logout
+} = require("../../services/user/UserServices");
 
 class UserController {
   static async register(req, res) {
     try {
-      const result = await UserServices.register(req.body);
+      const result = awaitregister(req.body);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(400).json({
@@ -17,7 +22,8 @@ class UserController {
 
   static async login(req, res) {
     try {
-      const result = await UserServices.login(req.body);
+      console.log("Login request:", req.body);
+      const result = await login(req.body);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(401).json({
@@ -40,7 +46,7 @@ class UserController {
       const token = authHeader.split(' ')[1]; 
       console.log("Extracted token:", token);
 
-      const result = await UserServices.logout(token);
+      const result = await logout(token);
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Logout error:", error.message);
