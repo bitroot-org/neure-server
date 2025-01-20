@@ -311,6 +311,15 @@ class CompanyService {
     }
   }
 
+  static async getQna() {
+    try {
+      const result = await db.query('SELECT question, answer, created_at, updated_at FROM qna WHERE is_active = 1');
+      return result;
+    } catch (error) {
+      throw new Error('Error fetching Q&A: ' + error.message);
+    }
+  }
+
 }
 
 module.exports = CompanyService;

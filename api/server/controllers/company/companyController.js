@@ -4,6 +4,7 @@ const {
   updateCompany,
   getTopPerformingEmployee,
   getCompanyEmployees,
+  getQna
 } = require ('../../services/company/companyService');
 
 class CompanyController {
@@ -83,7 +84,7 @@ class CompanyController {
         });
       }
 
-      const result = await companyService.updateCompany(company, contact_person);
+      const result = await updateCompany(company, contact_person);
       res.status(200).json(result);
     } catch (error) {
       console.error(error);
@@ -149,6 +150,16 @@ class CompanyController {
         message: "An error occurred while fetching company employees",
         data: null
       });
+    }
+  }
+
+  static async getQna(req, res) {
+    try {
+      const qnaData = await getQna();
+      return res.status(200).json({ data: qnaData });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ message: 'Error fetching Q&A', error: error.message });
     }
   }
 
