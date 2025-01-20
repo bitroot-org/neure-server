@@ -313,4 +313,4 @@ class CompanyService {
 
 }
 
-module.exports = { registerCompany, getCompanyById, updateCompany, getTopPerformingEmployee, getCompanyEmployees, };
+module.exports = CompanyService;
