@@ -7,7 +7,7 @@ const {
 } = require('../../controllers/notifications/notificationController.js');
 
 
-router.post('/getNotificationAndAnnouncements', authorization, getNotificationAndAnnouncements);
+router.get('/getNotificationAndAnnouncements', authorization, getNotificationAndAnnouncements);
 
 
 module.exports = router;

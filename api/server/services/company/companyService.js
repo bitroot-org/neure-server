@@ -49,23 +49,23 @@ class CompanyService {
         },
         contact_person: rows[0].id
           ? {
-            id: rows[0].id,
-            email: rows[0].email,
-            username: rows[0].username,
-            first_name: rows[0].first_name,
-            last_name: rows[0].last_name,
-            gender: rows[0].gender,
-            date_of_birth: rows[0].date_of_birth,
-            age: rows[0].age,
-            job_title: rows[0].job_title,
-            phone: rows[0].phone,
-            created_at: rows[0].created_at,
-            updated_at: rows[0].updated_at,
-            last_login: rows[0].last_login,
-            is_active: rows[0].is_active,
-            user_type: rows[0].user_type,
-            role_id: rows[0].role_id,
-          }
+              id: rows[0].id,
+              email: rows[0].email,
+              username: rows[0].username,
+              first_name: rows[0].first_name,
+              last_name: rows[0].last_name,
+              gender: rows[0].gender,
+              date_of_birth: rows[0].date_of_birth,
+              age: rows[0].age,
+              job_title: rows[0].job_title,
+              phone: rows[0].phone,
+              created_at: rows[0].created_at,
+              updated_at: rows[0].updated_at,
+              last_login: rows[0].last_login,
+              is_active: rows[0].is_active,
+              user_type: rows[0].user_type,
+              role_id: rows[0].role_id,
+            }
           : null,
       };
 
@@ -196,7 +196,7 @@ class CompanyService {
         code: 200,
         message: "Company employees retrieved successfully",
         data: {
-          employees: rows.map(row => ({
+          employees: rows.map((row) => ({
             user_id: row.user_id,
             email: row.email,
             phone: row.phone,
@@ -213,15 +213,15 @@ class CompanyService {
             user_type: row.user_type,
             employee_code: row.employee_code,
             joined_date: row.joined_date,
-            department: row.department_id ? row.department_name : null
+            department: row.department_id ? row.department_name : null,
           })),
           pagination: {
             total: totalRows[0].count,
             current_page: page,
             total_pages: totalPages,
-            per_page: limit
-          }
-        }
+            per_page: limit,
+          },
+        },
       };
     } catch (error) {
       throw error;
@@ -278,7 +278,7 @@ class CompanyService {
         code: 200,
         message: "Company employees retrieved successfully",
         data: {
-          employees: rows.map(row => ({
+          employees: rows.map((row) => ({
             user_id: row.user_id,
             email: row.email,
             phone: row.phone,
@@ -296,15 +296,15 @@ class CompanyService {
             employee_code: row.employee_code,
             joined_date: row.joined_date,
             is_active: row.is_active,
-            department: row.department_id ? row.department_name : null
+            department: row.department_id ? row.department_name : null,
           })),
           pagination: {
             total: totalRows[0].count,
             current_page: page,
             total_pages: totalPages,
-            per_page: limit
-          }
-        }
+            per_page: limit,
+          },
+        },
       };
     } catch (error) {
       throw error;
@@ -313,13 +313,77 @@ class CompanyService {
 
   static async getQna() {
     try {
-      const result = await db.query('SELECT question, answer, created_at, updated_at FROM qna WHERE is_active = 1');
-      return result;
+      const [rows] = await db.query(
+        `SELECT id, question, answer, created_at, updated_at 
+         FROM qna 
+         WHERE is_active = 1 
+         ORDER BY created_at DESC`
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "Q&A data retrieved successfully",
+        data: {
+          qna: rows.map((row) => ({
+            id: row.id,
+            question: row.question,
+            answer: row.answer,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+          })),
+        },
+      };
     } catch (error) {
-      throw new Error('Error fetching Q&A: ' + error.message);
+      throw new Error("Error fetching Q&A: " + error.message);
     }
   }
 
+  static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
+    try {
+      const offset = (page - 1) * limit;
+
+      const searchCondition = search
+        ? `WHERE company_name LIKE ? OR email_domain LIKE ? OR industry LIKE ?`
+        : "";
+
+      const searchParams = search
+        ? [`%${search}%`, `%${search}%`, `%${search}%`]
+        : [];
+
+      // Get total count
+      const [totalRows] = await db.query(
+        `SELECT COUNT(*) as count 
+       FROM companies ${searchCondition}`,
+        searchParams
+      );
+
+      // Get paginated results
+      const [companies] = await db.query(
+        `SELECT 
+        *
+       FROM companies
+       ${searchCondition}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+        [...searchParams, limit, offset]
+      );
+
+      const totalPages = Math.ceil(totalRows[0].count / limit);
+
+      return {
+        companies,
+        pagination: {
+          total: totalRows[0].count,
+          current_page: page,
+          total_pages: totalPages,
+          per_page: limit,
+        },
+      };
+    } catch (error) {
+      throw new Error("Error fetching companies: " + error.message);
+    }
+  }
 }
 
 module.exports = CompanyService;

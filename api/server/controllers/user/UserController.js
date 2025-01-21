@@ -2,7 +2,8 @@ const UserServices = require("../../services/user/UserServices");
 const{
   register,
   login,
-  logout
+  logout,
+  getTherapists
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -55,6 +56,30 @@ class UserController {
         code: 400,
         message: error.message,
         data: null,
+      });
+    }
+  }
+
+  static async getTherapists(req, res) {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const search = req.query.search || '';
+  
+      const result = await getTherapists({ page, limit, search });
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Therapists retrieved successfully",
+        data: result
+      });
+    } catch (error) {
+      console.error('Error fetching therapists:', error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching therapists",
+        data: null
       });
     }
   }

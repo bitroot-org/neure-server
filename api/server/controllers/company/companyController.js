@@ -4,7 +4,8 @@ const {
   updateCompany,
   getTopPerformingEmployee,
   getCompanyEmployees,
-  getQna
+  getQna,
+  getAllCompanies
 } = require ('../../services/company/companyService');
 
 class CompanyController {
@@ -155,14 +156,48 @@ class CompanyController {
 
   static async getQna(req, res) {
     try {
-      const qnaData = await getQna();
-      return res.status(200).json({ data: qnaData });
+      const result = await getQna();
+      return res.status(200).json({
+        status: true,
+        code: 200, 
+        message: "Q&A data retrieved successfully",
+        data: result
+      });
     } catch (error) {
       console.error(error);
-      return res.status(500).json({ message: 'Error fetching Q&A', error: error.message });
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching Q&A data",
+        data: null
+      });
     }
   }
 
+  static async getAllCompanies(req, res) {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const search = req.query.search || '';
+  
+      const result = await getAllCompanies({ page, limit, search });
+      
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Companies retrieved successfully",
+        data: result
+      });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching companies",
+        data: null
+      });
+    }
+  }
 }
 
 module.exports = CompanyController;

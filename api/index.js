@@ -19,6 +19,11 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+app.use(cors({
+  origin: 'http://localhost:5173', // Replace with your frontend's URL
+  credentials: true, // Enable cookies and HTTP authentication
+}));
+
 // Routes
 app.use('/api/company', companyRoutes);
 app.use('/api/workshop', workshopRoutes);

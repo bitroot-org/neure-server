@@ -4,8 +4,11 @@ const {
 
 class NotificationController {
     static async getNotificationAndAnnouncements(req, res) {
+        console.log('req query :', req.query);
         try {
-            const { company_id, is_announcements, is_notification } = req.body;
+            const { company_id, is_announcements, is_notification } = req.query;
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
 
             // Validate payload
             if (!company_id) {
@@ -21,6 +24,8 @@ class NotificationController {
                 company_id,
                 is_announcements,
                 is_notification,
+                page,
+                limit
             });
 
             if (result) {
