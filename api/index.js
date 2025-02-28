@@ -7,6 +7,7 @@ const userRoutes = require('../api/server/routes/user/UserRoutes');
 const workshopRoutes = require('../api/server/routes/company/workshopRoutes');
 const articleRoutes = require('../api/server/routes/article/articleRoutes');
 const notificationRoutes = require('../api/server/routes/notifications/notificationRoutes');
+const rewardsRoutes = require('../api/server/routes/company/rewardsRoutes')
 
 const serverActive = require('./Cron/serverActive');
 
@@ -30,6 +31,7 @@ app.use('/api/workshop', workshopRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/article', articleRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/rewards', rewardsRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;
