@@ -25,13 +25,12 @@ const {
   requestDeactivation,
   processDeactivationRequest,
   getCompanyInvoices,
-  getInvoiceById,
-  removeEmployee,
-  searchEmployees
+  getInvoiceById
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
 router.post("/registerCompany", authorization, registerCompany);
+router.get("/getCompanyInfo", authorization, getCompanyById);
 router.get("/getAllCompanies", authorization, getAllCompanies);
 router.put("/updateCompanyInfo", authorization, updateCompany);
 router.get(
@@ -50,28 +49,15 @@ router.post(
   bulkCreateEmployees
 );
 router.get("/getDepartments", authorization, getDepartments);
-router.post("/assignReward", authorization, assignReward);
-router.get(
-  "/getEmployeeRewardHistory",
-  authorization,
-  getEmployeeRewardHistory
-);
+router.post("/assignReward",authorization, assignReward);
+router.get("/getEmployeeRewardHistory", authorization, getEmployeeRewardHistory);
 router.post("/createFeedback", authorization, createFeedback);
-router.put(
-  "/updateCompanySubscription",
-  authorization,
-  updateCompanySubscription
-);
+router.put("/updateCompanySubscription", authorization, updateCompanySubscription);
 router.get("/getCompanySubscription", authorization, getCompanySubscription);
 router.post("/requestDeactivation", authorization, requestDeactivation);
-router.post(
-  "/processDeactivationRequest",
-  authorization,
-  processDeactivationRequest
-);
+router.post("/processDeactivationRequest", authorization, processDeactivationRequest);
 router.get("/getCompanyInvoices", authorization, getCompanyInvoices);
 router.get("/getInvoiceById", authorization, getInvoiceById);
-router.put("/removeEmployee", authorization, removeEmployee);
-router.get("/searchEmployees", authorization, searchEmployees);
+
 
 module.exports = router;

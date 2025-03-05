@@ -415,7 +415,6 @@ class CompanyService {
         job_title,
         age,
         department_id,
-        city,
       } = employeeData;
 
       const password = Math.random().toString(36).slice(-8);
@@ -425,8 +424,8 @@ class CompanyService {
       const [userResult] = await connection.query(
         `INSERT INTO users (
           email, phone, password, username, first_name, last_name,
-          gender, date_of_birth, job_title, age, role_id,city
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)`,
+          gender, date_of_birth, job_title, age, role_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3)`,
         [
           email,
           phone,
@@ -438,7 +437,6 @@ class CompanyService {
           date_of_birth,
           job_title,
           age,
-          city,
         ]
       );
 
@@ -1086,201 +1084,6 @@ class CompanyService {
     } catch (error) {
       console.error("Error in getInvoiceById:", error);
       throw new Error(`Error retrieving invoice: ${error.message}`);
-    }
-  }
-
-  static async removeEmployee(company_id, user_ids) {
-    try {
-      // Convert single user_id to array for consistent processing
-      const userIdArray = Array.isArray(user_ids) ? user_ids : [user_ids];
-      console.log(`Attempting to deactivate ${userIdArray.length} employees from company: ${company_id}`);
-      
-      if (userIdArray.length === 0) {
-        return {
-          status: false,
-          code: 400,
-          message: "No employee IDs provided",
-          data: null,
-        };
-      }
-  
-      // Results tracking
-      const results = {
-        successful: [],
-        failed: []
-      };
-      
-      // Process each employee
-      for (const user_id of userIdArray) {
-        try {
-          // Check if the employee exists and is active
-          const [employee] = await db.query(
-            `SELECT * FROM company_employees 
-             WHERE company_id = ? AND user_id = ?`,
-            [company_id, user_id]
-          );
-  
-          if (!employee || employee.length === 0) {
-            console.log(`Employee ${user_id} not found in company ${company_id}`);
-            results.failed.push({
-              user_id,
-              reason: "Employee not found in this company"
-            });
-            continue;
-          }
-  
-          if (employee[0].is_active === 0) {
-            console.log(`Employee ${user_id} is already inactive`);
-            results.failed.push({
-              user_id,
-              reason: "Employee is already inactive"
-            });
-            continue;
-          }
-  
-          // Update employee status to inactive
-          console.log(`Setting employee ${user_id} to inactive`);
-          const [result] = await db.query(
-            `UPDATE company_employees SET is_active = 0 WHERE company_id = ? AND user_id = ?`,
-            [company_id, user_id]
-          );
-  
-          if (result.affectedRows === 0) {
-            console.log(`Failed to update employee ${user_id}`);
-            results.failed.push({
-              user_id,
-              reason: "Failed to update"
-            });
-            continue;
-          }
-  
-          console.log(`Employee ${user_id} successfully deactivated`);
-          results.successful.push({
-            user_id,
-            removed_at: new Date()
-          });
-        } catch (error) {
-          console.error(`Error processing employee ${user_id}:`, error);
-          results.failed.push({
-            user_id,
-            reason: "Internal error"
-          });
-        }
-      }
-  
-      return {
-        status: results.successful.length > 0,
-        code: results.successful.length > 0 ? 200 : 400,
-        message: `Processed ${userIdArray.length} employees: ${results.successful.length} successful, ${results.failed.length} failed`,
-        data: {
-          company_id,
-          successful: results.successful,
-          failed: results.failed,
-        },
-      };
-    } catch (error) {
-      console.error("Error in removeEmployee:", error);
-      throw new Error(`Error removing employees: ${error.message}`);
-    }
-  }
-
-  static async searchEmployees(company_id, search_term, page = 1, limit = 10) {
-    try {
-      console.log(`Searching employees in company ${company_id} with term: "${search_term}"`);
-      
-      if (!company_id) {
-        throw new Error("company_id is required");
-      }
-      
-      if (!search_term) {
-        throw new Error("search_term is required");
-      }
-      
-      const offset = (page - 1) * limit;
-      
-      // Get total count of matching employees
-      const [totalRows] = await db.query(
-        `SELECT COUNT(*) as count 
-         FROM company_employees ce 
-         JOIN users u ON ce.user_id = u.user_id
-         WHERE ce.company_id = ? 
-         AND ce.is_active = 1
-         AND (
-           u.first_name LIKE ? 
-           OR u.last_name LIKE ? 
-           OR u.email LIKE ?
-           OR u.phone LIKE ?
-         )`,
-        [company_id, `%${search_term}%`, `%${search_term}%`, `%${search_term}%`, `%${search_term}%`]
-      );
-      
-      // Get paginated results with only the specific fields
-      const [employees] = await db.query(
-        `SELECT 
-          u.user_id,
-          u.email,
-          u.phone,
-          u.username,
-          u.first_name,
-          u.last_name,
-          u.gender,
-          u.date_of_birth,
-          u.age,
-          u.city,
-          u.Workshop_attended,
-          u.Task_completed,
-          u.EngagementScore,
-          u.job_title,
-          u.user_type,
-          ce.employee_code,
-          ce.joined_date,
-          d.id as department_id,
-          d.department_name,
-          ud.assigned_date as department_assigned_date
-         FROM company_employees ce
-         JOIN users u ON ce.user_id = u.user_id
-         LEFT JOIN user_departments ud ON u.user_id = ud.user_id
-         LEFT JOIN departments d ON ud.department_id = d.id
-         WHERE ce.company_id = ? 
-         AND ce.is_active = 1
-         AND (
-           u.first_name LIKE ? 
-           OR u.last_name LIKE ? 
-           OR u.email LIKE ?
-           OR u.phone LIKE ?
-         )
-         ORDER BY u.first_name ASC
-         LIMIT ? OFFSET ?`,
-        [
-          company_id, 
-          `%${search_term}%`, 
-          `%${search_term}%`, 
-          `%${search_term}%`, 
-          `%${search_term}%`,
-          limit, 
-          offset
-        ]
-      );
-      
-      console.log(`Found ${employees.length} employees matching "${search_term}"`);
-      
-      const totalPages = Math.ceil(totalRows[0].count / limit);
-      
-      return {
-        status: true,
-        code: 200,
-        message: "Employee search completed successfully",
-        data:employees,
-        pagination: {
-          total: totalRows[0].count,
-          current_page: parseInt(page),
-          total_pages: totalPages,
-          per_page: parseInt(limit),
-        },
-      };
-    } catch (error) {
-      console.error("Error in searchEmployees:", error);
-      throw new Error(`Error searching employees: ${error.message}`);
     }
   }
 }
