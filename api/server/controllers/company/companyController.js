@@ -20,7 +20,9 @@ const {
   requestDeactivation,
   processDeactivationRequest,
   getCompanyInvoices,
-  getInvoiceById
+  getInvoiceById,
+  removeEmployee,
+  searchEmployees
 } = require("../../services/company/companyService");
 
 class CompanyController {
@@ -601,6 +603,94 @@ class CompanyController {
       });
     }
   }
+
+  static async removeEmployee(req, res) {
+    try {
+      const { company_id, user_id, user_ids } = req.body;
+      
+      // Handle both single user_id and array of user_ids
+      const employeeIds = user_ids ? user_ids : (user_id ? [user_id] : []);
+      
+      console.log("Received request to remove employees:", { 
+        company_id, 
+        employee_count: employeeIds.length 
+      });
+      
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "company_id is required.",
+          data: null,
+        });
+      }
+      
+      if (employeeIds.length === 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "At least one user_id is required.",
+          data: null,
+        });
+      }
+      
+      const result = await removeEmployee(company_id, employeeIds);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in removeEmployee controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error removing employee(s).",
+        data: null,
+      });
+    }
+  }
+
+  static async searchEmployees(req, res) {
+    try {
+      const { company_id, search_term } = req.query;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      
+      console.log("Received employee search request:", { 
+        company_id, 
+        search_term,
+        page,
+        limit
+      });
+      
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "company_id is required.",
+          data: null,
+        });
+      }
+      
+      if (!search_term) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "search_term is required.",
+          data: null,
+        });
+      }
+      
+      const result = await searchEmployees(company_id, search_term, page, limit);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in searchEmployees controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error searching employees.",
+        data: null,
+      });
+    }
+  }
+
 }
 
 module.exports = CompanyController;
