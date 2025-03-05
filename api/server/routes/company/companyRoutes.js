@@ -40,6 +40,7 @@ router.get(
   getTopPerformingEmployee
 );
 router.get("/getCompanyEmployees", authorization, getCompanyEmployees);
+router.get("/getCompanyInfo", authorization, getCompanyById);
 router.get("/getQna", authorization, getQna);
 router.get("/getCompanyMetrics", authorization, getCompanyMetrics);
 router.post("/createEmployee", authorization, createEmployee);
