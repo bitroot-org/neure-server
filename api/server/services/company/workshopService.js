@@ -52,78 +52,135 @@ class workshopService {
     }
   }
 
-  static async getWorkshopsByCompanyId(company_id, page = 1, limit = 6, start_time = null) {
+  static async getWorkshopsByCompanyIdOrUserId(
+    company_id = null,
+    user_id = null,
+    page = 1,
+    limit = 6,
+    start_time = null
+  ) {
     try {
-      let timeFilterQuery = '';
-      const queryParams = [company_id];
+      console.log("Received request to get workshops by company or user ID:", {
+        company_id,
+        user_id,
+        page,
+        limit,
+        start_time,
+      });
+      let baseQuery = "";
+      const queryParams = [];
+
+      if (user_id) {
+        baseQuery = `
+          SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
+                 ws.start_time, ws.end_time, ws.status, ws.max_participants, w.location, w.poster_image 
+          FROM workshops w
+          INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
+          INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
+          WHERE wa.user_id = ? AND w.is_active = 1
+        `;
+        queryParams.push(user_id);
+      } else if (company_id) {
+        baseQuery = `
+          SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
+                 ws.start_time, ws.end_time, ws.status, ws.max_participants, w.location, w.poster_image 
+          FROM workshops w
+          INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
+          WHERE ws.company_id = ? AND w.is_active = 1
+        `;
+        queryParams.push(company_id);
+      } else {
+        return {
+          status: false,
+          code: 400,
+          message: "Either company_id or user_id must be provided",
+          data: null,
+        };
+      }
 
       if (start_time) {
-        timeFilterQuery = 'AND DATE(ws.start_time) = ?';
+        baseQuery += " AND DATE(ws.start_time) = ?";
         queryParams.push(start_time);
       }
 
-      const [totalRows] = await db.query(
-        `SELECT COUNT(DISTINCT w.id) as count
-         FROM workshops w
-         INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-         WHERE ws.company_id = ? AND w.is_active = 1 ${timeFilterQuery}`,
-        queryParams
-      );
+      // Count query
+      const countQuery = `
+        SELECT COUNT(*) as count 
+        FROM (${baseQuery}) as total
+      `;
+      const [totalRows] = await db.query(countQuery, queryParams);
 
+      // Main query with pagination
       const offset = (page - 1) * limit;
-      
-      const [workshops] = await db.query(
-        `SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
-                ws.start_time, ws.end_time, ws.status, ws.max_participants, w.location, w.poster_image 
-         FROM workshops w
-         INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-         WHERE ws.company_id = ? AND w.is_active = 1 ${timeFilterQuery}
-         ORDER BY ws.start_time ASC
-         LIMIT ? OFFSET ?`,
-        [...queryParams, limit, offset]
-      );
+      const mainQuery = `${baseQuery} ORDER BY ws.start_time ASC LIMIT ? OFFSET ?`;
+      queryParams.push(limit, offset);
+
+      const [workshops] = await db.query(mainQuery, queryParams);
 
       return {
         status: true,
         code: 200,
-        message: 'Workshops fetched successfully',
-        data: {
-          workshops,
-          pagination: {
-            total: totalRows[0].count,
-            currentPage: page,
-            totalPages: Math.ceil(totalRows[0].count / limit),
-            limit
-          }
-        }
+        message: "Workshops fetched successfully",
+        data: workshops,
+        pagination: {
+          total: totalRows[0].count,
+          currentPage: page,
+          totalPages: Math.ceil(totalRows[0].count / limit),
+          limit,
+        },
       };
     } catch (error) {
-      throw new Error('Error fetching workshops: ' + error.message);
+      throw new Error("Error fetching workshops: " + error.message);
     }
   }
 
-  static async getWorkshopDates(company_id) {
+  static async getWorkshopDatesByCompanyIdOrUserId(
+    company_id = null,
+    user_id = null
+  ) {
     try {
-      const [dates] = await db.query(
-        `SELECT DISTINCT ws.start_time as date
-         FROM workshop_schedules ws
-         INNER JOIN workshops w ON w.id = ws.workshop_id
-         WHERE ws.company_id = ? AND w.is_active = 1
-         ORDER BY ws.start_time ASC`,
-        [company_id]
-      );
+      let query = "";
+      const queryParams = [];
+
+      if (user_id) {
+        query = `
+          SELECT DISTINCT ws.start_time as date
+          FROM workshop_schedules ws
+          INNER JOIN workshops w ON w.id = ws.workshop_id
+          INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
+          WHERE wa.user_id = ? AND w.is_active = 1
+        `;
+        queryParams.push(user_id);
+      } else if (company_id) {
+        query = `
+          SELECT DISTINCT ws.start_time as date
+          FROM workshop_schedules ws
+          INNER JOIN workshops w ON w.id = ws.workshop_id
+          WHERE ws.company_id = ? AND w.is_active = 1
+        `;
+        queryParams.push(company_id);
+      } else {
+        return {
+          status: false,
+          code: 400,
+          message: "Either company_id or user_id must be provided",
+          data: null,
+        };
+      }
+
+      const [dates] = await db.query(query, queryParams);
 
       return {
         status: true,
         code: 200,
-        message: 'Workshop dates fetched successfully',
-        data: dates.map(row => {
+        message: "Workshop dates fetched successfully",
+        data: dates.map((row) => {
           const date = new Date(row.date);
-          return date.toISOString().split('T')[0];
-        })
+          return date.toISOString().split("T")[0];
+        }),
       };
     } catch (error) {
-      throw new Error('Error fetching workshop dates: ' + error.message);
+      throw new Error("Error fetching workshop dates: " + error.message);
     }
   }
 }

@@ -2,7 +2,7 @@ const XLSX = require("xlsx");
 
 const {
   registerCompany,
-  getCompanyById,
+  getCompanyInfo,
   updateCompany,
   getTopPerformingEmployee,
   getCompanyEmployees,
@@ -55,7 +55,7 @@ class CompanyController {
     }
   }
 
-  static async getCompanyById(req, res) {
+  static async getCompanyInfo(req, res) {
     const company_id = req.query.company_id || req.body.company_id;
 
     if (!company_id) {
@@ -68,7 +68,7 @@ class CompanyController {
     }
 
     try {
-      const company = await getCompanyById(company_id);
+      const company = await getCompanyInfo(company_id);
       if (!company) {
         return res.status(404).json({
           status: false,

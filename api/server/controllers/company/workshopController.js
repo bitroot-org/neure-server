@@ -1,7 +1,7 @@
 const {
   getWorkshopDetails,
-  getWorkshopsByCompanyId,
-  getWorkshopDates,
+  getWorkshopsByCompanyIdOrUserId,
+  getWorkshopDatesByCompanyIdOrUserId,
 
 } = require('../../services/company/workshopService');
 
@@ -30,14 +30,16 @@ class workshopController {
     }
   }
 
-  static async getWorkshopsByCompanyId(req, res) {
+  static async getWorkshopsByCompanyIdOrUserId(req, res) {
     try {
-      const company_id = parseInt(req.query.company_id);
+      console.log("Received request to get workshops by company or user ID:", req.query);
+      const company_id = req.query.company_id ? parseInt(req.query.company_id) : null;
+      const user_id = req.query.user_id ? parseInt(req.query.user_id) : null;
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.pageSize) || 6;
       const start_time = req.query.start_time;
-
-      const result = await getWorkshopsByCompanyId(company_id, page, limit, start_time);
+  
+      const result = await getWorkshopsByCompanyIdOrUserId(company_id, user_id, page, limit, start_time);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -49,10 +51,12 @@ class workshopController {
     }
   }
 
-  static async getWorkshopDates(req, res) {
+  static async getWorkshopDatesByCompanyIdOrUserId(req, res) {
     try {
-      const company_id = parseInt(req.query.company_id);
-      const result = await getWorkshopDates(company_id);
+      const company_id = req.query.company_id ? parseInt(req.query.company_id) : null;
+      const user_id = req.query.user_id ? parseInt(req.query.user_id) : null;
+  
+      const result = await getWorkshopDatesByCompanyIdOrUserId(company_id, user_id);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

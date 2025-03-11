@@ -412,6 +412,258 @@ class UserServices {
       throw new Error("Error changing password: " + error.message);
     }
   }
+
+  static async getUserDetails(user_id, company_id = null) {
+    try {
+      console.log(`Fetching user details for user_id: ${user_id}${company_id ? `, company_id: ${company_id}` : ''}`);
+  
+      // Build base query for user details
+      let query = `
+        SELECT 
+          u.*,
+          d.id AS department_id,
+          d.department_name,
+          ud.assigned_date AS department_assigned_date
+        FROM 
+          users u
+        LEFT JOIN 
+          user_departments ud ON u.user_id = ud.user_id
+        LEFT JOIN 
+          departments d ON ud.department_id = d.id
+        WHERE 
+          u.user_id = ? AND u.is_active = 1
+      `;
+  
+      const queryParams = [user_id];
+      
+      // If company_id is provided, verify user belongs to that company
+      if (company_id) {
+        query = `
+          SELECT 
+            u.*,
+            ce.employee_code,
+            ce.joined_date,
+            ce.company_id,
+            d.id AS department_id,
+            d.department_name,
+            ud.assigned_date AS department_assigned_date,
+            c.company_name
+          FROM 
+            users u
+          JOIN 
+            company_employees ce ON u.user_id = ce.user_id
+          JOIN 
+            companies c ON ce.company_id = c.id
+          LEFT JOIN 
+            user_departments ud ON u.user_id = ud.user_id
+          LEFT JOIN 
+            departments d ON ud.department_id = d.id
+          WHERE 
+            u.user_id = ? AND ce.company_id = ? AND ce.is_active = 1 AND u.is_active = 1
+        `;
+        queryParams.push(company_id);
+      }
+  
+      const [users] = await db.query(query, queryParams);
+  
+      if (!users || users.length === 0) {
+        console.log(`User not found: ${user_id}${company_id ? ` in company: ${company_id}` : ''}`);
+        return {
+          status: false,
+          code: 404,
+          message: company_id 
+            ? "User not found or is not active in the specified company" 
+            : "User not found or is not active",
+          data: null,
+        };
+      }
+  
+      console.log(`User details found for user_id: ${user_id}`);
+      
+      // Get the user data (all fields from users table are included)
+      const userData = users[0];
+      
+      // Add department as a nested object if available
+      if (userData.department_id) {
+        userData.department = {
+          id: userData.department_id,
+          name: userData.department_name,
+          assigned_date: userData.department_assigned_date
+        };
+        
+        // Remove the flat department fields
+        delete userData.department_id;
+        delete userData.department_name;
+        delete userData.department_assigned_date;
+      }
+      
+      // Add company as a nested object if available
+      if (userData.company_id) {
+        userData.company = {
+          id: userData.company_id,
+          name: userData.company_name,
+          employee_code: userData.employee_code,
+          joined_date: userData.joined_date
+        };
+        
+        // Remove the flat company fields
+        delete userData.company_name;
+        delete userData.employee_code;
+        delete userData.joined_date;
+      }
+  
+      return {
+        status: true,
+        code: 200,
+        message: "User details retrieved successfully",
+        data: userData,
+      };
+    } catch (error) {
+      console.error("Error in getUserDetails:", error);
+      throw new Error(`Error retrieving user details: ${error.message}`);
+    }
+  }
+
+  static async updateUserDetails(user_id, userDetails) {
+    try {
+      console.log(`Updating user details for user_id: ${user_id}`);
+  
+      // Check if the user exists
+      const [existingUser] = await db.query(
+        "SELECT * FROM users WHERE user_id = ?",
+        [user_id]
+      );
+  
+      if (!existingUser || existingUser.length === 0) {
+        console.log(`User not found: ${user_id}`);
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+  
+      // Build dynamic query based on provided fields
+      const fields = [];
+      const values = [];
+  
+      if (userDetails.first_name !== undefined) {
+        fields.push("first_name = ?");
+        values.push(userDetails.first_name);
+      }
+      if (userDetails.last_name !== undefined) {
+        fields.push("last_name = ?");
+        values.push(userDetails.last_name);
+      }
+      if (userDetails.email !== undefined) {
+        fields.push("email = ?");
+        values.push(userDetails.email);
+      }
+      if (userDetails.phone !== undefined) {
+        fields.push("phone = ?");
+        values.push(userDetails.phone);
+      }
+      if (userDetails.gender !== undefined) {
+        fields.push("gender = ?");
+        values.push(userDetails.gender);
+      }
+      if (userDetails.date_of_birth !== undefined) {
+        fields.push("date_of_birth = ?");
+        values.push(userDetails.date_of_birth);
+      }
+      if (userDetails.city !== undefined) {
+        fields.push("city = ?");
+        values.push(userDetails.city);
+      }
+  
+      if (fields.length === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: "No fields provided to update.",
+          data: null,
+        };
+      }
+  
+      values.push(user_id);
+  
+      const query = `UPDATE users SET ${fields.join(", ")} WHERE user_id = ?`;
+      await db.query(query, values);
+  
+      // Update department if provided
+      if (userDetails.department_id !== undefined) {
+        await db.query(
+          `UPDATE user_departments SET department_id = ? WHERE user_id = ?`,
+          [userDetails.department_id, user_id]
+        );
+      }
+  
+      console.log(`User details updated for user_id: ${user_id}`);
+      return {
+        status: true,
+        code: 200,
+        message: "User details updated successfully",
+        data: null,
+      };
+    } catch (error) {
+      console.error("Error in updateUserDetails:", error);
+      throw new Error(`Error updating user details: ${error.message}`);
+    }
+  }
+
+  static async getUserWorkshops(user_id) {
+    try {
+      console.log(`Fetching workshops for user_id: ${user_id}`);
+  
+      // Check if the user exists
+      const [existingUser] = await db.query(
+        "SELECT * FROM users WHERE user_id = ?",
+        [user_id]
+      );
+  
+      if (!existingUser || existingUser.length === 0) {
+        console.log(`User not found: ${user_id}`);
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+  
+      // Fetch workshop assignments
+      const [workshops] = await db.query(
+        `SELECT 
+          wa.id,
+          wa.workshop_id,
+          w.title,
+          w.description,
+          wa.assigned_at,
+          wa.status,
+          wa.completed_at
+        FROM 
+          workshop_assignments wa
+        JOIN 
+          workshops w ON wa.workshop_id = w.id
+        WHERE 
+          wa.user_id = ?`,
+        [user_id]
+      );
+  
+      console.log(`Found ${workshops.length} workshops for user_id: ${user_id}`);
+      return {
+        status: true,
+        code: 200,
+        message: "Workshops retrieved successfully",
+        data: workshops,
+      };
+    } catch (error) {
+      console.error("Error in getUserWorkshops:", error);
+      throw new Error(`Error retrieving workshops: ${error.message}`);
+    }
+  }
+  
 }
 
 module.exports = UserServices;

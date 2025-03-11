@@ -23,20 +23,26 @@ class CompanyService {
     }
   }
 
-  static async getCompanyById(id) {
+  static async getCompanyInfo(id) {
     try {
       const [rows] = await db.query(
         `SELECT 
           c.*,
-          u.*
+          u.*,
+          d.id as department_id,
+          d.department_name
         FROM companies c
         LEFT JOIN users u ON c.contact_person_id = u.user_id
+        LEFT JOIN user_departments ud ON u.user_id = ud.user_id
+        LEFT JOIN departments d ON ud.department_id = d.id
         WHERE c.id = ?`,
         [id]
       );
 
+      console.log("rows", rows);
+  
       if (!rows[0]) return null;
-
+  
       const companyData = {
         company: {
           id: rows[0].id,
@@ -66,10 +72,16 @@ class CompanyService {
               is_active: rows[0].is_active,
               user_type: rows[0].user_type,
               role_id: rows[0].role_id,
+              department: rows[0].department_id 
+                ? {
+                    id: rows[0].department_id,
+                    name: rows[0].department_name
+                  }
+                : null,
             }
           : null,
       };
-
+  
       return {
         status: true,
         code: 200,

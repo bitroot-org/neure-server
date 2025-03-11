@@ -6,6 +6,9 @@ const {
   getTherapists,
   createTherapist,
   changeUserPassword,
+  getUserDetails,
+  updateUserDetails,
+  getUserWorkshops
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -178,6 +181,95 @@ class UserController {
         status: false,
         code: 500,
         message: "Error changing password.",
+        data: null,
+      });
+    }
+  }
+
+  static async getUserDetails(req, res) {
+    try {
+      const user_id = req.query.user_id;
+      const company_id = req.query.company_id || null;
+      
+      console.log("Received request for user details:", { 
+        user_id,
+        company_id
+      });
+      
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required",
+          data: null,
+        });
+      }
+      
+      const result = await getUserDetails(user_id, company_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getUserDetails controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error retrieving user details",
+        data: null,
+      });
+    }
+  }
+
+  static async updateUserDetails(req, res) {
+    try {
+      const user_id = req.body.user_id;
+      const userDetails = req.body;
+  
+      console.log("Received request to update user details:", userDetails);
+  
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required.",
+          data: null,
+        });
+      }
+  
+      const result = await updateUserDetails(user_id, userDetails);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateUserDetails controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating user details.",
+        data: null,
+      });
+    }
+  }
+
+  static async getUserWorkshops(req, res) {
+    try {
+      const user_id = req.query.user_id;
+  
+      console.log("Received request to fetch workshops for user_id:", user_id);
+  
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required.",
+          data: null,
+        });
+      }
+  
+      const result = await getUserWorkshops(user_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getUserWorkshops controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error retrieving workshops.",
         data: null,
       });
     }

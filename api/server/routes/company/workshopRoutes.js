@@ -4,14 +4,14 @@ const { authorization } = require('../../../auth/tokenValidator.js');
 
 const { 
   getWorkshopDetails, 
-  getWorkshopsByCompanyId,
-  getWorkshopDates 
+  getWorkshopsByCompanyIdOrUserId,
+  getWorkshopDatesByCompanyIdOrUserId 
 } = require('../../controllers/company/workshopController.js');
 
 
 router.get('/getWorkshopDetails', authorization, getWorkshopDetails);
-router.get('/getWorkshopsByCompanyId',authorization, getWorkshopsByCompanyId);
-router.get('/getWorkshopDates', getWorkshopDates);
+router.get('/getWorkshopsByCompanyIdOrUserId', authorization, getWorkshopsByCompanyIdOrUserId);
+router.get('/getWorkshopDatesByCompanyIdOrUserId', authorization, getWorkshopDatesByCompanyIdOrUserId);
 
 
 module.exports = router;
