@@ -8,7 +8,11 @@ const {
   changeUserPassword,
   getUserDetails,
   updateUserDetails,
-  getUserWorkshops
+  getUserWorkshops,
+  getEmployeeRewards,
+  claimReward,
+  updateUserSubscription,
+  getUserSubscription
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -190,12 +194,12 @@ class UserController {
     try {
       const user_id = req.query.user_id;
       const company_id = req.query.company_id || null;
-      
-      console.log("Received request for user details:", { 
+
+      console.log("Received request for user details:", {
         user_id,
-        company_id
+        company_id,
       });
-      
+
       if (!user_id) {
         return res.status(400).json({
           status: false,
@@ -204,7 +208,7 @@ class UserController {
           data: null,
         });
       }
-      
+
       const result = await getUserDetails(user_id, company_id);
       return res.status(result.code).json(result);
     } catch (error) {
@@ -222,9 +226,9 @@ class UserController {
     try {
       const user_id = req.body.user_id;
       const userDetails = req.body;
-  
+
       console.log("Received request to update user details:", userDetails);
-  
+
       if (!user_id) {
         return res.status(400).json({
           status: false,
@@ -233,7 +237,7 @@ class UserController {
           data: null,
         });
       }
-  
+
       const result = await updateUserDetails(user_id, userDetails);
       return res.status(result.code).json(result);
     } catch (error) {
@@ -250,9 +254,9 @@ class UserController {
   static async getUserWorkshops(req, res) {
     try {
       const user_id = req.query.user_id;
-  
+
       console.log("Received request to fetch workshops for user_id:", user_id);
-  
+
       if (!user_id) {
         return res.status(400).json({
           status: false,
@@ -261,7 +265,7 @@ class UserController {
           data: null,
         });
       }
-  
+
       const result = await getUserWorkshops(user_id);
       return res.status(result.code).json(result);
     } catch (error) {
@@ -270,6 +274,144 @@ class UserController {
         status: false,
         code: 500,
         message: "Error retrieving workshops.",
+        data: null,
+      });
+    }
+  }
+
+  static async getEmployeeRewards(req, res) {
+    try {
+      const user_id = req.query.user_id;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+
+      console.log("Received request to fetch rewards for user_id:", user_id);
+
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required.",
+          data: null,
+        });
+      }
+
+      const result = await getEmployeeRewards(user_id, page, limit);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getEmployeeRewards controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error retrieving rewards.",
+        data: null,
+      });
+    }
+  }
+
+  static async claimReward(req, res) {
+    try {
+      const user_id = req.body.user_id;
+      const reward_id = req.body.reward_id;
+
+      console.log(
+        "Received request to claim reward for user_id:",
+        user_id,
+        "reward_id:",
+        reward_id
+      );
+
+      if (!user_id || !reward_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id and reward_id are required.",
+          data: null,
+        });
+      }
+
+      const result = await claimReward(user_id, reward_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in claimReward controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error claiming reward.",
+        data: null,
+      });
+    }
+  }
+
+  static async getUserSubscription(req, res) {
+    try {
+      const user_id = req.query.user_id;
+
+      console.log(
+        "Received request to fetch subscription for user_id:",
+        user_id
+      );
+
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required.",
+          data: null,
+        });
+      }
+
+      const result = await getUserSubscription(user_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getUserSubscription controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error retrieving subscription.",
+        data: null,
+      });
+    }
+  }
+
+  static async updateUserSubscription(req, res) {
+    try {
+      const {
+        user_id,
+        email_notification,
+        sms_notification,
+        workshop_event_reminder,
+        system_updates_announcement,
+      } = req.body;
+
+      console.log(
+        "Received request to update subscription for user_id:",
+        user_id
+      );
+
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required.",
+          data: null,
+        });
+      }
+
+      const result = await updateUserSubscription({
+        user_id,
+        email_notification,
+        sms_notification,
+        workshop_event_reminder,
+        system_updates_announcement,
+      });
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateUserSubscription controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating subscription.",
         data: null,
       });
     }

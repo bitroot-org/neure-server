@@ -7,7 +7,7 @@ function calculateAge(dateOfBirth) {
   const today = new Date();
   let age = today.getFullYear() - dob.getFullYear();
   const monthDiff = today.getMonth() - dob.getMonth();
-  
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
     age--;
   }
@@ -80,7 +80,6 @@ class UserServices {
         [email, role_id]
       );
 
-
       if (users.length === 0) {
         throw new Error("Invalid credentials");
       }
@@ -94,9 +93,8 @@ class UserServices {
         throw new Error("Invalid credentials");
       }
 
-
       let companyData = null;
-      if (user.role_id === 2){
+      if (user.role_id === 2) {
         const [companies] = await db.query(
           "SELECT * FROM companies WHERE contact_person_id = ?",
           [user.user_id]
@@ -276,13 +274,13 @@ class UserServices {
       throw new Error("Error fetching therapists: " + error.message);
     }
   }
-  
+
   static async createTherapist(therapistData) {
     const connection = await db.getConnection();
-    
+
     try {
       await connection.beginTransaction();
-  
+
       const {
         email,
         username,
@@ -293,7 +291,7 @@ class UserServices {
         years_of_experience,
         specialization,
         bio,
-        date_of_birth
+        date_of_birth,
       } = therapistData;
 
       // Calculate age if date_of_birth provided
@@ -302,17 +300,26 @@ class UserServices {
       // Generate random password
       const password = Math.random().toString(36).slice(-8);
       const hashedPassword = await bcrypt.hash(password, 10);
-  
+
       // Create user with age and dob
       const [userResult] = await connection.query(
         `INSERT INTO users (
           email, password, username, first_name, last_name,
           gender, user_type, role_id, date_of_birth, age, phone
         ) VALUES (?, ?, ?, ?, ?, ?, 'neure', 2, ?, ?, ?)`,
-        [email, hashedPassword, username, first_name, last_name, 
-         gender, date_of_birth, age, phone]
+        [
+          email,
+          hashedPassword,
+          username,
+          first_name,
+          last_name,
+          gender,
+          date_of_birth,
+          age,
+          phone,
+        ]
       );
-  
+
       // Create therapist profile
       await connection.query(
         `INSERT INTO therapists (
@@ -320,9 +327,9 @@ class UserServices {
         ) VALUES (?, ?, ?, ?)`,
         [userResult.insertId, bio, specialization, years_of_experience]
       );
-  
+
       await connection.commit();
-  
+
       return {
         status: true,
         code: 201,
@@ -331,10 +338,9 @@ class UserServices {
           user_id: userResult.insertId,
           email,
           temp_password: password,
-          age
-        }
+          age,
+        },
       };
-  
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -346,13 +352,13 @@ class UserServices {
   static async changeUserPassword(email, old_password, new_password) {
     try {
       console.log("Attempting to change password for email:", email);
-      
+
       // Check if user exists and get their current password hash
       const [user] = await db.query(
         "SELECT user_id, password FROM users WHERE email = ?",
         [email]
       );
-      
+
       if (!user || user.length === 0) {
         console.log("User not found for email:", email);
         return {
@@ -362,11 +368,14 @@ class UserServices {
           data: null,
         };
       }
-      
+
       // Verify old password
       console.log("Verifying old password");
-      const passwordMatch = await bcrypt.compare(old_password, user[0].password);
-      
+      const passwordMatch = await bcrypt.compare(
+        old_password,
+        user[0].password
+      );
+
       if (!passwordMatch) {
         console.log("Old password verification failed");
         return {
@@ -376,7 +385,7 @@ class UserServices {
           data: null,
         };
       }
-      
+
       // Check if new password is the same as old password
       const sameAsOld = await bcrypt.compare(new_password, user[0].password);
       if (sameAsOld) {
@@ -388,18 +397,18 @@ class UserServices {
           data: null,
         };
       }
-      
+
       console.log("Old password verified, hashing new password");
       // Hash the new password
       const hashedPassword = await bcrypt.hash(new_password, 10);
-      
+
       // Update the password
       console.log("Updating password for user_id:", user[0].user_id);
-      await db.query(
-        "UPDATE users SET password = ? WHERE user_id = ?",
-        [hashedPassword, user[0].user_id]
-      );
-      
+      await db.query("UPDATE users SET password = ? WHERE user_id = ?", [
+        hashedPassword,
+        user[0].user_id,
+      ]);
+
       console.log("Password change successful");
       return {
         status: true,
@@ -415,8 +424,12 @@ class UserServices {
 
   static async getUserDetails(user_id, company_id = null) {
     try {
-      console.log(`Fetching user details for user_id: ${user_id}${company_id ? `, company_id: ${company_id}` : ''}`);
-  
+      console.log(
+        `Fetching user details for user_id: ${user_id}${
+          company_id ? `, company_id: ${company_id}` : ""
+        }`
+      );
+
       // Build base query for user details
       let query = `
         SELECT 
@@ -433,9 +446,9 @@ class UserServices {
         WHERE 
           u.user_id = ? AND u.is_active = 1
       `;
-  
+
       const queryParams = [user_id];
-      
+
       // If company_id is provided, verify user belongs to that company
       if (company_id) {
         query = `
@@ -463,55 +476,59 @@ class UserServices {
         `;
         queryParams.push(company_id);
       }
-  
+
       const [users] = await db.query(query, queryParams);
-  
+
       if (!users || users.length === 0) {
-        console.log(`User not found: ${user_id}${company_id ? ` in company: ${company_id}` : ''}`);
+        console.log(
+          `User not found: ${user_id}${
+            company_id ? ` in company: ${company_id}` : ""
+          }`
+        );
         return {
           status: false,
           code: 404,
-          message: company_id 
-            ? "User not found or is not active in the specified company" 
+          message: company_id
+            ? "User not found or is not active in the specified company"
             : "User not found or is not active",
           data: null,
         };
       }
-  
+
       console.log(`User details found for user_id: ${user_id}`);
-      
+
       // Get the user data (all fields from users table are included)
       const userData = users[0];
-      
+
       // Add department as a nested object if available
       if (userData.department_id) {
         userData.department = {
           id: userData.department_id,
           name: userData.department_name,
-          assigned_date: userData.department_assigned_date
+          assigned_date: userData.department_assigned_date,
         };
-        
+
         // Remove the flat department fields
         delete userData.department_id;
         delete userData.department_name;
         delete userData.department_assigned_date;
       }
-      
+
       // Add company as a nested object if available
       if (userData.company_id) {
         userData.company = {
           id: userData.company_id,
           name: userData.company_name,
           employee_code: userData.employee_code,
-          joined_date: userData.joined_date
+          joined_date: userData.joined_date,
         };
-        
+
         // Remove the flat company fields
         delete userData.company_name;
         delete userData.employee_code;
         delete userData.joined_date;
       }
-  
+
       return {
         status: true,
         code: 200,
@@ -527,13 +544,13 @@ class UserServices {
   static async updateUserDetails(user_id, userDetails) {
     try {
       console.log(`Updating user details for user_id: ${user_id}`);
-  
+
       // Check if the user exists
       const [existingUser] = await db.query(
         "SELECT * FROM users WHERE user_id = ?",
         [user_id]
       );
-  
+
       if (!existingUser || existingUser.length === 0) {
         console.log(`User not found: ${user_id}`);
         return {
@@ -543,11 +560,11 @@ class UserServices {
           data: null,
         };
       }
-  
+
       // Build dynamic query based on provided fields
       const fields = [];
       const values = [];
-  
+
       if (userDetails.first_name !== undefined) {
         fields.push("first_name = ?");
         values.push(userDetails.first_name);
@@ -576,7 +593,11 @@ class UserServices {
         fields.push("city = ?");
         values.push(userDetails.city);
       }
-  
+      if(userDetails.accepted_terms !== undefined) {
+        fields.push("accepted_terms = ?");
+        values.push(userDetails.accepted_terms);  
+      }
+
       if (fields.length === 0) {
         return {
           status: false,
@@ -585,12 +606,12 @@ class UserServices {
           data: null,
         };
       }
-  
+
       values.push(user_id);
-  
+
       const query = `UPDATE users SET ${fields.join(", ")} WHERE user_id = ?`;
       await db.query(query, values);
-  
+
       // Update department if provided
       if (userDetails.department_id !== undefined) {
         await db.query(
@@ -598,7 +619,7 @@ class UserServices {
           [userDetails.department_id, user_id]
         );
       }
-  
+
       console.log(`User details updated for user_id: ${user_id}`);
       return {
         status: true,
@@ -615,13 +636,13 @@ class UserServices {
   static async getUserWorkshops(user_id) {
     try {
       console.log(`Fetching workshops for user_id: ${user_id}`);
-  
+
       // Check if the user exists
       const [existingUser] = await db.query(
         "SELECT * FROM users WHERE user_id = ?",
         [user_id]
       );
-  
+
       if (!existingUser || existingUser.length === 0) {
         console.log(`User not found: ${user_id}`);
         return {
@@ -631,7 +652,7 @@ class UserServices {
           data: null,
         };
       }
-  
+
       // Fetch workshop assignments
       const [workshops] = await db.query(
         `SELECT 
@@ -650,8 +671,10 @@ class UserServices {
           wa.user_id = ?`,
         [user_id]
       );
-  
-      console.log(`Found ${workshops.length} workshops for user_id: ${user_id}`);
+
+      console.log(
+        `Found ${workshops.length} workshops for user_id: ${user_id}`
+      );
       return {
         status: true,
         code: 200,
@@ -663,7 +686,243 @@ class UserServices {
       throw new Error(`Error retrieving workshops: ${error.message}`);
     }
   }
-  
+
+  static async getEmployeeRewards(user_id, page = 1, limit = 10) {
+    try {
+      console.log(`Fetching rewards for user_id: ${user_id}`);
+
+      // Check if the user exists
+      const [existingUser] = await db.query(
+        "SELECT * FROM users WHERE user_id = ?",
+        [user_id]
+      );
+
+      if (!existingUser || existingUser.length === 0) {
+        console.log(`User not found: ${user_id}`);
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+
+      const offset = (page - 1) * limit;
+
+      const [totalRows] = await db.query(
+        `SELECT COUNT(*) as count 
+         FROM employee_rewards 
+         WHERE user_id = ?`,
+        [user_id]
+      );
+
+      // Fetch rewards assigned to the user with pagination
+      const [rewards] = await db.query(
+        `SELECT 
+          er.*,
+          r.*
+        FROM 
+          employee_rewards er
+        JOIN 
+          rewards r ON er.reward_id = r.id
+        WHERE 
+          er.user_id = ?
+        LIMIT ? OFFSET ?`,
+        [user_id, limit, offset]
+      );
+
+      const totalPages = Math.ceil(totalRows[0].count / limit);
+
+      console.log(`Found ${rewards.length} rewards for user_id: ${user_id}`);
+      return {
+        status: true,
+        code: 200,
+        message: "Rewards retrieved successfully",
+        data: rewards,
+        pagination: {
+          total: totalRows[0].count,
+          current_page: page,
+          total_pages: totalPages,
+          per_page: limit,
+        },
+      };
+    } catch (error) {
+      console.error("Error in getEmployeeRewards:", error);
+      throw new Error(`Error retrieving rewards: ${error.message}`);
+    }
+  }
+
+  static async claimReward(user_id, reward_id) {
+    try {
+      console.log(
+        `Claiming reward for user_id: ${user_id}, reward_id: ${reward_id}`
+      );
+
+      // Check if the reward is assigned to the user and not already claimed
+      const [reward] = await db.query(
+        `SELECT * FROM employee_rewards 
+         WHERE user_id = ? AND reward_id = ? AND claimed_status = 0`,
+        [user_id, reward_id]
+      );
+
+      if (!reward || reward.length === 0) {
+        console.log(
+          `Reward not found or already claimed for user_id: ${user_id}, reward_id: ${reward_id}`
+        );
+        return {
+          status: false,
+          code: 404,
+          message: "Reward not found or already claimed",
+          data: null,
+        };
+      }
+
+      await db.query(
+        `UPDATE employee_rewards 
+         SET claimed_status = 1, claimed_at = NOW() 
+         WHERE id = ?`,
+        [reward[0].id]
+      );
+
+      console.log(
+        `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
+      );
+      return {
+        status: true,
+        code: 200,
+        message: "Reward claimed successfully",
+        data: null,
+      };
+    } catch (error) {
+      console.error("Error in claimReward:", error);
+      throw new Error(`Error claiming reward: ${error.message}`);
+    }
+  }
+
+  static async getUserSubscription(user_id) {
+    try {
+      if (!user_id) {
+        throw new Error("user_id is required");
+      }
+      const [subscription] = await db.query(
+        "SELECT * FROM user_subscriptions WHERE user_id = ?",
+        [user_id]
+      );
+      if (!subscription || subscription.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Subscription not found for the provided user_id",
+          data: null,
+        };
+      }
+      return {
+        status: true,
+        code: 200,
+        message: "User subscription retrieved successfully.",
+        data: subscription[0],
+      };
+    } catch (error) {
+      throw new Error("Error retrieving user subscription: " + error.message);
+    }
+  }
+
+  static async updateUserSubscription({
+    user_id,
+    email_notification,
+    sms_notification,
+    workshop_event_reminder,
+    system_updates_announcement,
+  }) {
+    try {
+      if (!user_id) {
+        throw new Error("user_id is required");
+      }
+
+      // Check if a subscription record exists
+      const [existing] = await db.query(
+        "SELECT * FROM user_subscriptions WHERE user_id = ?",
+        [user_id]
+      );
+      const recordExists = existing.length > 0;
+
+      if (recordExists) {
+        // Build dynamic update query for record update
+        const fields = [];
+        const values = [];
+
+        if (email_notification !== undefined) {
+          fields.push("email_notification = ?");
+          values.push(email_notification);
+        }
+        if (sms_notification !== undefined) {
+          fields.push("sms_notification = ?");
+          values.push(sms_notification);
+        }
+        if (workshop_event_reminder !== undefined) {
+          fields.push("workshop_event_reminder = ?");
+          values.push(workshop_event_reminder);
+        }
+        if (system_updates_announcement !== undefined) {
+          fields.push("system_updates_announcement = ?");
+          values.push(system_updates_announcement);
+        }
+
+        if (fields.length === 0) {
+          return {
+            status: false,
+            code: 400,
+            message: "No fields provided to update.",
+            data: null,
+          };
+        }
+
+        const query = `UPDATE user_subscriptions SET ${fields.join(
+          ", "
+        )} WHERE user_id = ?`;
+        values.push(user_id);
+        await db.query(query, values);
+      } else {
+        const emailNotif =
+          email_notification !== undefined ? email_notification : 0;
+        const smsNotif = sms_notification !== undefined ? sms_notification : 0;
+        const workshopRem =
+          workshop_event_reminder !== undefined ? workshop_event_reminder : 0;
+        const sysUpdates =
+          system_updates_announcement !== undefined
+            ? system_updates_announcement
+            : 0;
+
+        const insertQuery = `
+          INSERT INTO user_subscriptions 
+            (user_id, email_notification, sms_notification, workshop_event_reminder, system_updates_announcement)
+          VALUES (?, ?, ?, ?, ?)
+        `;
+        const insertValues = [
+          user_id,
+          emailNotif,
+          smsNotif,
+          workshopRem,
+          sysUpdates,
+        ];
+        await db.query(insertQuery, insertValues);
+      }
+
+      const [subscription] = await db.query(
+        "SELECT * FROM user_subscriptions WHERE user_id = ?",
+        [user_id]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "User subscription updated successfully.",
+        data: subscription[0] || null,
+      };
+    } catch (error) {
+      throw new Error("Error updating user subscription: " + error.message);
+    }
+  }
 }
 
 module.exports = UserServices;

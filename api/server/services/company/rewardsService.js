@@ -27,12 +27,7 @@ class RewardsService {
       const query = "SELECT * FROM rewards ORDER BY created_at DESC";
       const [rows] = await db.execute(query);
 
-      return {
-        status: true,
-        code: 200,
-        message: "Rewards retrieved successfully",
-        data: rows,
-      };
+      return rows;
     } catch (error) {
       throw error;
     }

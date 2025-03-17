@@ -8,7 +8,11 @@ const {
   changePassword,
   getUserDetails,
   updateUserDetails,
-  getUserWorkshops
+  getUserWorkshops,
+  getEmployeeRewards,
+  claimReward,
+  getUserSubscription,
+  updateUserSubscription
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -27,5 +31,10 @@ router.post("/changePassword", authorization, changePassword);
 router.get("/getUserDetails", authorization, getUserDetails);
 router.put("/updateUserDetails", authorization, updateUserDetails);
 router.get("/getUserWorkshops", authorization, getUserWorkshops);
+router.get("/getEmployeeRewards", authorization, getEmployeeRewards);
+router.post("/claimReward", authorization, claimReward); 
+router.get("/getUserSubscription", authorization, getUserSubscription);
+router.put("/updateUserSubscription", authorization, updateUserSubscription); 
+
 
 module.exports = router;
