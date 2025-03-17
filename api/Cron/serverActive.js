@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const axios = require('axios');
 
-const renderServerUrl = 'https://neure-server.onrender.com/';
+const renderServerUrl = 'https://neure-server-0459.onrender.com';
 
 // Function to ping the server
 const keepServerActive = async () => {
