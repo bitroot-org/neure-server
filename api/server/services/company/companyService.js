@@ -28,6 +28,7 @@ class CompanyService {
       const [rows] = await db.query(
         `SELECT 
           c.*,
+          c.company_profile_url,
           u.*,
           d.id as department_id,
           d.department_name
@@ -40,9 +41,9 @@ class CompanyService {
       );
 
       console.log("rows", rows);
-  
+
       if (!rows[0]) return null;
-  
+
       const companyData = {
         company: {
           id: rows[0].id,
@@ -51,6 +52,7 @@ class CompanyService {
           company_size: rows[0].company_size,
           industry: rows[0].industry,
           onboarding_date: rows[0].onboarding_date,
+          companyProfileUrl: rows[0].company_profile_url,
           status: rows[0].status,
           contact_person_id: rows[0].contact_person_id,
         },
@@ -72,16 +74,16 @@ class CompanyService {
               is_active: rows[0].is_active,
               user_type: rows[0].user_type,
               role_id: rows[0].role_id,
-              department: rows[0].department_id 
+              department: rows[0].department_id
                 ? {
                     id: rows[0].department_id,
-                    name: rows[0].department_name
+                    name: rows[0].department_name,
                   }
                 : null,
             }
           : null,
       };
-  
+
       return {
         status: true,
         code: 200,
@@ -372,15 +374,20 @@ class CompanyService {
 
   static async getCompanyMetrics(company_id) {
     try {
-      // Get employee counts and latest joined date
       const [metrics] = await db.query(
         `SELECT 
           c.id as company_id,
           c.company_name,
+          c.company_profile_url,
+          c.psychological_safety_index,
+          c.retention_rate,
+          c.stress_level,
+          c.engagement_score,
           COUNT(*) as total_employees,
           SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
           SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
-          MAX(ce.joined_date) as last_employee_joined
+          MAX(ce.joined_date) as last_employee_joined,
+          (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
         FROM companies c
         LEFT JOIN company_employees ce ON c.id = ce.company_id
         LEFT JOIN users u ON ce.user_id = u.user_id
@@ -397,10 +404,16 @@ class CompanyService {
           metrics: {
             companyId: metrics[0].company_id,
             companyName: metrics[0].company_name,
+            companyProfileUrl: metrics[0].company_profile_url,
+            psychological_safety_index: metrics[0].psychological_safety_index || 0,
+            retention_rate: metrics[0].retention_rate || 0,
+            stress_level: metrics[0].stress_level  || 0,
+            engagement_score: metrics[0].engagement_score || 0,
             total_employees: metrics[0].total_employees || 0,
             active_employees: metrics[0].active_employees || 0,
             inactive_employees: metrics[0].inactive_employees || 0,
             last_employee_joined: metrics[0].last_employee_joined,
+            total_departments: metrics[0].total_departments || 0,
           },
         },
       };
@@ -1105,8 +1118,10 @@ class CompanyService {
     try {
       // Convert single user_id to array for consistent processing
       const userIdArray = Array.isArray(user_ids) ? user_ids : [user_ids];
-      console.log(`Attempting to deactivate ${userIdArray.length} employees from company: ${company_id}`);
-      
+      console.log(
+        `Attempting to deactivate ${userIdArray.length} employees from company: ${company_id}`
+      );
+
       if (userIdArray.length === 0) {
         return {
           status: false,
@@ -1115,13 +1130,13 @@ class CompanyService {
           data: null,
         };
       }
-  
+
       // Results tracking
       const results = {
         successful: [],
-        failed: []
+        failed: [],
       };
-      
+
       // Process each employee
       for (const user_id of userIdArray) {
         try {
@@ -1131,55 +1146,57 @@ class CompanyService {
              WHERE company_id = ? AND user_id = ?`,
             [company_id, user_id]
           );
-  
+
           if (!employee || employee.length === 0) {
-            console.log(`Employee ${user_id} not found in company ${company_id}`);
+            console.log(
+              `Employee ${user_id} not found in company ${company_id}`
+            );
             results.failed.push({
               user_id,
-              reason: "Employee not found in this company"
+              reason: "Employee not found in this company",
             });
             continue;
           }
-  
+
           if (employee[0].is_active === 0) {
             console.log(`Employee ${user_id} is already inactive`);
             results.failed.push({
               user_id,
-              reason: "Employee is already inactive"
+              reason: "Employee is already inactive",
             });
             continue;
           }
-  
+
           // Update employee status to inactive
           console.log(`Setting employee ${user_id} to inactive`);
           const [result] = await db.query(
             `UPDATE company_employees SET is_active = 0 WHERE company_id = ? AND user_id = ?`,
             [company_id, user_id]
           );
-  
+
           if (result.affectedRows === 0) {
             console.log(`Failed to update employee ${user_id}`);
             results.failed.push({
               user_id,
-              reason: "Failed to update"
+              reason: "Failed to update",
             });
             continue;
           }
-  
+
           console.log(`Employee ${user_id} successfully deactivated`);
           results.successful.push({
             user_id,
-            removed_at: new Date()
+            removed_at: new Date(),
           });
         } catch (error) {
           console.error(`Error processing employee ${user_id}:`, error);
           results.failed.push({
             user_id,
-            reason: "Internal error"
+            reason: "Internal error",
           });
         }
       }
-  
+
       return {
         status: results.successful.length > 0,
         code: results.successful.length > 0 ? 200 : 400,
@@ -1198,18 +1215,20 @@ class CompanyService {
 
   static async searchEmployees(company_id, search_term, page = 1, limit = 10) {
     try {
-      console.log(`Searching employees in company ${company_id} with term: "${search_term}"`);
-      
+      console.log(
+        `Searching employees in company ${company_id} with term: "${search_term}"`
+      );
+
       if (!company_id) {
         throw new Error("company_id is required");
       }
-      
+
       if (!search_term) {
         throw new Error("search_term is required");
       }
-      
+
       const offset = (page - 1) * limit;
-      
+
       // Get total count of matching employees
       const [totalRows] = await db.query(
         `SELECT COUNT(*) as count 
@@ -1223,9 +1242,15 @@ class CompanyService {
            OR u.email LIKE ?
            OR u.phone LIKE ?
          )`,
-        [company_id, `%${search_term}%`, `%${search_term}%`, `%${search_term}%`, `%${search_term}%`]
+        [
+          company_id,
+          `%${search_term}%`,
+          `%${search_term}%`,
+          `%${search_term}%`,
+          `%${search_term}%`,
+        ]
       );
-      
+
       // Get paginated results with only the specific fields
       const [employees] = await db.query(
         `SELECT 
@@ -1264,25 +1289,27 @@ class CompanyService {
          ORDER BY u.first_name ASC
          LIMIT ? OFFSET ?`,
         [
-          company_id, 
-          `%${search_term}%`, 
-          `%${search_term}%`, 
-          `%${search_term}%`, 
+          company_id,
           `%${search_term}%`,
-          limit, 
-          offset
+          `%${search_term}%`,
+          `%${search_term}%`,
+          `%${search_term}%`,
+          limit,
+          offset,
         ]
       );
-      
-      console.log(`Found ${employees.length} employees matching "${search_term}"`);
-      
+
+      console.log(
+        `Found ${employees.length} employees matching "${search_term}"`
+      );
+
       const totalPages = Math.ceil(totalRows[0].count / limit);
-      
+
       return {
         status: true,
         code: 200,
         message: "Employee search completed successfully",
-        data:employees,
+        data: employees,
         pagination: {
           total: totalRows[0].count,
           current_page: parseInt(page),

@@ -9,6 +9,7 @@ const articleRoutes = require('../api/server/routes/article/articleRoutes');
 const notificationRoutes = require('../api/server/routes/notifications/notificationRoutes');
 const rewardsRoutes = require('../api/server/routes/company/rewardsRoutes')
 const uploadRoutes = require('../api/server/routes/upload/UploadRoutes');
+const { calculateCompanyStressLevel } = require('./Cron/companyMetrics');
 
 const serverActive = require('./Cron/serverActive');
 
@@ -40,6 +41,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on PORT ${PORT} and version: ${packageJson.version}`);
 });
+
+calculateCompanyStressLevel();
 
 
 app.get("*", (req, res) =>
