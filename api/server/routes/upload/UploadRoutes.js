@@ -24,11 +24,22 @@ const soundUpload = multer({
   dest: "temp/",
   limits: { fieldSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedMimeTypes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/aac'];
-    if (allowedMimeTypes.includes(file.mimetype)) {
-      cb(null, true);
+    if (file.fieldname === 'sound') {
+      const allowedMimeTypes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/aac'];
+      if (allowedMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only MP3, M4A, WAV and AAC files are allowed!'));
+      }
+    } else if (file.fieldname === 'coverImage') {
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (allowedImageTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only JPG, PNG, GIF and WEBP files are allowed for cover image!'));
+      }
     } else {
-      cb(new Error('Only MP3, M4A, WAV and AAC files are allowed!'));
+      cb(new Error('Invalid field name'));
     }
   }
 });
@@ -88,7 +99,10 @@ router.post(
 // Sound upload routes
 router.post(
   "/sound",
-  soundUpload.single("file"),
+  soundUpload.fields([
+    { name: 'sound', maxCount: 1 },
+    { name: 'coverImage', maxCount: 1 }
+  ]),
   authorization,
   uploadSound
 );

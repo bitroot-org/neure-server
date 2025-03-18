@@ -143,16 +143,27 @@ class MediaService {
   
   static async uploadSoundService(fileData) {
     try {
-      // Extract the data we need to save
-      const { title, url, path, fileSize, duration } = fileData;
+      const { title, url, path, fileSize, duration, coverImageUrl } = fileData;
 
-      // Insert with file size and duration into soundscapes table
+      // Insert with file size, duration and cover image into soundscapes table
       const query = `
-        INSERT INTO soundscapes (title, sound_file_url, file_size, duration, is_active)
-        VALUES (?, ?, ?, ?, 1)
+        INSERT INTO soundscapes (
+          title, 
+          sound_file_url, 
+          file_size, 
+          duration, 
+          sound_cover_image,
+          is_active
+        ) VALUES (?, ?, ?, ?, ?, 1)
       `;
 
-      const [result] = await db.query(query, [title, url, fileSize, duration || null]);
+      const [result] = await db.query(query, [
+        title, 
+        url, 
+        fileSize, 
+        duration || null,
+        coverImageUrl || null
+      ]);
 
       return {
         id: result.insertId,
@@ -160,6 +171,7 @@ class MediaService {
         sound_file_url: url,
         file_size: fileSize,
         duration: duration || null,
+        sound_cover_image: coverImageUrl || null,
         path
       };
     } catch (error) {
@@ -168,22 +180,21 @@ class MediaService {
     }
   }
 
-  static async saveGalleryFile(fileData) {
+  static async uploadgalleryService(fileData) {
     try {
       // Insert directly into the gallery table
       const query = `
-        INSERT INTO gallery (company_id, file_type, file_url, size)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO gallery (company_id, file_type, file_url, size, duration)
+        VALUES (?, ?, ?, ?, ?)
       `;
 
-      const [result] = await db
-        .promise()
-        .query(query, [
-          fileData.company_id,
-          fileData.file_type,
-          fileData.file_url,
-          fileData.size
-        ]);
+      const [result] = await db.query(query, [
+        fileData.company_id,
+        fileData.file_type,
+        fileData.file_url,
+        fileData.size,
+        fileData.duration || null
+      ]);
 
       return {
         id: result.insertId,
@@ -202,9 +213,7 @@ class MediaService {
         WHERE id = ?
       `;
 
-      const [result] = await db
-        .promise()
-        .query(query, [fileId]);
+      const [result] = await db.query(query, [fileId]);
 
       return { success: result.affectedRows > 0 };
     } catch (error) {
