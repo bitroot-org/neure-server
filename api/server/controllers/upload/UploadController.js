@@ -1,8 +1,52 @@
 const { createReadStream, unlinkSync } = require("fs");
 const { nanoid } = require("nanoid");
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
+const ffprobeInstaller = require('@ffprobe-installer/ffprobe');
 const MediaService = require("../../services/upload/UploadService.js");
 const { s3Client } = require("../../../config/s3Client.js");
 const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+
+// Set ffmpeg and ffprobe paths
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+// Helper function to get media duration
+const getMediaDuration = (filePath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        console.error("FFprobe error:", err);
+        return reject(err);
+      }
+
+      try {
+        // Log the full metadata for debugging
+        console.log("File metadata:", JSON.stringify(metadata, null, 2));
+        
+        if (!metadata || !metadata.format || typeof metadata.format.duration !== 'number') {
+          console.warn("Invalid duration metadata:", metadata?.format?.duration);
+          return resolve(null);
+        }
+
+        // Store duration with 2 decimal places
+        const duration = Number(metadata.format.duration.toFixed(2));
+        
+        // Validate the duration
+        if (duration <= 0 || !isFinite(duration)) {
+          console.warn("Invalid duration value:", duration);
+          return resolve(null);
+        }
+
+        console.log("Extracted duration:", duration, "seconds"); // Debug log
+        resolve(duration);
+      } catch (error) {
+        console.error("Error processing duration:", error);
+        resolve(null);
+      }
+    });
+  });
+};
 
 class MediaController {
   static async uploadImage(req, res) {
@@ -136,99 +180,92 @@ class MediaController {
   }
 
   static async uploadSound(req, res) {
+    // Declare variables at the start
     let s3Path = '';
+    let coverImagePath = '';
 
     try {
-      if (!req.file) {
+      console.log('Received files:', req.files);
+
+      if (!req.files || !req.files.sound || !req.files.sound[0]) {
         return res.status(400).json({
           success: false,
-          message: "No file uploaded"
+          message: "No sound file uploaded"
         });
       }
 
-      // Get the title from request body or use filename
-      const title = req.body.title || req.file.originalname.split('.')[0];
+      const soundFile = req.files.sound[0];
+      const coverImage = req.files.coverImage ? req.files.coverImage[0] : null;
+      const title = req.body.title || soundFile.originalname.split('.')[0];
+      const fileSize = soundFile.size;
 
-      // Validate title
-      if (!title || title.trim() === '') {
-        return res.status(400).json({
-          success: false,
-          message: "Sound title is required"
-        });
-      }
-
-      // Get file size in bytes
-      const fileSize = req.file.size;
-
-      // Extract audio duration using music-metadata
+      // Extract audio duration using ffmpeg
       let duration = null;
       try {
-        const metadata = await mm.parseFile(req.file.path);
-        if (metadata.format && metadata.format.duration) {
-          duration = Math.round(metadata.format.duration); // Duration in seconds, rounded
+        if (soundFile.path) {
+          duration = await getMediaDuration(soundFile.path);
+          console.log("Extracted duration:", duration);
         }
-      } catch (metadataError) {
-        console.warn("Could not extract audio duration:", metadataError.message);
-        // Continue with upload even if duration extraction fails
+      } catch (durationError) {
+        console.warn("Could not extract audio duration:", durationError.message);
       }
 
-      const filename = `${nanoid()}.${req.file.originalname.split('.').pop()}`;
-      s3Path = `sounds/therapy/${filename}`;
+      // Upload sound file to S3
+      const soundFilename = `${nanoid()}.${soundFile.originalname.split('.').pop()}`;
+      s3Path = `sounds/therapy/${soundFilename}`;
 
-      const uploadParams = {
+      const soundUploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
-        Body: createReadStream(req.file.path),
-        ContentType: req.file.mimetype,
+        Body: createReadStream(soundFile.path),
+        ContentType: soundFile.mimetype,
         ACL: 'public-read'
       };
 
-      const command = new PutObjectCommand(uploadParams);
-      await s3Client.send(command);
+      const soundCommand = new PutObjectCommand(soundUploadParams);
+      await s3Client.send(soundCommand);
 
-      // Clean up temp file
-      unlinkSync(req.file.path);
+      // Upload cover image if provided
+      let coverImageUrl = null;
+      if (coverImage) {
+        const imageFilename = `${nanoid()}.${coverImage.originalname.split('.').pop()}`;
+        coverImagePath = `sounds/therapy/covers/${imageFilename}`;
 
-      // Save file info to database with size and duration
-      const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-
-      try {
-        const savedFile = await MediaService.uploadSoundService({
-          filename,
-          title,
-          url: fileUrl,
-          path: s3Path,
-          fileSize,
-          duration
-        });
-
-        return res.status(200).json({
-          success: true,
-          message: "Sound file uploaded successfully",
-          data: savedFile
-        });
-
-      } catch (dbError) {
-        // If database update fails, delete the file from S3
-        console.error("Database error - rolling back S3 upload:", dbError);
-
-        // Delete the file from S3
-        const deleteParams = {
+        const imageUploadParams = {
           Bucket: process.env.AWS_BUCKET_NAME,
-          Key: s3Path
+          Key: coverImagePath,
+          Body: createReadStream(coverImage.path),
+          ContentType: coverImage.mimetype,
+          ACL: 'public-read'
         };
 
-        try {
-          const deleteCommand = new DeleteObjectCommand(deleteParams);
-          await s3Client.send(deleteCommand);
-          console.log(`Successfully deleted ${s3Path} from S3 after database failure`);
-        } catch (deleteError) {
-          console.error("Error during S3 rollback:", deleteError);
-        }
+        const imageCommand = new PutObjectCommand(imageUploadParams);
+        await s3Client.send(imageCommand);
 
-        // Re-throw the original error
-        throw dbError;
+        coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverImagePath}`;
+        unlinkSync(coverImage.path);
       }
+
+      // Clean up sound file
+      unlinkSync(soundFile.path);
+
+      // Save file info to database
+      const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
+
+      const savedFile = await MediaService.uploadSoundService({
+        title,
+        url: fileUrl,
+        path: s3Path,
+        fileSize,
+        duration,
+        coverImageUrl
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Sound file uploaded successfully",
+        data: savedFile
+      });
 
     } catch (error) {
       console.error("Upload error:", error);
@@ -271,10 +308,20 @@ class MediaController {
       // Get file extension from original filename
       const extension = req.file.originalname.split('.').pop().toLowerCase();
       const filename = `${nanoid()}.${extension}`;
-
-      // Generate S3 path
       const s3Path = `gallery/${company_id}/${fileType}/${filename}`;
+      
+      // Get file duration for audio/video files before uploading to S3
+      let duration = null;
+      if (req.file.mimetype.startsWith('video/') || req.file.mimetype.startsWith('audio/')) {
+        try {
+          duration = await getMediaDuration(req.file.path);
+          console.log("Extracted duration:", duration);
+        } catch (durationError) {
+          console.warn("Could not extract media duration:", durationError.message);
+        }
+      }
 
+      // Upload to S3
       const uploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
@@ -286,19 +333,20 @@ class MediaController {
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
 
-      // Clean up temp file
+      // Clean up temp file after S3 upload
       unlinkSync(req.file.path);
 
-      // Save file info to database with company_id
+      // Save file info to database
       const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-      const fileSize = req.file.size; // File size in bytes
+      const fileSize = req.file.size;
 
-      const savedFile = await MediaService.saveGalleryFile({
+      const savedFile = await MediaService.uploadgalleryService({
         company_id: parseInt(company_id),
         file_type: fileType,
         file_url: fileUrl,
         path: s3Path,
-        size: fileSize
+        size: fileSize,
+        duration
       });
 
       return res.status(200).json({
