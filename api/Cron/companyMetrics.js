@@ -4,8 +4,6 @@ const db = require("../config/db");
 // Function to calculate the company stress level
 const calculateCompanyStressLevel = async () => {
   try {
-    console.log("Calculating company stress level...");
-
     // Query to calculate the average stress level for each company from the company_employees table
     const [results] = await db.query(`
       SELECT 
@@ -19,16 +17,11 @@ const calculateCompanyStressLevel = async () => {
 
     // Update the company stress level in the companies table
     for (const result of results) {
-      console.log(
-        `Updating company_id: ${result.company_id} with average_stress_level: ${result.average_stress_level}`
-      );
       await db.query(`UPDATE companies SET stress_level = ? WHERE id = ?`, [
         result.average_stress_level,
         result.company_id,
       ]);
     }
-
-    console.log("Company stress level calculated successfully.");
   } catch (error) {
     console.error("Error calculating company stress level:", error.message);
   }
@@ -37,8 +30,6 @@ const calculateCompanyStressLevel = async () => {
 // Function to calculate the retention rate
 const calculateRetentionRate = async () => {
   try {
-    console.log("Calculating retention rate...");
-
     // Query to calculate the retention rate for each company
     const [results] = await db.query(`
       SELECT 
@@ -54,16 +45,11 @@ const calculateRetentionRate = async () => {
 
     // Update the retention rate in the companies table
     for (const result of results) {
-      console.log(
-        `Updating company_id: ${result.company_id} with retention_rate: ${result.retention_rate}`
-      );
       await db.query(`UPDATE companies SET retention_rate = ? WHERE id = ?`, [
         result.retention_rate,
         result.company_id,
       ]);
     }
-
-    console.log("Retention rate calculated successfully.");
   } catch (error) {
     console.error("Error calculating retention rate:", error.message);
   }
@@ -71,8 +57,6 @@ const calculateRetentionRate = async () => {
 
 const calculatePSI = async () => {
   try {
-    console.log("Calculating Psychological Safety Index (PSI)...");
-
     // Query to calculate the total score and maximum possible score for each company
     const [results] = await db.query(`
       SELECT 
@@ -88,14 +72,11 @@ const calculatePSI = async () => {
     // Update the PSI in the companies table
     for (const result of results) {
       const psi = (result.total_score / result.max_possible_score) * 100;
-      console.log(`Updating company_id: ${result.company_id} with PSI: ${psi}`);
       await db.query(
         `UPDATE companies SET psychological_safety_index = ? WHERE id = ?`,
         [psi, result.company_id]
       );
     }
-
-    console.log("Psychological Safety Index (PSI) calculated successfully.");
   } catch (error) {
     console.error(
       "Error calculating Psychological Safety Index (PSI):",
@@ -106,8 +87,6 @@ const calculatePSI = async () => {
 
 const calculateEngagementScore = async () => {
   try {
-    console.log("Calculating engagement score...");
-
     // Query to calculate the engagement score for each employee
     const [employeeResults] = await db.query(`
       SELECT 
@@ -130,9 +109,6 @@ const calculateEngagementScore = async () => {
           (employee.assessment_completion ? 100 : 0)) /
         4;
 
-      console.log(
-        `Updating user_id: ${employee.user_id} with engagement_score: ${engagementScore}`
-      );
       await db.query(
         `UPDATE company_employees SET engagement_score = ? WHERE company_id = ? AND user_id = ?`,
         [engagementScore, employee.company_id, employee.user_id]
@@ -152,16 +128,11 @@ const calculateEngagementScore = async () => {
 
     // Update the average engagement score in the companies table
     for (const company of companyResults) {
-      console.log(
-        `Updating company_id: ${company.company_id} with average_engagement_score: ${company.average_engagement_score}`
-      );
       await db.query(`UPDATE companies SET engagement_score = ? WHERE id = ?`, [
         company.average_engagement_score,
         company.company_id,
       ]);
     }
-
-    console.log("Engagement score calculated successfully.");
   } catch (error) {
     console.error("Error calculating engagement score:", error.message);
   }
@@ -171,7 +142,6 @@ const calculateEngagementScore = async () => {
 cron.schedule(
   "1 0 * * *",
   () => {
-    console.log("Running scheduled task to calculate company stress level...");
     calculateCompanyStressLevel();
   },
   {
@@ -184,7 +154,6 @@ cron.schedule(
 cron.schedule(
   "0 0 1 * *",
   () => {
-    console.log("Running scheduled task to calculate retention rate...");
     calculateRetentionRate();
   },
   {
@@ -196,9 +165,6 @@ cron.schedule(
 cron.schedule(
   "0 0 1 * *",
   () => {
-    console.log(
-      "Running scheduled task to calculate Psychological Safety Index (PSI)..."
-    );
     calculatePSI();
   },
   {
@@ -210,7 +176,6 @@ cron.schedule(
 cron.schedule(
   "0 0 * * *",
   () => {
-    console.log("Running scheduled task to calculate engagement score...");
     calculateEngagementScore();
   },
   {
