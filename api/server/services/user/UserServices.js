@@ -94,14 +94,51 @@ class UserServices {
       }
 
       let companyData = null;
-      if (user.role_id === 2) {
-        const [companies] = await db.query(
-          "SELECT * FROM companies WHERE contact_person_id = ?",
-          [user.user_id]
-        );
+      if (user.role_id === 2 || user.role_id === 3) {
+        // For role_id 2 (company admin), check companies table
+        if (user.role_id === 2) {
+          const [companies] = await db.query(
+            "SELECT * FROM companies WHERE contact_person_id = ?",
+            [user.user_id]
+          );
+          if (companies.length > 0) {
+            companyData = companies[0];
+          }
+        }
+        // For role_id 3 (employee), check company_employees table
+        else if (user.role_id === 3) {
+          const [companyResult] = await db.query(
+            `SELECT 
+              c.id,
+              c.onboarding_status
+             FROM company_employees ce
+             JOIN companies c ON ce.company_id = c.id
+             WHERE ce.user_id = ? AND ce.is_active = 1`,
+            [user.user_id]
+          );
+        
+          // Then get stress level data
+          const [stressData] = await db.query(
+            `SELECT 
+              stress_level,
+              stress_message
+             FROM company_employees
+             WHERE user_id = ? AND is_active = 1`,
+            [user.user_id]
+          );
 
-        if (companies.length > 0) {
-          companyData = companies[0];
+          if (companyResult.length > 0) {
+            companyData = {
+              id: companyResult[0].id,
+              onboarding_status: companyResult[0].onboarding_status
+            };
+          }
+        
+          // Add stress data to the response
+          if (stressData.length > 0) {
+            user.stress_level = stressData[0].stress_level;
+            user.stress_message = stressData[0].stress_message;
+          }
         }
       }
 
@@ -593,9 +630,9 @@ class UserServices {
         fields.push("city = ?");
         values.push(userDetails.city);
       }
-      if(userDetails.accepted_terms !== undefined) {
+      if (userDetails.accepted_terms !== undefined) {
         fields.push("accepted_terms = ?");
-        values.push(userDetails.accepted_terms);  
+        values.push(userDetails.accepted_terms);
       }
 
       if (fields.length === 0) {
@@ -921,6 +958,66 @@ class UserServices {
       };
     } catch (error) {
       throw new Error("Error updating user subscription: " + error.message);
+    }
+  }
+
+  static async updateUserStressLevel(
+    user_id,
+    company_id,
+    stress_level,
+    stress_message
+  ) {
+    try {
+      // Validate stress level is between 0 and 10
+      if (stress_level < 0 || stress_level > 100) {
+        return {
+          status: false,
+          code: 400,
+          message: "Stress level must be between 0 and 10",
+          data: null,
+        };
+      }
+
+      // Check if employee exists in company
+      const [employee] = await db.query(
+        `SELECT * FROM company_employees 
+       WHERE user_id = ? AND company_id = ? AND is_active = 1`,
+        [user_id, company_id]
+      );
+
+      if (!employee || employee.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Employee not found or not active in this company",
+          data: null,
+        };
+      }
+
+      // Update stress level and message
+      await db.query(
+        `UPDATE company_employees 
+       SET stress_level = ?, 
+           stress_message = ?,
+           stress_bar_updated = 1
+       WHERE user_id = ? AND company_id = ?`,
+        [stress_level, stress_message, user_id, company_id]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "Stress level updated successfully",
+        data: {
+          user_id,
+          company_id,
+          stress_level,
+          stress_message,
+        },
+      };
+    } catch (error) {
+      console.error("Error updating stress level:", error);
+      throw new Error(`Error updating stress level: ${error.message}`);
     }
   }
 }

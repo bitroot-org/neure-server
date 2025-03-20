@@ -160,20 +160,85 @@ class CompanyService {
     }
   }
 
-  static async getTopPerformingEmployee(company_id, page = 1, limit = 10) {
+  // static async getTopPerformingEmployee(company_id, page = 1, limit = 10) {
+  //   try {
+  //     console.log("company_id", company_id);
+  //     const offset = (page - 1) * limit;
+
+  //     const [totalRows] = await db.query(
+  //       `SELECT COUNT(*) as count 
+  //        FROM company_employees ce 
+  //        WHERE ce.company_id = ? AND ce.is_active = 1`,
+  //       [company_id]
+  //     );
+
+  //     const [rows] = await db.query(
+  //       `SELECT 
+  //         u.user_id,
+  //         u.email,
+  //         u.phone,
+  //         u.username,
+  //         u.first_name,
+  //         u.last_name,
+  //         u.gender,
+  //         u.date_of_birth,
+  //         u.age,
+  //         u.city,
+  //         u.Workshop_attended,
+  //         u.Task_completed,
+  //         u.EngagementScore,
+  //         u.job_title,
+  //         u.user_type,
+  //         ce.employee_code,
+  //         ce.joined_date,
+  //         d.id as department_id,
+  //         d.department_name,
+  //         ud.assigned_date as department_assigned_date
+  //        FROM company_employees ce
+  //        JOIN users u ON ce.user_id = u.user_id
+  //        LEFT JOIN user_departments ud ON u.user_id = ud.user_id
+  //        LEFT JOIN departments d ON ud.department_id = d.id
+  //        WHERE ce.company_id = ? AND ce.is_active = 1
+  //        ORDER BY u.EngagementScore DESC
+  //        LIMIT ? OFFSET ?`,
+  //       [company_id, limit, offset]
+  //     );
+
+  //     const totalPages = Math.ceil(totalRows[0].count / limit);
+
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: "Company employees retrieved successfully",
+  //       data: rows,
+  //       pagination: {
+  //         total: totalRows[0].count,
+  //         current_page: page,
+  //         total_pages: totalPages,
+  //         per_page: limit,
+  //       },
+  //     };
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
+
+  static async getTopPerformingEmployee(company_id, page = 1, limit = 10, search = '') {
     try {
       console.log("company_id", company_id);
       const offset = (page - 1) * limit;
-
-      const [totalRows] = await db.query(
-        `SELECT COUNT(*) as count 
-         FROM company_employees ce 
-         WHERE ce.company_id = ? AND ce.is_active = 1`,
-        [company_id]
-      );
-
-      const [rows] = await db.query(
-        `SELECT 
+  
+      // Base count query
+      let countQuery = `
+        SELECT COUNT(*) as count 
+        FROM company_employees ce 
+        JOIN users u ON ce.user_id = u.user_id
+        WHERE ce.company_id = ? AND ce.is_active = 1
+      `;
+  
+      // Base data query
+      let dataQuery = `
+        SELECT 
           u.user_id,
           u.email,
           u.phone,
@@ -194,18 +259,48 @@ class CompanyService {
           d.id as department_id,
           d.department_name,
           ud.assigned_date as department_assigned_date
-         FROM company_employees ce
-         JOIN users u ON ce.user_id = u.user_id
-         LEFT JOIN user_departments ud ON u.user_id = ud.user_id
-         LEFT JOIN departments d ON ud.department_id = d.id
-         WHERE ce.company_id = ? AND ce.is_active = 1
-         ORDER BY u.EngagementScore DESC
-         LIMIT ? OFFSET ?`,
-        [company_id, limit, offset]
+        FROM company_employees ce
+        JOIN users u ON ce.user_id = u.user_id
+        LEFT JOIN user_departments ud ON u.user_id = ud.user_id
+        LEFT JOIN departments d ON ud.department_id = d.id
+        WHERE ce.company_id = ? AND ce.is_active = 1
+      `;
+  
+      const queryParams = [company_id];
+      const searchParams = [];
+  
+      // Add search condition if search term is provided
+      if (search) {
+        const searchCondition = `
+          AND (
+            u.first_name LIKE ? 
+            OR u.last_name LIKE ? 
+            OR u.email LIKE ?
+            OR u.phone LIKE ?
+          )
+        `;
+        countQuery += searchCondition;
+        dataQuery += searchCondition;
+        
+        const searchTerm = `%${search}%`;
+        searchParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      }
+  
+      // Add ordering and pagination
+      dataQuery += ` ORDER BY u.EngagementScore DESC LIMIT ? OFFSET ?`;
+  
+      const [totalRows] = await db.query(
+        countQuery, 
+        search ? [company_id, ...searchParams] : [company_id]
       );
-
+  
+      const [rows] = await db.query(
+        dataQuery,
+        [...(search ? [company_id, ...searchParams] : [company_id]), limit, offset]
+      );
+  
       const totalPages = Math.ceil(totalRows[0].count / limit);
-
+  
       return {
         status: true,
         code: 200,

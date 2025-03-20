@@ -92,6 +92,40 @@ class GalleryService {
       throw new Error(`Error fetching gallery item: ${error.message}`);
     }
   }
+
+  static async getMediaCounts(companyId) {
+    try {
+      const [counts] = await db.query(
+        `SELECT 
+          file_type,
+          COUNT(*) as count
+        FROM gallery 
+        WHERE company_id = ?
+        GROUP BY file_type`,
+        [companyId]
+      );
+
+      // Format the results into an object
+      const formattedCounts = {
+        image: 0,
+        video: 0,
+        document: 0,
+      };
+
+      counts.forEach((item) => {
+        formattedCounts[item.file_type] = item.count;
+      });
+
+      return {
+        status: true,
+        code: 200,
+        message: "Media counts fetched successfully",
+        data: formattedCounts,
+      };
+    } catch (error) {
+      throw new Error(`Error fetching media counts: ${error.message}`);
+    }
+  }
 }
 
 module.exports = GalleryService;

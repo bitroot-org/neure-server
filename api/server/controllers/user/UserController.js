@@ -12,7 +12,8 @@ const {
   getEmployeeRewards,
   claimReward,
   updateUserSubscription,
-  getUserSubscription
+  getUserSubscription,
+  updateUserStressLevel,
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -412,6 +413,46 @@ class UserController {
         status: false,
         code: 500,
         message: "Error updating subscription.",
+        data: null,
+      });
+    }
+  }
+
+  static async updateUserStressLevel(req, res) {
+    try {
+      const { user_id, company_id, stress_level, stress_message } = req.body;
+
+      console.log("Received stress level update request:", {
+        user_id,
+        company_id,
+        stress_level,
+        stress_message,
+      });
+
+      // Validate required fields
+      if (!user_id || !company_id || stress_level === undefined) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id, company_id, and stress_level are required",
+          data: null,
+        });
+      }
+
+      const result = await updateUserStressLevel(
+        user_id,
+        company_id,
+        stress_level,
+        stress_message
+      );
+
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateUserStressLevel controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating stress level",
         data: null,
       });
     }

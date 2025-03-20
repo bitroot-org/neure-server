@@ -42,6 +42,31 @@ class GalleryController {
       });
     }
   }
+
+  static async getMediaCounts(req, res) {
+    try {
+      const { companyId } = req.query;
+
+      if (!companyId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+          data: null,
+        });
+      }
+
+      const result = await GalleryService.getMediaCounts(companyId);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
 }
 
 module.exports = GalleryController;

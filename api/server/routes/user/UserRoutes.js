@@ -12,7 +12,8 @@ const {
   getEmployeeRewards,
   claimReward,
   getUserSubscription,
-  updateUserSubscription
+  updateUserSubscription,
+  updateUserStressLevel
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -35,6 +36,7 @@ router.get("/getEmployeeRewards", authorization, getEmployeeRewards);
 router.post("/claimReward", authorization, claimReward); 
 router.get("/getUserSubscription", authorization, getUserSubscription);
 router.put("/updateUserSubscription", authorization, updateUserSubscription); 
+router.post("/updateStressLevel", authorization, updateUserStressLevel);
 
 
 module.exports = router;
