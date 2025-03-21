@@ -1,4 +1,6 @@
 const XLSX = require("xlsx");
+const db = require("../../../config/db");
+
 
 const {
   registerCompany,
@@ -22,7 +24,9 @@ const {
   getCompanyInvoices,
   getInvoiceById,
   removeEmployee,
-  searchEmployees
+  searchEmployees,
+  addDepartment,
+  createCompany
 } = require("../../services/company/companyService");
 
 class CompanyController {
@@ -715,6 +719,106 @@ class CompanyController {
         status: false,
         code: 500,
         message: "Error searching employees.",
+        data: null,
+      });
+    }
+  }
+  
+  static async addDepartment(req, res) {
+    try {
+      const { role_id } = req.user; // Assuming `req.user` contains the authenticated user's details
+      const { department_name } = req.body;
+  
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only users with role_id = 1 can add departments.",
+          data: null,
+        });
+      }
+  
+      if (!department_name) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Department name is required.",
+          data: null,
+        });
+      }
+  
+      const result = await addDepartment(department_name);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error adding department:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error adding department",
+        data: null,
+      });
+    }
+  }
+
+  static async createCompany(req, res) {
+    try {
+      const { user_id, role_id } = req.user;
+
+      console.log("Received request to create company:", req.user);
+      const { company_name, email, company_size, department_ids } = req.body;
+  
+      // Check if the user exists and has the correct role_id in the database
+      const [user] = await db.query(
+        `SELECT role_id FROM users WHERE user_id = ? AND role_id = ?`,
+        [user_id, 1] // role_id = 1 for admin
+      );
+
+      console.log("User role_id:", user[0].role_id);
+
+      if (!user || user.length === 0 || user[0].role_id !== 1) {
+      return res.status(403).json({
+        status: false,
+        code: 403,
+        message: "Access denied. Only admins (role_id = 1) can create companies.",
+        data: null,
+      });
+    }
+  
+      // Validate the required fields
+      if (!company_name || !email || !company_size) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "company_name, email, and company_size are required.",
+          data: null,
+        });
+      }
+  
+      // Validate department_ids (must be an array if provided)
+      if (department_ids && !Array.isArray(department_ids)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "department_ids must be an array.",
+          data: null,
+        });
+      }
+  
+      // Call the service to create the company
+      const result = await createCompany({
+        company_name,
+        email,
+        company_size,
+        department_ids,
+      });
+  
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error creating company:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while creating the company.",
         data: null,
       });
     }

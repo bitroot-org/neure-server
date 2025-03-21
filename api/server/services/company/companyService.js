@@ -2,6 +2,59 @@ const db = require("../../../config/db");
 const bcrypt = require("bcrypt");
 
 class CompanyService {
+  static async generateUniqueUsername(firstName, lastName) {
+    try {
+      // Base username from first and last name
+      let baseUsername =
+        `${firstName.toLowerCase()}${lastName.toLowerCase()}`.replace(
+          /\s+/g,
+          ""
+        );
+      let username = baseUsername;
+      let counter = 1;
+
+      // Check if the username already exists in the database
+      const [existingUser] = await db.query(
+        `SELECT COUNT(*) as count FROM users WHERE username = ?`,
+        [username]
+      );
+
+      // If the username exists, append a number to make it unique
+      while (existingUser[0].count > 0) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+
+        // Check again for the new username
+        const [newCheck] = await db.query(
+          `SELECT COUNT(*) as count FROM users WHERE username = ?`,
+          [username]
+        );
+
+        if (newCheck[0].count === 0) {
+          break;
+        }
+      }
+
+      return username;
+    } catch (error) {
+      throw new Error("Error generating unique username: " + error.message);
+    }
+  }
+
+  static calculateAge(dateOfBirth) {
+    const dob = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+
+    // Adjust age if the current date is before the birthday in the current year
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+      age--;
+    }
+
+    return age;
+  }
+
   static async registerCompany(companyName, emailDomain) {
     try {
       const [result] = await db.query(
@@ -166,14 +219,14 @@ class CompanyService {
   //     const offset = (page - 1) * limit;
 
   //     const [totalRows] = await db.query(
-  //       `SELECT COUNT(*) as count 
-  //        FROM company_employees ce 
+  //       `SELECT COUNT(*) as count
+  //        FROM company_employees ce
   //        WHERE ce.company_id = ? AND ce.is_active = 1`,
   //       [company_id]
   //     );
 
   //     const [rows] = await db.query(
-  //       `SELECT 
+  //       `SELECT
   //         u.user_id,
   //         u.email,
   //         u.phone,
@@ -223,11 +276,16 @@ class CompanyService {
   //   }
   // }
 
-  static async getTopPerformingEmployee(company_id, page = 1, limit = 10, search = '') {
+  static async getTopPerformingEmployee(
+    company_id,
+    page = 1,
+    limit = 10,
+    search = ""
+  ) {
     try {
       console.log("company_id", company_id);
       const offset = (page - 1) * limit;
-  
+
       // Base count query
       let countQuery = `
         SELECT COUNT(*) as count 
@@ -235,7 +293,7 @@ class CompanyService {
         JOIN users u ON ce.user_id = u.user_id
         WHERE ce.company_id = ? AND ce.is_active = 1
       `;
-  
+
       // Base data query
       let dataQuery = `
         SELECT 
@@ -265,10 +323,10 @@ class CompanyService {
         LEFT JOIN departments d ON ud.department_id = d.id
         WHERE ce.company_id = ? AND ce.is_active = 1
       `;
-  
+
       const queryParams = [company_id];
       const searchParams = [];
-  
+
       // Add search condition if search term is provided
       if (search) {
         const searchCondition = `
@@ -281,26 +339,27 @@ class CompanyService {
         `;
         countQuery += searchCondition;
         dataQuery += searchCondition;
-        
+
         const searchTerm = `%${search}%`;
         searchParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
       }
-  
+
       // Add ordering and pagination
       dataQuery += ` ORDER BY u.EngagementScore DESC LIMIT ? OFFSET ?`;
-  
+
       const [totalRows] = await db.query(
-        countQuery, 
+        countQuery,
         search ? [company_id, ...searchParams] : [company_id]
       );
-  
-      const [rows] = await db.query(
-        dataQuery,
-        [...(search ? [company_id, ...searchParams] : [company_id]), limit, offset]
-      );
-  
+
+      const [rows] = await db.query(dataQuery, [
+        ...(search ? [company_id, ...searchParams] : [company_id]),
+        limit,
+        offset,
+      ]);
+
       const totalPages = Math.ceil(totalRows[0].count / limit);
-  
+
       return {
         status: true,
         code: 200,
@@ -500,9 +559,10 @@ class CompanyService {
             companyId: metrics[0].company_id,
             companyName: metrics[0].company_name,
             companyProfileUrl: metrics[0].company_profile_url,
-            psychological_safety_index: metrics[0].psychological_safety_index || 0,
+            psychological_safety_index:
+              metrics[0].psychological_safety_index || 0,
             retention_rate: metrics[0].retention_rate || 0,
-            stress_level: metrics[0].stress_level  || 0,
+            stress_level: metrics[0].stress_level || 0,
             engagement_score: metrics[0].engagement_score || 0,
             total_employees: metrics[0].total_employees || 0,
             active_employees: metrics[0].active_employees || 0,
@@ -527,25 +587,35 @@ class CompanyService {
         company_id,
         email,
         phone,
-        username,
         first_name,
         last_name,
         gender,
         date_of_birth,
         job_title,
-        age,
         department_id,
         city,
       } = employeeData;
 
-      const password = Math.random().toString(36).slice(-8);
+      // Calculate age based on date_of_birth
+      const username = await CompanyService.generateUniqueUsername(
+        first_name,
+        last_name
+      );
+
+      const age = await CompanyService.calculateAge(date_of_birth);
+
+      const dob = new Date(date_of_birth);
+      const day = String(dob.getDate()).padStart(2, "0"); 
+      const month = String(dob.getMonth() + 1).padStart(2, "0");
+      const password = `${first_name.slice(0, 4).toLowerCase()}${day}${month}`; 
+
       const hashedPassword = await bcrypt.hash(password, 10);
 
       // Insert user
       const [userResult] = await connection.query(
         `INSERT INTO users (
           email, phone, password, username, first_name, last_name,
-          gender, date_of_birth, job_title, age, role_id,city
+          gender, date_of_birth, job_title, age, role_id, city
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)`,
         [
           email,
@@ -589,6 +659,7 @@ class CompanyService {
         data: {
           user_id: userResult.insertId,
           email,
+          username,
           temp_password: password,
           department_id: department_id || null,
         },
@@ -1415,6 +1486,90 @@ class CompanyService {
     } catch (error) {
       console.error("Error in searchEmployees:", error);
       throw new Error(`Error searching employees: ${error.message}`);
+    }
+  }
+
+  static async addDepartment(departmentName) {
+    try {
+      const [result] = await db.query(
+        `INSERT INTO departments (department_name) VALUES (?)`,
+        [departmentName]
+      );
+
+      return {
+        status: true,
+        code: 201,
+        message: "Department added successfully",
+        data: {
+          id: result.insertId,
+          department_name: departmentName,
+        },
+      };
+    } catch (error) {
+      throw new Error("Error adding department: " + error.message);
+    }
+  }
+
+  static async createCompany({
+    company_name,
+    email,
+    company_size,
+    department_ids,
+  }) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Insert the company into the `companies` table
+      const [companyResult] = await connection.query(
+        `INSERT INTO companies (company_name, email_domain, company_size) VALUES (?, ?, ?)`,
+        [company_name, email, company_size]
+      );
+
+      const companyId = companyResult.insertId;
+
+      // Validate and assign departments
+      if (department_ids && department_ids.length > 0) {
+        // Ensure the provided department IDs exist in the `departments` table
+        const [validDepartments] = await connection.query(
+          `SELECT id FROM departments WHERE id IN (?)`,
+          [department_ids]
+        );
+
+        if (validDepartments.length === 0) {
+          throw new Error("Invalid department IDs provided.");
+        }
+
+        // Insert valid department IDs into `company_departments`
+        const departmentValues = validDepartments.map((dept) => [
+          companyId,
+          dept.id,
+        ]);
+        await connection.query(
+          `INSERT INTO company_departments (company_id, department_id) VALUES ?`,
+          [departmentValues]
+        );
+      }
+
+      await connection.commit();
+
+      return {
+        status: true,
+        code: 201,
+        message: "Company created successfully with assigned departments",
+        data: {
+          id: companyId,
+          company_name,
+          email,
+          company_size,
+          assigned_departments: department_ids || [],
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error("Error creating company: " + error.message);
+    } finally {
+      connection.release();
     }
   }
 }

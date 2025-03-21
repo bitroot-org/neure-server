@@ -27,7 +27,9 @@ const {
   getCompanyInvoices,
   getInvoiceById,
   removeEmployee,
-  searchEmployees
+  searchEmployees,
+  addDepartment,
+  createCompany
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -74,5 +76,8 @@ router.get("/getCompanyInvoices", authorization, getCompanyInvoices);
 router.get("/getInvoiceById", authorization, getInvoiceById);
 router.put("/removeEmployee", authorization, removeEmployee);
 router.get("/searchEmployees", authorization, searchEmployees);
+
+router.post("/addDepartment", authorization, addDepartment);
+router.post("/createCompany", authorization, createCompany);
 
 module.exports = router;
