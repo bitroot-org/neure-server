@@ -183,6 +183,222 @@ class workshopService {
       throw new Error("Error fetching workshop dates: " + error.message);
     }
   }
+
+  // Fetch all workshops with pagination
+  static async getAllWorkshops(page = 1, limit = 10) {
+    try {
+      const offset = (page - 1) * limit;
+
+      // Get total count of workshops
+      const [totalRows] = await db.query('SELECT COUNT(*) as count FROM workshops WHERE is_active = 1');
+      const total = totalRows[0].count;
+
+      // Fetch paginated workshops
+      const [workshops] = await db.query(
+        'SELECT * FROM workshops WHERE is_active = 1 LIMIT ? OFFSET ?',
+        [limit, offset]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshops fetched successfully',
+        data: {
+          workshops,
+          pagination: {
+            total,
+            currentPage: page,
+            totalPages: Math.ceil(total / limit),
+            limit,
+          },
+        },
+      };
+    } catch (error) {
+      throw new Error('Error fetching workshops: ' + error.message);
+    }
+  }
+
+  // Update a workshop
+  static async updateWorkshop(workshopId, workshopData) {
+    try {
+      // Dynamically build the query based on provided fields
+      const fields = [];
+      const values = [];
+  
+      if (workshopData.title) {
+        fields.push('title = ?');
+        values.push(workshopData.title);
+      }
+      if (workshopData.description) {
+        fields.push('description = ?');
+        values.push(workshopData.description);
+      }
+      if (workshopData.location) {
+        fields.push('location = ?');
+        values.push(workshopData.location);
+      }
+      if (workshopData.poster_image) {
+        fields.push('poster_image = ?');
+        values.push(workshopData.poster_image);
+      }
+  
+      // If no fields are provided, return an error
+      if (fields.length === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: 'No fields provided to update',
+          data: null,
+        };
+      }
+  
+      // Add the workshop ID to the values array
+      values.push(workshopId);
+  
+      // Construct the SQL query
+      const query = `UPDATE workshops SET ${fields.join(', ')} WHERE id = ? AND is_active = 1`;
+  
+      // Execute the query
+      const result = await db.query(query, values);
+  
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: 'Workshop not found or inactive',
+          data: null,
+        };
+      }
+  
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop updated successfully',
+        data: { id: workshopId },
+      };
+    } catch (error) {
+      throw new Error('Error updating workshop: ' + error.message);
+    }
+  }
+
+  // Delete a workshop (soft delete)
+  static async deleteWorkshop(workshopId) {
+    try {
+      const result = await db.query('UPDATE workshops SET is_active = 0 WHERE id = ?', [workshopId]);
+
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: 'Workshop not found or already inactive',
+          data: null,
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop deleted successfully',
+        data: { id: workshopId },
+      };
+    } catch (error) {
+      throw new Error('Error deleting workshop: ' + error.message);
+    }
+  }
+
+  static async createWorkshop(workshopData) {
+    try {
+      const { title, description, host_name, agenda } = workshopData;
+  
+      // Insert the workshop into the database
+      const query = `
+        INSERT INTO workshops (title, description, organizer, agenda, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `;
+  
+      const [result] = await db.query(query, [title, description, host_name, agenda]);
+  
+      return {
+        status: true,
+        code: 201,
+        message: 'Workshop created successfully',
+        data: { id: result.insertId, title, description, host_name, agenda },
+      };
+    } catch (error) {
+      throw new Error('Error creating workshop: ' + error.message);
+    }
+  }
+
+  static async getAllWorkshopSchedules() {
+    try {
+      const query = `
+        SELECT 
+          ws.id AS session_id,
+          w.title AS workshop_title,
+          c.company_name AS company_name,
+          ws.start_time,
+          DATE(ws.start_time) AS schedule_date,
+          w.pdf_url
+        FROM workshop_schedules ws
+        INNER JOIN workshops w ON ws.workshop_id = w.id
+        INNER JOIN companies c ON ws.company_id = c.id
+        WHERE w.is_active = 1
+        ORDER BY ws.start_time ASC
+      `;
+  
+      const [schedules] = await db.query(query);
+  
+      if (schedules.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: 'No workshop schedules found',
+          data: null,
+        };
+      }
+  
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop schedules retrieved successfully',
+        data: schedules,
+      };
+    } catch (error) {
+      throw new Error('Error fetching workshop schedules: ' + error.message);
+    }
+  }
+
+  static async scheduleWorkshop(scheduleData) {
+    try {
+      const { company_id, date, time, workshop_id } = scheduleData;
+  
+      // Combine date and time into a single timestamp
+      const start_time = new Date(`${date}T${time}`);
+  
+      // Insert the schedule into the database
+      const query = `
+        INSERT INTO workshop_schedules (company_id, workshop_id, start_time, status)
+        VALUES (?, ?, ?, 'scheduled')
+      `;
+  
+      const [result] = await db.query(query, [company_id, workshop_id, start_time]);
+  
+      return {
+        status: true,
+        code: 201,
+        message: 'Workshop scheduled successfully',
+        data: {
+          schedule_id: result.insertId,
+          company_id,
+          workshop_id,
+          start_time,
+        },
+      };
+    } catch (error) {
+      throw new Error('Error scheduling workshop: ' + error.message);
+    }
+  }
+
 }
 
 module.exports = workshopService;

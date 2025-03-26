@@ -222,6 +222,37 @@ class MediaService {
     }
   }
 
+  static async uploadWorkshopFilesService(fileData) {
+    try {
+      const { workshopId, pdfUrl, coverImageUrl } = fileData;
+
+      // Update the workshop record with the new file URLs
+      const query = `
+        UPDATE workshops
+        SET 
+          pdf_url = COALESCE(?, pdf_url),
+          poster_image = COALESCE(?, poster_image),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `;
+
+      const [result] = await db.query(query, [pdfUrl, coverImageUrl, workshopId]);
+
+      if (result.affectedRows === 0) {
+        throw new Error("Workshop not found");
+      }
+
+      return {
+        workshopId,
+        pdfUrl,
+        coverImageUrl
+      };
+    } catch (error) {
+      console.error("Database error:", error);
+      throw new Error("Error saving workshop files");
+    }
+  }
+
 }
 
 module.exports = MediaService;

@@ -115,6 +115,16 @@ router.post(
   uploadGalleryFile
 );
 
+router.post(
+  "/workshop/files",
+  galleryUpload.fields([
+    { name: "pdf", maxCount: 1 }, // For the workshop PDF
+    { name: "coverImage", maxCount: 1 } // For the workshop cover image
+  ]),
+  authorization,
+  MediaController.uploadWorkshopFiles // New controller method
+);
+
 // Delete routes
 router.post("/galleryDeleteFile", authorization, deleteGalleryFile);
 router.post("/deleteImage", authorization, deleteImage);

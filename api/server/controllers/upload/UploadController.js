@@ -470,6 +470,94 @@ class MediaController {
     }
   }
 
+  static async uploadWorkshopFiles(req, res) {
+    console.log('Received files:', req.files);
+    try {
+      const { workshopId } = req.body;
+
+      if (!workshopId) {
+        return res.status(400).json({
+          success: false,
+          message: "Workshop ID is required"
+        });
+      }
+
+      const pdfFile = req.files?.pdf?.[0];
+      const coverImageFile = req.files?.coverImage?.[0];
+
+      if (!pdfFile && !coverImageFile) {
+        return res.status(400).json({
+          success: false,
+          message: "At least one file (PDF or cover image) must be uploaded"
+        });
+      }
+
+      let pdfUrl = null;
+      let coverImageUrl = null;
+
+      // Upload PDF to S3
+      if (pdfFile) {
+        const pdfFilename = `${nanoid()}.${pdfFile.originalname.split('.').pop()}`;
+        const pdfPath = `workshops/${workshopId}/files/${pdfFilename}`;
+
+        const pdfUploadParams = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: pdfPath,
+          Body: createReadStream(pdfFile.path),
+          ContentType: pdfFile.mimetype,
+          ACL: 'public-read'
+        };
+
+        const pdfCommand = new PutObjectCommand(pdfUploadParams);
+        await s3Client.send(pdfCommand);
+
+        pdfUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfPath}`;
+        unlinkSync(pdfFile.path); // Clean up temp file
+      }
+
+      // Upload cover image to S3
+      if (coverImageFile) {
+        const imageFilename = `${nanoid()}.${coverImageFile.originalname.split('.').pop()}`;
+        const imagePath = `workshops/${workshopId}/cover/${imageFilename}`;
+
+        const imageUploadParams = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: imagePath,
+          Body: createReadStream(coverImageFile.path),
+          ContentType: coverImageFile.mimetype,
+          ACL: 'public-read'
+        };
+
+        const imageCommand = new PutObjectCommand(imageUploadParams);
+        await s3Client.send(imageCommand);
+
+        coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${imagePath}`;
+        unlinkSync(coverImageFile.path); // Clean up temp file
+      }
+
+      // Save file info to the database
+      const savedFiles = await MediaService.uploadWorkshopFilesService({
+        workshopId,
+        pdfUrl,
+        coverImageUrl
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Workshop files uploaded successfully",
+        data: savedFiles
+      });
+
+    } catch (error) {
+      console.error("Upload workshop files error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Error uploading workshop files",
+        error: error.message
+      });
+    }
+  }
+
 }
 
 module.exports = MediaController;
