@@ -185,19 +185,58 @@ class workshopService {
   }
 
   // Fetch all workshops with pagination
-  static async getAllWorkshops(page = 1, limit = 10) {
+  // static async getAllWorkshops(page = 1, limit = 10) {
+  //   try {
+  //     const offset = (page - 1) * limit;
+
+  //     // Get total count of workshops
+  //     const [totalRows] = await db.query('SELECT COUNT(*) as count FROM workshops WHERE is_active = 1');
+  //     const total = totalRows[0].count;
+
+  //     // Fetch paginated workshops
+  //     const [workshops] = await db.query(
+  //       'SELECT * FROM workshops WHERE is_active = 1 LIMIT ? OFFSET ?',
+  //       [limit, offset]
+  //     );
+
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: 'Workshops fetched successfully',
+  //       data: {
+  //         workshops,
+  //         pagination: {
+  //           total,
+  //           currentPage: page,
+  //           totalPages: Math.ceil(total / limit),
+  //           limit,
+  //         },
+  //       },
+  //     };
+  //   } catch (error) {
+  //     throw new Error('Error fetching workshops: ' + error.message);
+  //   }
+  // }
+
+  static async getAllWorkshops(page = 1, limit = 10, start_date = null, end_date = null) {
     try {
       const offset = (page - 1) * limit;
+      const queryParams = [];
+      let query = 'SELECT * FROM workshops WHERE is_active = 1';
+
+      if (start_date && end_date) {
+        query += ' AND created_at BETWEEN ? AND ?';
+        queryParams.push(start_date, end_date);
+      }
 
       // Get total count of workshops
-      const [totalRows] = await db.query('SELECT COUNT(*) as count FROM workshops WHERE is_active = 1');
+      const [totalRows] = await db.query(`SELECT COUNT(*) as count FROM (${query}) as total`, queryParams);
       const total = totalRows[0].count;
 
       // Fetch paginated workshops
-      const [workshops] = await db.query(
-        'SELECT * FROM workshops WHERE is_active = 1 LIMIT ? OFFSET ?',
-        [limit, offset]
-      );
+      query += ' LIMIT ? OFFSET ?';
+      queryParams.push(limit, offset);
+      const [workshops] = await db.query(query, queryParams);
 
       return {
         status: true,
@@ -329,9 +368,48 @@ class workshopService {
     }
   }
 
-  static async getAllWorkshopSchedules() {
+  // static async getAllWorkshopSchedules() {
+  //   try {
+  //     const query = `
+  //       SELECT 
+  //         ws.id AS session_id,
+  //         w.title AS workshop_title,
+  //         c.company_name AS company_name,
+  //         ws.start_time,
+  //         DATE(ws.start_time) AS schedule_date,
+  //         w.pdf_url
+  //       FROM workshop_schedules ws
+  //       INNER JOIN workshops w ON ws.workshop_id = w.id
+  //       INNER JOIN companies c ON ws.company_id = c.id
+  //       WHERE w.is_active = 1
+  //       ORDER BY ws.start_time ASC
+  //     `;
+  
+  //     const [schedules] = await db.query(query);
+  
+  //     if (schedules.length === 0) {
+  //       return {
+  //         status: false,
+  //         code: 404,
+  //         message: 'No workshop schedules found',
+  //         data: null,
+  //       };
+  //     }
+  
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: 'Workshop schedules retrieved successfully',
+  //       data: schedules,
+  //     };
+  //   } catch (error) {
+  //     throw new Error('Error fetching workshop schedules: ' + error.message);
+  //   }
+  // }
+
+  static async getAllWorkshopSchedules(start_date = null, end_date = null) {
     try {
-      const query = `
+      let query = `
         SELECT 
           ws.id AS session_id,
           w.title AS workshop_title,
@@ -343,11 +421,18 @@ class workshopService {
         INNER JOIN workshops w ON ws.workshop_id = w.id
         INNER JOIN companies c ON ws.company_id = c.id
         WHERE w.is_active = 1
-        ORDER BY ws.start_time ASC
       `;
-  
-      const [schedules] = await db.query(query);
-  
+      const queryParams = [];
+
+      if (start_date && end_date) {
+        query += ' AND ws.start_time BETWEEN ? AND ?';
+        queryParams.push(start_date, end_date);
+      }
+
+      query += ' ORDER BY ws.start_time ASC';
+
+      const [schedules] = await db.query(query, queryParams);
+
       if (schedules.length === 0) {
         return {
           status: false,
@@ -356,7 +441,7 @@ class workshopService {
           data: null,
         };
       }
-  
+
       return {
         status: true,
         code: 200,
@@ -373,7 +458,7 @@ class workshopService {
       const { company_id, date, time, workshop_id } = scheduleData;
   
       // Combine date and time into a single timestamp
-      const start_time = new Date(`${date}T${time}`);
+      const start_time = new Date(`${date} ${time}`);
   
       // Insert the schedule into the database
       const query = `

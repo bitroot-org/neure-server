@@ -73,12 +73,31 @@ class workshopController {
     }
   }
 
+  // static async getAllWorkshops(req, res) {
+  //   try {
+  //     const page = parseInt(req.query.page, 10) || 1;
+  //     const limit = parseInt(req.query.limit, 10) || 10;
+
+  //     const result = await getAllWorkshops(page, limit);
+  //     return res.status(result.code).json(result);
+  //   } catch (error) {
+  //     return res.status(500).json({
+  //       status: false,
+  //       code: 500,
+  //       message: error.message,
+  //       data: null,
+  //     });
+  //   }
+  // }
+
   static async getAllWorkshops(req, res) {
     try {
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 10;
+      const start_date = req.query.start_date || null;
+      const end_date = req.query.end_date || null;
 
-      const result = await getAllWorkshops(page, limit);
+      const result = await getAllWorkshops(page, limit, start_date, end_date);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -169,11 +188,28 @@ class workshopController {
     }
   }
 
+  // static async getAllWorkshopSchedules(req, res) {
+  //   try {
+  //     // Call the service to fetch all workshop schedules
+  //     const result = await getAllWorkshopSchedules();
+  
+  //     return res.status(result.code).json(result);
+  //   } catch (error) {
+  //     return res.status(500).json({
+  //       status: false,
+  //       code: 500,
+  //       message: error.message,
+  //       data: null,
+  //     });
+  //   }
+  // }
+
   static async getAllWorkshopSchedules(req, res) {
     try {
-      // Call the service to fetch all workshop schedules
-      const result = await getAllWorkshopSchedules();
-  
+      const start_date = req.query.start_date || null;
+      const end_date = req.query.end_date || null;
+
+      const result = await getAllWorkshopSchedules(start_date, end_date);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

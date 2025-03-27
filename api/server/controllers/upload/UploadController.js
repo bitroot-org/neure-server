@@ -49,47 +49,160 @@ const getMediaDuration = (filePath) => {
 };
 
 class MediaController {
-  static async uploadImage(req, res) {
-    let s3Path = '';
+  // static async uploadImage(req, res) {
+  //   let s3Path = '';
 
+  //   try {
+  //     const {
+  //       type,
+  //       userId,
+  //       companyId,
+  //       rewardId,
+  //       articleId,
+  //       workshopId
+  //     } = req.body;
+
+  //     // Validate required parameter
+  //     if (!type) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Image type is required (profile, icon, article, workshop)"
+  //       });
+  //     }
+
+  //     // Validate type is supported
+  //     const supportedTypes = ['profile', 'icon', 'article', 'workshop'];
+  //     if (!supportedTypes.includes(type)) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: `Unsupported image type: ${type}. Supported types are: ${supportedTypes.join(', ')}`
+  //       });
+  //     }
+
+  //     if (!req.file) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "No file uploaded"
+  //       });
+  //     }
+
+  //     const filename = `${nanoid()}.jpg`;
+  //     const fileType = req.file.mimetype;
+
+  //     // Generate S3 path based on type
+  //     switch (type) {
+  //       case 'icon':
+  //         s3Path = `images/icons/${filename}`;
+  //         break;
+  //       case 'article':
+  //         s3Path = `images/articles/${filename}`;
+  //         break;
+  //       case 'workshop':
+  //         s3Path = `images/workshops/${filename}`;
+  //         break;
+  //       case 'profile':
+  //         // Further categorize profiles by entity type
+  //         if (userId) {
+  //           s3Path = `images/profiles/users/${filename}`;
+  //         } else if (companyId) {
+  //           s3Path = `images/profiles/companies/${filename}`;
+  //         } else {
+  //           s3Path = `images/profiles/${filename}`;
+  //         }
+  //         break;
+  //     }
+
+  //     const uploadParams = {
+  //       Bucket: process.env.AWS_BUCKET_NAME,
+  //       Key: s3Path,
+  //       Body: createReadStream(req.file.path),
+  //       ContentType: fileType,
+  //       ACL: 'public-read'
+  //     };
+
+  //     const command = new PutObjectCommand(uploadParams);
+  //     await s3Client.send(command);
+
+  //     // Clean up temp file
+  //     unlinkSync(req.file.path);
+
+  //     // Save file info to database with all relevant parameters
+  //     const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
+
+  //     try {
+  //       const savedFile = await MediaService.uploadImageService({
+  //         filename,
+  //         type,
+  //         url: fileUrl,
+  //         path: s3Path,
+  //         userId,
+  //         companyId,
+  //         rewardId,
+  //         articleId,
+  //         workshopId
+  //       });
+
+  //       return res.status(200).json({
+  //         success: true,
+  //         message: "File uploaded successfully",
+  //         data: savedFile
+  //       });
+  //     } catch (dbError) {
+  //       // If database update fails, delete the file from S3
+  //       console.error("Database error - rolling back S3 upload:", dbError);
+
+  //       // Delete the file from S3
+  //       const deleteParams = {
+  //         Bucket: process.env.AWS_BUCKET_NAME,
+  //         Key: s3Path
+  //       };
+
+  //       try {
+  //         const deleteCommand = new DeleteObjectCommand(deleteParams);
+  //         await s3Client.send(deleteCommand);
+  //         console.log(`Successfully deleted ${s3Path} from S3 after database failure`);
+  //       } catch (deleteError) {
+  //         console.error("Error during S3 rollback:", deleteError);
+  //       }
+
+  //       // Re-throw the original error
+  //       throw dbError;
+  //     }
+
+  //   } catch (error) {
+  //     console.error("Upload error:", error);
+  //     return res.status(500).json({
+  //       success: false,
+  //       message: "Error uploading file",
+  //       error: error.message
+  //     });
+  //   }
+  // }
+
+  static async uploadImage(req) {
     try {
-      const {
-        type,
-        userId,
-        companyId,
-        rewardId,
-        articleId,
-        workshopId
-      } = req.body;
-
+      const { type } = req.body;
+  
       // Validate required parameter
       if (!type) {
-        return res.status(400).json({
-          success: false,
-          message: "Image type is required (profile, icon, article, workshop)"
-        });
+        throw new Error("Image type is required (profile, icon, article, workshop)");
       }
-
+  
       // Validate type is supported
       const supportedTypes = ['profile', 'icon', 'article', 'workshop'];
       if (!supportedTypes.includes(type)) {
-        return res.status(400).json({
-          success: false,
-          message: `Unsupported image type: ${type}. Supported types are: ${supportedTypes.join(', ')}`
-        });
+        throw new Error(`Unsupported image type: ${type}. Supported types are: ${supportedTypes.join(', ')}`);
       }
-
+  
       if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: "No file uploaded"
-        });
+        throw new Error("No file uploaded");
       }
-
+  
       const filename = `${nanoid()}.jpg`;
       const fileType = req.file.mimetype;
-
+  
       // Generate S3 path based on type
+      let s3Path;
       switch (type) {
         case 'icon':
           s3Path = `images/icons/${filename}`;
@@ -101,81 +214,39 @@ class MediaController {
           s3Path = `images/workshops/${filename}`;
           break;
         case 'profile':
-          // Further categorize profiles by entity type
-          if (userId) {
-            s3Path = `images/profiles/users/${filename}`;
-          } else if (companyId) {
-            s3Path = `images/profiles/companies/${filename}`;
-          } else {
-            s3Path = `images/profiles/${filename}`;
-          }
+          s3Path = `images/profiles/${filename}`;
           break;
+        default:
+          throw new Error(`Invalid type: ${type}`);
       }
-
+  
       const uploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
         Body: createReadStream(req.file.path),
         ContentType: fileType,
-        ACL: 'public-read'
+        ACL: 'public-read',
       };
-
+  
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
-
+  
       // Clean up temp file
       unlinkSync(req.file.path);
-
-      // Save file info to database with all relevant parameters
+  
+      // Generate file URL
       const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-
-      try {
-        const savedFile = await MediaService.uploadImageService({
-          filename,
-          type,
-          url: fileUrl,
-          path: s3Path,
-          userId,
-          companyId,
-          rewardId,
-          articleId,
-          workshopId
-        });
-
-        return res.status(200).json({
-          success: true,
-          message: "File uploaded successfully",
-          data: savedFile
-        });
-      } catch (dbError) {
-        // If database update fails, delete the file from S3
-        console.error("Database error - rolling back S3 upload:", dbError);
-
-        // Delete the file from S3
-        const deleteParams = {
-          Bucket: process.env.AWS_BUCKET_NAME,
-          Key: s3Path
-        };
-
-        try {
-          const deleteCommand = new DeleteObjectCommand(deleteParams);
-          await s3Client.send(deleteCommand);
-          console.log(`Successfully deleted ${s3Path} from S3 after database failure`);
-        } catch (deleteError) {
-          console.error("Error during S3 rollback:", deleteError);
-        }
-
-        // Re-throw the original error
-        throw dbError;
-      }
-
+  
+      return {
+        success: true,
+        url: fileUrl,
+      };
     } catch (error) {
-      console.error("Upload error:", error);
-      return res.status(500).json({
+      console.error("Upload image error:", error);
+      return {
         success: false,
-        message: "Error uploading file",
-        error: error.message
-      });
+        message: error.message,
+      };
     }
   }
 
@@ -277,24 +348,12 @@ class MediaController {
     }
   }
 
-  static async uploadGalleryFile(req, res) {
+  static async uploadGalleryFile(req) {
     try {
-      const { company_id } = req.body;
-
-      if (!company_id) {
-        return res.status(400).json({
-          success: false,
-          message: "Company ID is required"
-        });
-      }
-
       if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: "No file uploaded"
-        });
+        throw new Error("No file uploaded");
       }
-
+  
       // Determine file type category based on mimetype
       let fileType;
       if (req.file.mimetype.startsWith('image/')) {
@@ -304,64 +363,40 @@ class MediaController {
       } else {
         fileType = 'document';
       }
-
+  
       // Get file extension from original filename
       const extension = req.file.originalname.split('.').pop().toLowerCase();
       const filename = `${nanoid()}.${extension}`;
-      const s3Path = `gallery/${company_id}/${fileType}/${filename}`;
-      
-      // Get file duration for audio/video files before uploading to S3
-      let duration = null;
-      if (req.file.mimetype.startsWith('video/') || req.file.mimetype.startsWith('audio/')) {
-        try {
-          duration = await getMediaDuration(req.file.path);
-          console.log("Extracted duration:", duration);
-        } catch (durationError) {
-          console.warn("Could not extract media duration:", durationError.message);
-        }
-      }
-
+      const s3Path = `gallery/${fileType}/${filename}`;
+  
       // Upload to S3
       const uploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
         Body: createReadStream(req.file.path),
         ContentType: req.file.mimetype,
-        ACL: 'public-read'
+        ACL: 'public-read',
       };
-
+  
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
-
+  
       // Clean up temp file after S3 upload
       unlinkSync(req.file.path);
-
-      // Save file info to database
+  
+      // Generate file URL
       const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-      const fileSize = req.file.size;
-
-      const savedFile = await MediaService.uploadgalleryService({
-        company_id: parseInt(company_id),
-        file_type: fileType,
-        file_url: fileUrl,
-        path: s3Path,
-        size: fileSize,
-        duration
-      });
-
-      return res.status(200).json({
+  
+      return {
         success: true,
-        message: "File uploaded to gallery successfully",
-        data: savedFile
-      });
-
+        url: fileUrl,
+      };
     } catch (error) {
       console.error("Gallery upload error:", error);
-      return res.status(500).json({
+      return {
         success: false,
-        message: "Error uploading file to gallery",
-        error: error.message
-      });
+        message: error.message,
+      };
     }
   }
 
