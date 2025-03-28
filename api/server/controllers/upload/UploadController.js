@@ -1,5 +1,6 @@
 const { createReadStream, unlinkSync } = require("fs");
 const { nanoid } = require("nanoid");
+const db = require('../../../config/db');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
 const ffprobeInstaller = require('@ffprobe-installer/ffprobe');
@@ -189,7 +190,7 @@ class MediaController {
       }
   
       // Validate type is supported
-      const supportedTypes = ['profile', 'icon', 'article', 'workshop'];
+      const supportedTypes = ['profile', 'icon', 'article', 'workshop', 'soundCover'];
       if (!supportedTypes.includes(type)) {
         throw new Error(`Unsupported image type: ${type}. Supported types are: ${supportedTypes.join(', ')}`);
       }
@@ -215,6 +216,9 @@ class MediaController {
           break;
         case 'profile':
           s3Path = `images/profiles/${filename}`;
+          break;
+        case 'soundCover': // New case for sound cover images
+          s3Path = `images/soundCovers/${filename}`;
           break;
         default:
           throw new Error(`Invalid type: ${type}`);
@@ -250,26 +254,113 @@ class MediaController {
     }
   }
 
-  static async uploadSound(req, res) {
-    // Declare variables at the start
-    let s3Path = '';
-    let coverImagePath = '';
+  // static async uploadSound(req, res) {
+  //   // Declare variables at the start
+  //   let s3Path = '';
+  //   let coverImagePath = '';
 
+  //   try {
+  //     console.log('Received files:', req.files);
+
+  //     if (!req.files || !req.files.sound || !req.files.sound[0]) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "No sound file uploaded"
+  //       });
+  //     }
+
+  //     const soundFile = req.files.sound[0];
+  //     const coverImage = req.files.coverImage ? req.files.coverImage[0] : null;
+  //     const title = req.body.title || soundFile.originalname.split('.')[0];
+  //     const fileSize = soundFile.size;
+
+  //     // Extract audio duration using ffmpeg
+  //     let duration = null;
+  //     try {
+  //       if (soundFile.path) {
+  //         duration = await getMediaDuration(soundFile.path);
+  //         console.log("Extracted duration:", duration);
+  //       }
+  //     } catch (durationError) {
+  //       console.warn("Could not extract audio duration:", durationError.message);
+  //     }
+
+  //     // Upload sound file to S3
+  //     const soundFilename = `${nanoid()}.${soundFile.originalname.split('.').pop()}`;
+  //     s3Path = `sounds/therapy/${soundFilename}`;
+
+  //     const soundUploadParams = {
+  //       Bucket: process.env.AWS_BUCKET_NAME,
+  //       Key: s3Path,
+  //       Body: createReadStream(soundFile.path),
+  //       ContentType: soundFile.mimetype,
+  //       ACL: 'public-read'
+  //     };
+
+  //     const soundCommand = new PutObjectCommand(soundUploadParams);
+  //     await s3Client.send(soundCommand);
+
+  //     // Upload cover image if provided
+  //     let coverImageUrl = null;
+  //     if (coverImage) {
+  //       const imageFilename = `${nanoid()}.${coverImage.originalname.split('.').pop()}`;
+  //       coverImagePath = `sounds/therapy/covers/${imageFilename}`;
+
+  //       const imageUploadParams = {
+  //         Bucket: process.env.AWS_BUCKET_NAME,
+  //         Key: coverImagePath,
+  //         Body: createReadStream(coverImage.path),
+  //         ContentType: coverImage.mimetype,
+  //         ACL: 'public-read'
+  //       };
+
+  //       const imageCommand = new PutObjectCommand(imageUploadParams);
+  //       await s3Client.send(imageCommand);
+
+  //       coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverImagePath}`;
+  //       unlinkSync(coverImage.path);
+  //     }
+
+  //     // Clean up sound file
+  //     unlinkSync(soundFile.path);
+
+  //     // Save file info to database
+  //     const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
+
+  //     const savedFile = await MediaService.uploadSoundService({
+  //       title,
+  //       url: fileUrl,
+  //       path: s3Path,
+  //       fileSize,
+  //       duration,
+  //       coverImageUrl
+  //     });
+
+  //     return res.status(200).json({
+  //       success: true,
+  //       message: "Sound file uploaded successfully",
+  //       data: savedFile
+  //     });
+
+  //   } catch (error) {
+  //     console.error("Upload error:", error);
+  //     return res.status(500).json({
+  //       success: false,
+  //       message: "Error uploading sound file",
+  //       error: error.message
+  //     });
+  //   }
+  // }
+
+  static async uploadSound({ soundFile, coverImage }) {
     try {
-      console.log('Received files:', req.files);
-
-      if (!req.files || !req.files.sound || !req.files.sound[0]) {
-        return res.status(400).json({
-          success: false,
-          message: "No sound file uploaded"
-        });
+      if (!soundFile) {
+        throw new Error("No sound file provided");
       }
-
-      const soundFile = req.files.sound[0];
-      const coverImage = req.files.coverImage ? req.files.coverImage[0] : null;
-      const title = req.body.title || soundFile.originalname.split('.')[0];
+  
+      const title = soundFile.originalname.split(".")[0];
       const fileSize = soundFile.size;
-
+  
       // Extract audio duration using ffmpeg
       let duration = null;
       try {
@@ -280,71 +371,69 @@ class MediaController {
       } catch (durationError) {
         console.warn("Could not extract audio duration:", durationError.message);
       }
-
+  
       // Upload sound file to S3
-      const soundFilename = `${nanoid()}.${soundFile.originalname.split('.').pop()}`;
-      s3Path = `sounds/therapy/${soundFilename}`;
-
+      const soundFilename = `${nanoid()}.${soundFile.originalname.split(".").pop()}`;
+      const soundS3Path = `sounds/therapy/${soundFilename}`;
+  
       const soundUploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
-        Key: s3Path,
+        Key: soundS3Path,
         Body: createReadStream(soundFile.path),
         ContentType: soundFile.mimetype,
-        ACL: 'public-read'
+        ACL: "public-read",
       };
-
+  
       const soundCommand = new PutObjectCommand(soundUploadParams);
       await s3Client.send(soundCommand);
-
+  
+      // Generate sound file URL
+      const soundFileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${soundS3Path}`;
+  
+      // Clean up sound file
+      unlinkSync(soundFile.path);
+  
       // Upload cover image if provided
       let coverImageUrl = null;
       if (coverImage) {
-        const imageFilename = `${nanoid()}.${coverImage.originalname.split('.').pop()}`;
-        coverImagePath = `sounds/therapy/covers/${imageFilename}`;
-
+        const imageFilename = `${nanoid()}.${coverImage.originalname.split(".").pop()}`;
+        const coverImageS3Path = `sounds/therapy/covers/${imageFilename}`;
+  
         const imageUploadParams = {
           Bucket: process.env.AWS_BUCKET_NAME,
-          Key: coverImagePath,
+          Key: coverImageS3Path,
           Body: createReadStream(coverImage.path),
           ContentType: coverImage.mimetype,
-          ACL: 'public-read'
+          ACL: "public-read",
         };
-
+  
         const imageCommand = new PutObjectCommand(imageUploadParams);
         await s3Client.send(imageCommand);
-
-        coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverImagePath}`;
+  
+        // Generate cover image URL
+        coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverImageS3Path}`;
+  
+        // Clean up cover image file
         unlinkSync(coverImage.path);
       }
-
-      // Clean up sound file
-      unlinkSync(soundFile.path);
-
-      // Save file info to database
-      const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-
-      const savedFile = await MediaService.uploadSoundService({
-        title,
-        url: fileUrl,
-        path: s3Path,
-        fileSize,
-        duration,
-        coverImageUrl
-      });
-
-      return res.status(200).json({
+  
+      // Return the URLs and metadata
+      return {
         success: true,
-        message: "Sound file uploaded successfully",
-        data: savedFile
-      });
-
+        data: {
+          title,
+          soundFileUrl,
+          coverImageUrl,
+          fileSize,
+          duration,
+        },
+      };
     } catch (error) {
-      console.error("Upload error:", error);
-      return res.status(500).json({
+      console.error("Upload sound error:", error);
+      return {
         success: false,
-        message: "Error uploading sound file",
-        error: error.message
-      });
+        message: error.message,
+      };
     }
   }
 
@@ -430,33 +519,75 @@ class MediaController {
     }
   }
 
-  static async deleteSound(req, res) {
+  static async deleteSound(soundId) {
     try {
-      const { fileId } = req.body;
+      console.log("Deleting sound with ID:", soundId);
 
-      if (!fileId) {
-        return res.status(400).json({
+      if (!soundId) {
+        return {
           success: false,
-          message: "File ID is required"
-        });
+          message: "Sound ID is required"
+        };
       }
 
-      const file = await MediaService.getFileById(fileId);
-      if (!file) {
-        return res.status(404).json({
+      // Get sound details from database
+      const [rows] = await db.query(
+        "SELECT sound_file_url, sound_cover_image FROM soundscapes WHERE id = ?",
+        [soundId]
+      );
+
+      const sound = rows[0];
+      if (!sound) {
+        return {
           success: false,
-          message: "Sound file not found"
-        });
+          message: "Sound not found"
+        };
       }
 
-      // ... rest of delete logic remains same
+      // Extract S3 keys from URLs
+      const getS3KeyFromUrl = (url) => {
+        if (!url) return null;
+        return url.split(`${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/`)[1];
+      };
+
+      // Delete sound file from S3
+      const soundKey = getS3KeyFromUrl(sound.sound_file_url);
+      if (soundKey) {
+        const soundDeleteParams = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: soundKey
+        };
+        const soundDeleteCommand = new DeleteObjectCommand(soundDeleteParams);
+        await s3Client.send(soundDeleteCommand);
+        console.log("Deleted sound file from S3:", soundKey);
+      }
+
+      // Delete cover image from S3 if it exists
+      const coverImageKey = getS3KeyFromUrl(sound.sound_cover_image);
+      if (coverImageKey) {
+        const imageDeleteParams = {
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: coverImageKey
+        };
+        const imageDeleteCommand = new DeleteObjectCommand(imageDeleteParams);
+        await s3Client.send(imageDeleteCommand);
+        console.log("Deleted cover image from S3:", coverImageKey);
+      }
+
+      // Delete from database
+      await db.query("DELETE FROM soundscapes WHERE id = ?", [soundId]);
+
+      return {
+        success: true,
+        message: "Sound and associated files deleted successfully"
+      };
+
     } catch (error) {
-      console.error("Delete error:", error);
-      return res.status(500).json({
+      console.error("Delete sound error:", error);
+      return {
         success: false,
-        message: "Error deleting sound file",
-        error: error.message
-      });
+        message: error.message
+      };
     }
   }
 

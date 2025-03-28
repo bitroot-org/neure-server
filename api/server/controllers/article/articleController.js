@@ -47,6 +47,7 @@ class articleController {
   static async createArticle(req, res) {
     try {
       const articleData = req.body;
+      console.log("Article data:", articleData);
       let imageUrl = null;
   
       // If an image file is uploaded, handle the upload

@@ -61,7 +61,7 @@ class GalleryService {
   static async getGalleryItems(companyId, fileType, page = 1, limit = 10) {
     try {
       const offset = (page - 1) * limit;
-
+  
       // Validate file type
       const validTypes = ["image", "video", "document"];
       if (!validTypes.includes(fileType)) {
@@ -72,11 +72,11 @@ class GalleryService {
           data: null,
         };
       }
-
+  
       let totalQuery = `
         SELECT COUNT(*) as count 
         FROM gallery g
-        INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+        LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
         WHERE g.file_type = ?
       `;
       let itemsQuery = `
@@ -86,34 +86,35 @@ class GalleryService {
           g.description,
           g.file_type, 
           g.file_url, 
-          g.size, 
+          g.size,
+          g.tags, 
           g.created_at 
         FROM gallery g
-        INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+        LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
         WHERE g.file_type = ?
       `;
       const queryParams = [fileType];
-
+  
       // Add companyId condition if provided
       if (companyId) {
         totalQuery += " AND cga.company_id = ?";
         itemsQuery += " AND cga.company_id = ?";
         queryParams.push(companyId);
       }
-
+  
       itemsQuery += " ORDER BY g.created_at DESC LIMIT ? OFFSET ?";
       queryParams.push(limit, offset);
-
+  
       // Get total count
       const [totalRows] = await db.query(
         totalQuery,
         queryParams.slice(0, queryParams.length - 2)
       );
       const total = totalRows[0].count;
-
+  
       // Get paginated gallery items
       const [items] = await db.query(itemsQuery, queryParams);
-
+  
       return {
         status: true,
         code: 200,
@@ -215,12 +216,37 @@ class GalleryService {
         };
       }
 
+      let tagsJson = null;
+    if (tags) {
+      if (Array.isArray(tags)) {
+        // If tags is an array, stringify it
+        tagsJson = JSON.stringify(tags);
+      } else if (typeof tags === "string") {
+        try {
+          // If tags is a string, parse it to ensure it's valid JSON
+          JSON.parse(tags);
+          tagsJson = tags; // Already valid JSON
+        } catch (error) {
+          throw new Error("Invalid tags format. Must be a valid JSON array.");
+        }
+      } else {
+        throw new Error("Invalid tags format. Must be an array or a valid JSON string.");
+      }
+    }
+
+
+      console.log("type:", type);
+      console.log("title:", title);
+      console.log("description:", description);
+      console.log("tags:", tagsJson);
+      console.log("url:", url);
+
 
       // Insert the new gallery item into the database
       const [result] = await db.query(
         `INSERT INTO gallery (file_type, title, description, tags, file_url, created_at) 
          VALUES (?, ?, ?, ?, ?, NOW())`,
-        [type, title, description || null, tags || null, url]
+        [type, title, description || null, tagsJson || null, url]
       );
 
       return {
@@ -232,7 +258,7 @@ class GalleryService {
           type,
           title,
           description,
-          tags: tags ? JSON.parse(tags) : null,
+          tags: tagsJson ? JSON.parse(tagsJson) : null,
           url,
         },
       };

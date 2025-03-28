@@ -15,7 +15,7 @@ class SoundscapeService {
 
       // Get paginated soundscapes
       const [soundscapes] = await db.query(
-        "SELECT id, title, author, sound_cover_image, sound_file_url, file_size, created_at, is_active FROM soundscapes WHERE is_active = 1 LIMIT ? OFFSET ?",
+        "SELECT * FROM soundscapes WHERE is_active = 1 LIMIT ? OFFSET ?",
         [limit, offset]
       );
 
@@ -63,6 +63,76 @@ class SoundscapeService {
       };
     } catch (error) {
       throw new Error("Error fetching soundscape: " + error.message);
+    }
+  }
+
+  // Create a new soundscape
+  static async createSoundscape({
+    title,
+    artistName,
+    tags,
+    category,
+    coverImageUrl,
+    soundFileUrl,
+    duration,
+    fileSize
+  }) {
+    try {
+      console.log("audioUrl:", soundFileUrl);
+      console.log("imageCoverUrl:", coverImageUrl);
+
+
+      // Insert the new soundscape into the database
+      const [result] = await db.query(
+        `INSERT INTO soundscapes (title, artist_name, tags, categories, sound_cover_image, sound_file_url, duration, file_size,created_at) 
+         VALUES (?, ?, ?, ?, ?, ?,?, ?, NOW())`,
+        [title, artistName, tags, category, coverImageUrl, soundFileUrl, duration, fileSize]
+      );
+
+      return {
+        status: true,
+        code: 201,
+        message: "Soundscape created successfully",
+        data: {
+          id: result.insertId,
+          title,
+          artistName,
+          tags: tags ? JSON.parse(tags) : null,
+          category,
+          coverImageUrl,
+          soundFileUrl,
+          duration
+        },
+      };
+    } catch (error) {
+      throw new Error("Error creating soundscape: " + error.message);
+    }
+  }
+
+  static async deleteSoundscape(soundscapeId) {
+    try {
+      const [result] = await db.query(
+        "DELETE FROM soundscapes WHERE id = ?",
+        [soundscapeId]
+      );
+
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Soundscape not found",
+          data: null,
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Soundscape deleted successfully",
+        data: null,
+      };
+    } catch (error) {
+      throw new Error("Error deleting soundscape: " + error.message);
     }
   }
 }

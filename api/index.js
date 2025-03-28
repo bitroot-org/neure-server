@@ -51,7 +51,7 @@ app.use("/api/article", articleRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/rewards", rewardsRoutes);
 app.use("/api/uploads", uploadRoutes);
-app.use("/api", soundscapeRoutes);
+app.use("/api/soundscapes", soundscapeRoutes);
 app.use("/api", galleryRoutes);
 app.use('/api/assessments', assessmentsRoutes);
 
