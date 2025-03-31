@@ -13,7 +13,9 @@ const {
   claimReward,
   getUserSubscription,
   updateUserSubscription,
-  updateUserStressLevel
+  updateUserStressLevel,
+  updateTherapist,
+  deleteTherapist
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -37,6 +39,7 @@ router.post("/claimReward", authorization, claimReward);
 router.get("/getUserSubscription", authorization, getUserSubscription);
 router.put("/updateUserSubscription", authorization, updateUserSubscription); 
 router.post("/updateStressLevel", authorization, updateUserStressLevel);
-
+router.put("/updateTherapist/:therapistId", authorization, updateTherapist);
+router.delete("/deleteTherapist/:therapistId", authorization, deleteTherapist);
 
 module.exports = router;

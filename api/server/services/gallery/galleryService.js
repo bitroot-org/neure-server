@@ -173,25 +173,26 @@ class GalleryService {
     try {
       const [counts] = await db.query(
         `SELECT 
-          file_type,
+          cga.item_type as file_type,
           COUNT(*) as count
-        FROM gallery 
-        WHERE company_id = ?
-        GROUP BY file_type`,
+        FROM company_gallery_assignments cga
+        WHERE cga.company_id = ?
+        GROUP BY cga.item_type`,
         [companyId]
       );
-
-      // Format the results into an object
+  
+      // Format the results into an object with default values
       const formattedCounts = {
         image: 0,
         video: 0,
         document: 0,
       };
-
+  
+      // Update counts from query results
       counts.forEach((item) => {
         formattedCounts[item.file_type] = item.count;
       });
-
+  
       return {
         status: true,
         code: 200,

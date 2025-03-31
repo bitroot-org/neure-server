@@ -136,6 +136,61 @@ class UserController {
     }
   }
 
+  static async updateTherapist(req, res) {
+    try {
+      const therapistId = req.params.therapistId;
+      const updateData = req.body;
+      console.log("Received update data:", updateData);
+
+      if (!therapistId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Therapist ID is required",
+          data: null
+        });
+      }
+
+      const result = await UserServices.updateTherapist(therapistId, updateData);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateTherapist controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
+  static async deleteTherapist(req, res) {
+    try {
+      const therapistId = req.params.therapistId;
+      console.log("Received therapist ID:", therapistId);
+
+      if (!therapistId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Therapist ID is required",
+          data: null
+        });
+      }
+
+      const result = await UserServices.deleteTherapist(therapistId);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in deleteTherapist controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
   static async changePassword(req, res) {
     try {
       const { email, old_password, new_password } = req.body;

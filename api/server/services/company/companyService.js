@@ -483,37 +483,55 @@ class CompanyService {
   static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
     try {
       const offset = (page - 1) * limit;
-
+  
       const searchCondition = search
-        ? `WHERE company_name LIKE ? OR email_domain LIKE ? OR industry LIKE ?`
+        ? `WHERE c.company_name LIKE ? OR c.email_domain LIKE ? OR c.industry LIKE ?`
         : "";
-
+  
       const searchParams = search
         ? [`%${search}%`, `%${search}%`, `%${search}%`]
         : [];
-
+  
       // Get total count
       const [totalRows] = await db.query(
-        `SELECT COUNT(*) as count 
-       FROM companies ${searchCondition}`,
+        `SELECT COUNT(DISTINCT c.id) as count 
+         FROM companies c 
+         ${searchCondition}`,
         searchParams
       );
-
-      // Get paginated results
+  
+      // Get companies with their departments
       const [companies] = await db.query(
         `SELECT 
-        *
-       FROM companies
-       ${searchCondition}
-       ORDER BY created_at DESC
-       LIMIT ? OFFSET ?`,
+          c.*,
+          GROUP_CONCAT(
+            DISTINCT JSON_OBJECT(
+              'id', d.id,
+              'name', d.department_name
+            )
+          ) as departments
+        FROM companies c
+        LEFT JOIN company_departments cd ON c.id = cd.company_id
+        LEFT JOIN departments d ON cd.department_id = d.id
+        ${searchCondition}
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+        LIMIT ? OFFSET ?`,
         [...searchParams, limit, offset]
       );
-
+  
+      // Parse the departments JSON string for each company
+      const companiesWithDepartments = companies.map(company => ({
+        ...company,
+        departments: company.departments 
+          ? JSON.parse(`[${company.departments}]`)
+          : []
+      }));
+  
       const totalPages = Math.ceil(totalRows[0].count / limit);
-
+  
       return {
-        companies,
+        companies: companiesWithDepartments,
         pagination: {
           total: totalRows[0].count,
           current_page: page,
@@ -522,6 +540,7 @@ class CompanyService {
         },
       };
     } catch (error) {
+      console.error("Error in getAllCompanies:", error);
       throw new Error("Error fetching companies: " + error.message);
     }
   }

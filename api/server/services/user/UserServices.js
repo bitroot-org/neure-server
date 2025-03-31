@@ -63,131 +63,6 @@ class UserServices {
     }
   }
 
-  // static async login(userData) {
-  //   try {
-  //     console.log("Login data:", userData);
-
-  //     // Validate JWT secrets first
-  //     if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
-  //       throw new Error("JWT configuration missing");
-  //     }
-
-  //     const { email, password, role_id } = userData;
-
-  //     // Find user
-  //     const [users] = await db.query(
-  //       "SELECT * FROM users WHERE email = ? AND role_id = ?",
-  //       [email, role_id]
-  //     );
-
-  //     if (users.length === 0) {
-  //       throw new Error("Invalid credentials");
-  //     }
-
-  //     const user = users[0];
-
-  //     // Verify password
-  //     const isMatch = await bcrypt.compare(password, user.password);
-
-  //     if (!isMatch) {
-  //       throw new Error("Invalid credentials");
-  //     }
-
-  //     let companyData = null;
-  //     if (user.role_id === 2 || user.role_id === 3) {
-  //       // For role_id 2 (company admin), check companies table
-  //       if (user.role_id === 2) {
-  //         const [companies] = await db.query(
-  //           "SELECT * FROM companies WHERE contact_person_id = ?",
-  //           [user.user_id]
-  //         );
-  //         if (companies.length > 0) {
-  //           companyData = companies[0];
-  //         }
-  //       }
-  //       // For role_id 3 (employee), check company_employees table
-  //       else if (user.role_id === 3) {
-  //         const [companyResult] = await db.query(
-  //           `SELECT 
-  //             c.id,
-  //             c.onboarding_status
-  //            FROM company_employees ce
-  //            JOIN companies c ON ce.company_id = c.id
-  //            WHERE ce.user_id = ? AND ce.is_active = 1`,
-  //           [user.user_id]
-  //         );
-        
-  //         // Then get stress level data
-  //         const [stressData] = await db.query(
-  //           `SELECT 
-  //             stress_level,
-  //             stress_message
-  //            FROM company_employees
-  //            WHERE user_id = ? AND is_active = 1`,
-  //           [user.user_id]
-  //         );
-
-  //         if (companyResult.length > 0) {
-  //           companyData = {
-  //             id: companyResult[0].id,
-  //             onboarding_status: companyResult[0].onboarding_status
-  //           };
-  //         }
-        
-  //         // Add stress data to the response
-  //         if (stressData.length > 0) {
-  //           user.stress_level = stressData[0].stress_level;
-  //           user.stress_message = stressData[0].stress_message;
-  //         }
-  //       }
-  //     }
-
-  //     // Generate tokens
-  //     const accessToken = jwt.sign(
-  //       { userId: users[0].user_id, email },
-  //       process.env.JWT_SECRET,
-  //       { expiresIn: "5h" }
-  //     );
-
-  //     const refreshToken = jwt.sign(
-  //       { userId: users[0].user_id },
-  //       process.env.REFRESH_TOKEN_SECRET,
-  //       { expiresIn: "7d" }
-  //     );
-
-  //     // Store refresh token
-  //     await db.query(
-  //       "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
-  //       [
-  //         users[0].user_id,
-  //         refreshToken,
-  //         new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  //       ]
-  //     );
-
-  //     const decoded = jwt.decode(accessToken);
-  //     const loginTime = new Date().toISOString();
-  //     const { password: _, ...userWithoutPassword } = users[0];
-
-  //     return {
-  //       status: true,
-  //       code: 200,
-  //       message: "Login successful",
-  //       data: {
-  //         accessToken,
-  //         refreshToken,
-  //         loginAt: loginTime,
-  //         expiresAt: new Date(decoded.exp * 1000).toISOString(),
-  //         user: userWithoutPassword,
-  //         companyId: companyData?.id,
-  //         companyOnboarded: companyData?.onboarding_status,
-  //       },
-  //     };
-  //   } catch (error) {
-  //     throw new Error("Error logging in: " + error.message);
-  //   }
-  // }
-
   static async login(userData) {
     try {
       console.log("Login data:", userData);
@@ -421,7 +296,9 @@ class UserServices {
           u.job_title,
           t.bio,
           t.specialization,
-          t.years_of_experience
+          t.years_of_experience,
+          t.designation,
+          t.qualification
          FROM users u
          JOIN therapists t ON u.user_id = t.user_id
          WHERE u.is_active = 1 AND t.is_active = 1 
@@ -514,6 +391,160 @@ class UserServices {
     } catch (error) {
       await connection.rollback();
       throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateTherapist(therapistId, updateData) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+  
+      const {
+        email,
+        username,
+        first_name,
+        last_name,
+        phone,
+        gender,
+        years_of_experience,
+        specialization,
+        bio,
+        date_of_birth
+      } = updateData;
+  
+      // Calculate age if date_of_birth provided
+      const age = date_of_birth ? calculateAge(date_of_birth) : null;
+  
+      // Update user table
+      const userUpdateFields = [];
+      const userUpdateValues = [];
+  
+      if (email) {
+        userUpdateFields.push('email = ?');
+        userUpdateValues.push(email);
+      }
+      if (username) {
+        userUpdateFields.push('username = ?');
+        userUpdateValues.push(username);
+      }
+      if (first_name) {
+        userUpdateFields.push('first_name = ?');
+        userUpdateValues.push(first_name);
+      }
+      if (last_name) {
+        userUpdateFields.push('last_name = ?');
+        userUpdateValues.push(last_name);
+      }
+      if (phone) {
+        userUpdateFields.push('phone = ?');
+        userUpdateValues.push(phone);
+      }
+      if (gender) {
+        userUpdateFields.push('gender = ?');
+        userUpdateValues.push(gender);
+      }
+      if (date_of_birth) {
+        userUpdateFields.push('date_of_birth = ?', 'age = ?');
+        userUpdateValues.push(date_of_birth, age);
+      }
+  
+      if (userUpdateFields.length > 0) {
+        userUpdateValues.push(therapistId);
+        await connection.query(
+          `UPDATE users SET ${userUpdateFields.join(', ')} WHERE user_id = ?`,
+          userUpdateValues
+        );
+      }
+  
+      // Update therapist table
+      const therapistUpdateFields = [];
+      const therapistUpdateValues = [];
+  
+      if (bio) {
+        therapistUpdateFields.push('bio = ?');
+        therapistUpdateValues.push(bio);
+      }
+      if (specialization) {
+        therapistUpdateFields.push('specialization = ?');
+        therapistUpdateValues.push(specialization);
+      }
+      if (years_of_experience) {
+        therapistUpdateFields.push('years_of_experience = ?');
+        therapistUpdateValues.push(years_of_experience);
+      }
+  
+      if (therapistUpdateFields.length > 0) {
+        therapistUpdateValues.push(therapistId);
+        await connection.query(
+          `UPDATE therapists SET ${therapistUpdateFields.join(', ')} WHERE user_id = ?`,
+          therapistUpdateValues
+        );
+      }
+  
+      await connection.commit();
+  
+      return {
+        status: true,
+        code: 200,
+        message: "Therapist updated successfully",
+        data: { therapistId }
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error(`Error updating therapist: ${error.message}`);
+    } finally {
+      connection.release();
+    }
+  }
+  
+  static async deleteTherapist(therapistId) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+  
+      // Check if therapist exists
+      const [therapist] = await connection.query(
+        `SELECT t.*, u.email 
+         FROM therapists t 
+         JOIN users u ON t.user_id = u.user_id 
+         WHERE t.user_id = ? AND t.is_active = 1`,
+        [therapistId]
+      );
+
+      console.log("Therapist data:", therapist);
+  
+      if (!therapist || therapist.length === 0) {
+        throw new Error("Therapist not found or already inactive");
+      }
+  
+      // Soft delete in therapists table
+      await connection.query(
+        "UPDATE therapists SET is_active = 0 WHERE user_id = ?",
+        [therapistId]
+      );
+  
+      // Soft delete in users table
+      await connection.query(
+        "UPDATE users SET is_active = 0 WHERE user_id = ?",
+        [therapistId]
+      );
+  
+      await connection.commit();
+  
+      return {
+        status: true,
+        code: 200,
+        message: "Therapist deleted successfully",
+        data: {
+          therapistId,
+          email: therapist[0].email
+        }
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error(`Error deleting therapist: ${error.message}`);
     } finally {
       connection.release();
     }

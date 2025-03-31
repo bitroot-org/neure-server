@@ -12,6 +12,8 @@ const uploadRoutes = require("../api/server/routes/upload/UploadRoutes");
 const soundscapeRoutes = require("../api/server/routes/soundscapes/soundscapeRoutes");
 const galleryRoutes = require("./server/routes/gallery/galleryRoutes");
 const assessmentsRoutes = require('./server/routes/assessments/assessmentsRoutes');
+const dashboardRoutes = require("./server/routes/dashboard/dashboardRoutes");
+const analyticsRoutes = require("./server/routes/analytics/analyticsRoutes");
 
 const serverActive = require("./Cron/serverActive");
 const {
@@ -54,6 +56,8 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/soundscapes", soundscapeRoutes);
 app.use("/api", galleryRoutes);
 app.use('/api/assessments', assessmentsRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;
