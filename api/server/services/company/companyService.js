@@ -105,13 +105,13 @@ class CompanyService {
           company_size: rows[0].company_size,
           industry: rows[0].industry,
           onboarding_date: rows[0].onboarding_date,
-          companyProfileUrl: rows[0].company_profile_url,
+          company_profile_url: rows[0].company_profile_url,
           status: rows[0].status,
           contact_person_id: rows[0].contact_person_id,
         },
         contact_person: rows[0].id
           ? {
-              id: rows[0].id,
+              id: rows[0].contact_person_id,
               email: rows[0].email,
               username: rows[0].username,
               first_name: rows[0].first_name,
@@ -149,9 +149,13 @@ class CompanyService {
   }
 
   static async updateCompany(companyData, contactPersonData) {
-    console.log("companyData", companyData);
-    console.log("contactPersonData", contactPersonData);
+    const connection = await db.getConnection();
     try {
+      await connection.beginTransaction();
+
+      console.log("companyData", companyData);
+      console.log("contactPersonData", contactPersonData);
+
       if (companyData && companyData.id) {
         if (companyData.services_interested) {
           companyData.services_interested = JSON.stringify(
@@ -164,43 +168,67 @@ class CompanyService {
         );
 
         const companySetQuery = companyKeys
-          .map((key) => {
-            if (typeof companyData[key] === "string") {
-              return `${key} = ?`;
-            } else if (Array.isArray(companyData[key])) {
-              return `${key} = ?`;
-            } else {
-              return `${key} = ?`;
-            }
-          })
+          .map((key) => `${key} = ?`)
           .join(", ");
 
         const companyValues = companyKeys.map((key) => companyData[key]);
         companyValues.push(companyData.id);
 
-        await db.query(
+        await connection.query(
           `UPDATE companies SET ${companySetQuery} WHERE id = ?`,
           companyValues
         );
       }
 
-      if (contactPersonData && contactPersonData.id) {
+      if (contactPersonData && contactPersonData.user_id) {
+        // Extract department info before updating user
+        const departmentData = contactPersonData.department;
+        delete contactPersonData.department; // Remove department from user update data
+
         const contactPersonKeys = Object.keys(contactPersonData).filter(
-          (key) => key !== "id"
+          (key) => key !== "user_id"
         );
+        
         const contactSetQuery = contactPersonKeys
           .map((key) => `${key} = ?`)
           .join(", ");
+        
         const contactValues = contactPersonKeys.map(
           (key) => contactPersonData[key]
         );
         contactValues.push(contactPersonData.user_id);
 
-        await db.query(
+        // Update user information
+        await connection.query(
           `UPDATE users SET ${contactSetQuery} WHERE user_id = ?`,
           contactValues
         );
+
+        // Handle department update
+        if (departmentData && departmentData.id) {
+          // Check if user already has a department
+          const [existingDept] = await connection.query(
+            `SELECT department_id FROM user_departments WHERE user_id = ?`,
+            [contactPersonData.user_id]
+          );
+
+          if (existingDept.length > 0) {
+            // Update existing department
+            await connection.query(
+              `UPDATE user_departments SET department_id = ? WHERE user_id = ?`,
+              [departmentData.id, contactPersonData.user_id]
+            );
+          } else {
+            // Insert new department assignment
+            await connection.query(
+              `INSERT INTO user_departments (user_id, department_id) VALUES (?, ?)`,
+              [contactPersonData.user_id, departmentData.id]
+            );
+          }
+        }
       }
+
+      await connection.commit();
 
       return {
         status: true,
@@ -209,72 +237,12 @@ class CompanyService {
         data: { company: companyData, contact_person: contactPersonData },
       };
     } catch (error) {
+      await connection.rollback();
       throw error;
+    } finally {
+      connection.release();
     }
   }
-
-  // static async getTopPerformingEmployee(company_id, page = 1, limit = 10) {
-  //   try {
-  //     console.log("company_id", company_id);
-  //     const offset = (page - 1) * limit;
-
-  //     const [totalRows] = await db.query(
-  //       `SELECT COUNT(*) as count
-  //        FROM company_employees ce
-  //        WHERE ce.company_id = ? AND ce.is_active = 1`,
-  //       [company_id]
-  //     );
-
-  //     const [rows] = await db.query(
-  //       `SELECT
-  //         u.user_id,
-  //         u.email,
-  //         u.phone,
-  //         u.username,
-  //         u.first_name,
-  //         u.last_name,
-  //         u.gender,
-  //         u.date_of_birth,
-  //         u.age,
-  //         u.city,
-  //         u.Workshop_attended,
-  //         u.Task_completed,
-  //         u.EngagementScore,
-  //         u.job_title,
-  //         u.user_type,
-  //         ce.employee_code,
-  //         ce.joined_date,
-  //         d.id as department_id,
-  //         d.department_name,
-  //         ud.assigned_date as department_assigned_date
-  //        FROM company_employees ce
-  //        JOIN users u ON ce.user_id = u.user_id
-  //        LEFT JOIN user_departments ud ON u.user_id = ud.user_id
-  //        LEFT JOIN departments d ON ud.department_id = d.id
-  //        WHERE ce.company_id = ? AND ce.is_active = 1
-  //        ORDER BY u.EngagementScore DESC
-  //        LIMIT ? OFFSET ?`,
-  //       [company_id, limit, offset]
-  //     );
-
-  //     const totalPages = Math.ceil(totalRows[0].count / limit);
-
-  //     return {
-  //       status: true,
-  //       code: 200,
-  //       message: "Company employees retrieved successfully",
-  //       data: rows,
-  //       pagination: {
-  //         total: totalRows[0].count,
-  //         current_page: page,
-  //         total_pages: totalPages,
-  //         per_page: limit,
-  //       },
-  //     };
-  //   } catch (error) {
-  //     throw error;
-  //   }
-  // }
 
   static async getTopPerformingEmployee(
     company_id,
@@ -577,7 +545,7 @@ class CompanyService {
           metrics: {
             companyId: metrics[0].company_id,
             companyName: metrics[0].company_name,
-            companyProfileUrl: metrics[0].company_profile_url,
+            company_profile_url: metrics[0].company_profile_url,
             psychological_safety_index:
               metrics[0].psychological_safety_index || 0,
             retention_rate: metrics[0].retention_rate || 0,
@@ -598,6 +566,8 @@ class CompanyService {
 
   static async createEmployee(employeeData) {
     const connection = await db.getConnection();
+
+    console.log("employeeData:  ", employeeData);
 
     try {
       await connection.beginTransaction();
