@@ -8,5 +8,6 @@ router.get('/getAllAssessments', authorization, AssessmentsController.getAllAsse
 router.get('/:id', authorization, AssessmentsController.getAssessmentById);
 router.post('/createAssessment', authorization, AssessmentsController.createAssessment);
 router.put('/updateAssessment', authorization, AssessmentsController.updateAssessment);
+router.delete('/deleteAssessment/:id', authorization, AssessmentsController.deleteAssessment);
 
 module.exports = router;

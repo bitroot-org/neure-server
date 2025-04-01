@@ -106,6 +106,24 @@ class AssessmentsController {
       return errorResponse(res, 'Error updating assessment', error);
     }
   }
+
+  static async deleteAssessment(req, res) {
+    try {
+      const { id } = req.params;
+      console.log("id", id);
+      if (!id) {
+        return errorResponse(res, 'Assessment ID is required', null, 400);
+      }
+
+      const result = await AssessmentsService.deleteAssessment(id);
+      return successResponse(res, result.message, result.data);
+    } catch (error) {
+      if (error.message === 'Assessment not found or already deleted') {
+        return errorResponse(res, error.message, null, 404);
+      }
+      return errorResponse(res, 'Error deleting assessment', error);
+    }
+  }
 }
 
 module.exports = AssessmentsController;

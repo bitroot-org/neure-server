@@ -167,6 +167,48 @@ class AssessmentsService {
       connection.release();
     }
   }
+
+  static async deleteAssessment(assessmentId) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      console.log("assessmentId", assessmentId);
+
+      // Check if assessment exists and is active
+      const [assessment] = await connection.query(
+        'SELECT id, title FROM assessments WHERE id = ? AND is_active = 1',
+        [assessmentId]
+      );
+
+      console.log(assessment);
+
+      if (!assessment || assessment.length === 0) {
+        throw new Error('Assessment not found or already deleted');
+      }
+
+      // Soft delete the assessment
+      await connection.query(
+        'UPDATE assessments SET is_active = 0 WHERE id = ?',
+        [assessmentId]
+      );
+
+      await connection.commit();
+      return {
+        status: true,
+        message: 'Assessment deleted successfully',
+        data: {
+          id: assessmentId,
+          title: assessment[0].title
+        }
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 module.exports = AssessmentsService;
