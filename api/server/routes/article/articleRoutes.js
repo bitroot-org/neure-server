@@ -38,6 +38,6 @@ router.post(
   createArticle
 );
 router.put("/updateArticle", authorization, articleUpload.single("file"), updateArticle);
-router.delete("/articles/:articleId", authorization, deleteArticle);
+router.delete("/deleteArticle/:articleId", authorization, deleteArticle);
 
 module.exports = router;

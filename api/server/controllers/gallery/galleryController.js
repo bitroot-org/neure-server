@@ -1,5 +1,7 @@
 const { uploadGalleryFile, deleteGalleryFile } = require("../upload/UploadController");
 const GalleryService = require("../../services/gallery/galleryService");
+const db = require("../../../config/db");
+
 
 class GalleryController {
   static async getGalleryItems(req, res) {
@@ -168,6 +170,63 @@ class GalleryController {
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Update gallery item error:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
+
+  static async deleteGalleryItem(req, res) {
+    try {
+      const { itemId } = req.params;
+  
+      if (!itemId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Item ID is required",
+          data: null,
+        });
+      }
+  
+      // Get file URL directly from gallery table
+      const [item] = await db.query(
+        'SELECT file_url, file_type FROM gallery WHERE id = ?',
+        [itemId]
+      );
+
+      console.log("item  :  ", item);
+  
+      if (!item || item.length === 0) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Gallery item not found",
+          data: null,
+        });
+      }
+  
+      // Delete file from AWS S3
+      if (item[0].file_type !== 'video') {
+        const s3Result = await deleteGalleryFile(item[0].file_url);
+        if (!s3Result.success) {
+          return res.status(500).json({
+            status: false,
+            code: 500,
+            message: "Error deleting file from storage",
+            data: null,
+          });
+        }
+      }
+  
+      // Delete from database
+      const result = await GalleryService.deleteGalleryItem(itemId);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Delete gallery item error:", error);
       return res.status(500).json({
         status: false,
         code: 500,

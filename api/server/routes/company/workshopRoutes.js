@@ -11,7 +11,9 @@ const {
   deleteWorkshop,
   createWorkshop,
   getAllWorkshopSchedules,
-  scheduleWorkshop
+  scheduleWorkshop,
+  cancelWorkshopSchedule,
+  rescheduleWorkshop
 } = require('../../controllers/company/workshopController.js');
 
 
@@ -35,6 +37,7 @@ router.get('/getAllWorkshopSchedules', authorization, getAllWorkshopSchedules);
 
 router.post('/scheduleWorkshop', authorization, scheduleWorkshop);
 
-
+router.put('/cancelWorkshopSchedule', authorization, cancelWorkshopSchedule);
+router.put('/rescheduleWorkshop', authorization, rescheduleWorkshop);
 
 module.exports = router;

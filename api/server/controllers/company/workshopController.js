@@ -7,7 +7,9 @@ const {
   deleteWorkshop,
   createWorkshop,
   getAllWorkshopSchedules,
-  scheduleWorkshop
+  scheduleWorkshop,
+  cancelWorkshopSchedule,
+  rescheduleWorkshop
 } = require('../../services/company/workshopService');
 
 class workshopController {
@@ -249,6 +251,55 @@ class workshopController {
     }
   }
 
+  static async cancelWorkshopSchedule(req, res) {
+    try {
+      const { schedule_id } = req.body;
+
+      if (!schedule_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: 'Schedule ID is required',
+          data: null,
+        });
+      }
+
+      const result = await cancelWorkshopSchedule(schedule_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
+
+  static async rescheduleWorkshop(req, res) {
+    try {
+      const { schedule_id, new_start_time, new_end_time } = req.body;
+
+      if (!schedule_id || !new_start_time || !new_end_time) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: 'Schedule ID, new start time, and new end time are required',
+          data: null,
+        });
+      }
+
+      const result = await rescheduleWorkshop(schedule_id, new_start_time, new_end_time);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
+      });
+    }
+  }
 
 }
 

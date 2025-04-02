@@ -591,50 +591,50 @@ class MediaController {
     }
   }
 
-  static async deleteGalleryFile(req, res) {
-    try {
-      const { fileId } = req.body;
+  // static async deleteGalleryFile(req, res) {
+  //   try {
+  //     const { fileId } = req.body;
 
-      if (!fileId) {
-        return res.status(400).json({
-          success: false,
-          message: "File ID is required"
-        });
-      }
+  //     if (!fileId) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "File ID is required"
+  //       });
+  //     }
 
-      const file = await MediaService.getGalleryFileById(fileId);
-      if (!file) {
-        return res.status(404).json({
-          success: false,
-          message: "Gallery file not found"
-        });
-      }
+  //     const file = await MediaService.getGalleryFileById(fileId);
+  //     if (!file) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         message: "Gallery file not found"
+  //       });
+  //     }
 
-      // Delete from S3
-      const deleteParams = {
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: file.path
-      };
+  //     // Delete from S3
+  //     const deleteParams = {
+  //       Bucket: process.env.AWS_BUCKET_NAME,
+  //       Key: file.path
+  //     };
 
-      const command = new DeleteObjectCommand(deleteParams);
-      await s3Client.send(command);
+  //     const command = new DeleteObjectCommand(deleteParams);
+  //     await s3Client.send(command);
 
-      // Delete from database
-      await MediaService.deleteGalleryFile(fileId);
+  //     // Delete from database
+  //     await MediaService.deleteGalleryFile(fileId);
 
-      return res.status(200).json({
-        success: true,
-        message: "Gallery file deleted successfully"
-      });
-    } catch (error) {
-      console.error("Delete gallery file error:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Error deleting gallery file",
-        error: error.message
-      });
-    }
-  }
+  //     return res.status(200).json({
+  //       success: true,
+  //       message: "Gallery file deleted successfully"
+  //     });
+  //   } catch (error) {
+  //     console.error("Delete gallery file error:", error);
+  //     return res.status(500).json({
+  //       success: false,
+  //       message: "Error deleting gallery file",
+  //       error: error.message
+  //     });
+  //   }
+  // }
 
   static async uploadWorkshopFiles(req, res) {
     console.log('Received files:', req.files);
@@ -724,6 +724,31 @@ class MediaController {
     }
   }
 
+  static async deleteGalleryFile(fileUrl) {
+    try {
+      // Extract the key from the file URL
+      const key = fileUrl.split('.amazonaws.com/')[1];
+      
+      const deleteParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: key
+      };
+
+      const command = new DeleteObjectCommand(deleteParams);
+      await s3Client.send(command);
+
+      return {
+        success: true,
+        message: "File deleted successfully from S3"
+      };
+    } catch (error) {
+      console.error("Delete S3 file error:", error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
 }
 
 module.exports = MediaController;

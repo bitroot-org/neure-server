@@ -154,9 +154,12 @@ class articleService {
   }
 
   // Delete an article
+  // ...existing code...
+
+  // Delete an article
   static async deleteArticle(articleId) {
     try {
-      const result = await db.query('UPDATE articles SET is_active = 0 WHERE id = ?', [articleId]);
+      const [result] = await db.query('DELETE FROM articles WHERE id = ?', [articleId]);
 
       if (result.affectedRows === 0) {
         return {
@@ -170,13 +173,15 @@ class articleService {
       return {
         status: true,
         code: 200,
-        message: 'Article deleted successfully',
+        message: 'Article permanently deleted successfully',
         data: { id: articleId },
       };
     } catch (error) {
       throw new Error('Error deleting article: ' + error.message);
     }
   }
+
+// ...existing code...
 }
 
 module.exports = articleService;

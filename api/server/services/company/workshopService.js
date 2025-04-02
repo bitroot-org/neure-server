@@ -420,7 +420,7 @@ class workshopService {
         FROM workshop_schedules ws
         INNER JOIN workshops w ON ws.workshop_id = w.id
         INNER JOIN companies c ON ws.company_id = c.id
-        WHERE w.is_active = 1
+        WHERE w.is_active = 1 AND ws.status != 'canceled'
       `;
       const queryParams = [];
 
@@ -484,6 +484,73 @@ class workshopService {
     }
   }
 
+  static async cancelWorkshopSchedule(scheduleId) {
+    try {
+      const [schedule] = await db.query(
+        'SELECT * FROM workshop_schedules WHERE id = ?',
+        [scheduleId]
+      );
+  
+      if (schedule.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: 'Workshop schedule not found',
+          data: null,
+        };
+      }
+  
+      await db.query(
+        'UPDATE workshop_schedules SET status = ? WHERE id = ?',
+        ['canceled', scheduleId]
+      );
+  
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop schedule cancelled successfully',
+        data: { schedule_id: scheduleId },
+      };
+    } catch (error) {
+      throw new Error('Error cancelling workshop schedule: ' + error.message);
+    }
+  }
+  
+  static async rescheduleWorkshop(scheduleId, newStartTime, newEndTime) {
+    try {
+      const [schedule] = await db.query(
+        'SELECT * FROM workshop_schedules WHERE id = ?',
+        [scheduleId]
+      );
+  
+      if (schedule.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: 'Workshop schedule not found',
+          data: null,
+        };
+      }
+  
+      await db.query(
+        'UPDATE workshop_schedules SET start_time = ?, end_time = ?, status = ? WHERE id = ?',
+        [newStartTime, newEndTime, 'rescheduled', scheduleId]
+      );
+  
+      return {
+        status: true,
+        code: 200,
+        message: 'Workshop rescheduled successfully',
+        data: {
+          schedule_id: scheduleId,
+          new_start_time: newStartTime,
+          new_end_time: newEndTime,
+        },
+      };
+    } catch (error) {
+      throw new Error('Error rescheduling workshop: ' + error.message);
+    }
+  }
 }
 
 module.exports = workshopService;

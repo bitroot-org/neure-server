@@ -138,17 +138,24 @@ class GalleryService {
     try {
       const [item] = await db.query(
         `SELECT 
-          id, 
-          company_id, 
-          file_type, 
-          file_url, 
-          size, 
-          created_at 
-        FROM gallery 
-        WHERE id = ?`,
+          g.id, 
+          g.file_type, 
+          g.file_url, 
+          g.title,
+          g.description,
+          g.tags,
+          g.size, 
+          g.created_at,
+          GROUP_CONCAT(cga.company_id) as assigned_companies
+        FROM gallery g
+        LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+        WHERE g.id = ?
+        GROUP BY g.id`,
         [itemId]
       );
 
+      console.log("item  :  ", item);
+  
       if (item.length === 0) {
         return {
           status: false,
@@ -157,12 +164,26 @@ class GalleryService {
           data: null,
         };
       }
-
+  
+      // Parse the assigned companies into an array if they exist
+      const assignedCompanies = item[0].assigned_companies 
+        ? item[0].assigned_companies.split(',').map(id => parseInt(id))
+        : [];
+  
+      // Format the response
+      const formattedItem = {
+        ...item[0],
+        assigned_companies: assignedCompanies,
+        tags: item[0].tags ? JSON.parse(item[0].tags) : null
+      };
+  
+      delete formattedItem.assigned_companies; // Remove the comma-separated string version
+  
       return {
         status: true,
         code: 200,
         message: "Gallery item fetched successfully",
-        data: item[0],
+        data: formattedItem,
       };
     } catch (error) {
       throw new Error(`Error fetching gallery item: ${error.message}`);
@@ -350,6 +371,41 @@ class GalleryService {
       };
     } catch (error) {
       throw new Error(`Error updating gallery item: ${error.message}`);
+    }
+  }
+
+  static async deleteGalleryItem(itemId) {
+    console.log("Deleting gallery item with ID:", itemId);
+    try {
+      // Delete any company gallery assignments first
+      await db.query(
+        'DELETE FROM company_gallery_assignments WHERE gallery_item_id = ?',
+        [itemId]
+      );
+
+      // Delete the gallery item
+      const [result] = await db.query(
+        'DELETE FROM gallery WHERE id = ?',
+        [itemId]
+      );
+
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Gallery item not found",
+          data: null,
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Gallery item deleted successfully",
+        data: { id: itemId },
+      };
+    } catch (error) {
+      throw new Error(`Error deleting gallery item: ${error.message}`);
     }
   }
 }

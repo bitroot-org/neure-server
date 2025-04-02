@@ -7,6 +7,7 @@ const {
   getMediaCounts,
   uploadGalleryItem,
   updateGalleryItem,
+  deleteGalleryItem
 } = require("../../controllers/gallery/galleryController");
 
 const router = express.Router();
@@ -52,5 +53,8 @@ router.put(
   galleryUpload.single("file"),
   updateGalleryItem
 );
+
+router.delete("/deleteGalleryItem/:itemId", authorization, deleteGalleryItem);
+
 
 module.exports = router;

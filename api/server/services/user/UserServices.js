@@ -294,6 +294,7 @@ class UserServices {
           u.last_name,
           u.gender,
           u.job_title,
+          u.profile_url,
           t.bio,
           t.specialization,
           t.years_of_experience,
