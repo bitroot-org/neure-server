@@ -448,6 +448,71 @@ class CompanyService {
     }
   }
 
+  // static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
+  //   try {
+  //     const offset = (page - 1) * limit;
+  
+  //     const searchCondition = search
+  //       ? `WHERE c.company_name LIKE ? OR c.email_domain LIKE ? OR c.industry LIKE ?`
+  //       : "";
+  
+  //     const searchParams = search
+  //       ? [`%${search}%`, `%${search}%`, `%${search}%`]
+  //       : [];
+  
+  //     // Get total count
+  //     const [totalRows] = await db.query(
+  //       `SELECT COUNT(DISTINCT c.id) as count 
+  //        FROM companies c 
+  //        ${searchCondition}`,
+  //       searchParams
+  //     );
+  
+  //     // Get companies with their departments
+  //     const [companies] = await db.query(
+  //       `SELECT 
+  //         c.*,
+  //         GROUP_CONCAT(
+  //           DISTINCT JSON_OBJECT(
+  //             'id', d.id,
+  //             'name', d.department_name
+  //           )
+  //         ) as departments
+  //       FROM companies c
+  //       LEFT JOIN company_departments cd ON c.id = cd.company_id
+  //       LEFT JOIN departments d ON cd.department_id = d.id
+  //       ${searchCondition}
+  //       GROUP BY c.id
+  //       ORDER BY c.created_at DESC
+  //       LIMIT ? OFFSET ?`,
+  //       [...searchParams, limit, offset]
+  //     );
+  
+  //     // Parse the departments JSON string for each company
+  //     const companiesWithDepartments = companies.map(company => ({
+  //       ...company,
+  //       departments: company.departments 
+  //         ? JSON.parse(`[${company.departments}]`)
+  //         : []
+  //     }));
+  
+  //     const totalPages = Math.ceil(totalRows[0].count / limit);
+  
+  //     return {
+  //       companies: companiesWithDepartments,
+  //       pagination: {
+  //         total: totalRows[0].count,
+  //         current_page: page,
+  //         total_pages: totalPages,
+  //         per_page: limit,
+  //       },
+  //     };
+  //   } catch (error) {
+  //     console.error("Error in getAllCompanies:", error);
+  //     throw new Error("Error fetching companies: " + error.message);
+  //   }
+  // }
+  
   static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
     try {
       const offset = (page - 1) * limit;
@@ -468,7 +533,7 @@ class CompanyService {
         searchParams
       );
   
-      // Get companies with their departments
+      // Get companies with their departments and contact person info
       const [companies] = await db.query(
         `SELECT 
           c.*,
@@ -477,10 +542,19 @@ class CompanyService {
               'id', d.id,
               'name', d.department_name
             )
-          ) as departments
+          ) as departments,
+          JSON_OBJECT(
+            'id', u.user_id,
+            'email', u.email,
+            'phone', u.phone,
+            'first_name', u.first_name,
+            'last_name', u.last_name,
+            'username', u.username
+          ) as contact_person_info
         FROM companies c
         LEFT JOIN company_departments cd ON c.id = cd.company_id
         LEFT JOIN departments d ON cd.department_id = d.id
+        LEFT JOIN users u ON c.contact_person_id = u.user_id
         ${searchCondition}
         GROUP BY c.id
         ORDER BY c.created_at DESC
@@ -488,18 +562,31 @@ class CompanyService {
         [...searchParams, limit, offset]
       );
   
-      // Parse the departments JSON string for each company
-      const companiesWithDepartments = companies.map(company => ({
-        ...company,
-        departments: company.departments 
-          ? JSON.parse(`[${company.departments}]`)
-          : []
-      }));
+      console.log("Raw companies data:", companies);
+  
+      // Parse the departments and contact person info for each company
+      const companiesWithDetails = companies.map(company => {
+        console.log("Processing company:", company.id);
+        console.log("Departments data:", company.departments);
+        console.log("Contact person data:", company.contact_person_info);
+  
+        return {
+          ...company,
+          departments: company.departments 
+            ? JSON.parse(`[${company.departments}]`)
+            : [],
+          contact_person_info: typeof company.contact_person_info === 'string'
+            ? JSON.parse(company.contact_person_info)
+            : company.contact_person_info || null
+        };
+      });
+  
+      console.log("Processed companies:", companiesWithDetails);
   
       const totalPages = Math.ceil(totalRows[0].count / limit);
   
       return {
-        companies: companiesWithDepartments,
+        companies: companiesWithDetails,
         pagination: {
           total: totalRows[0].count,
           current_page: page,
@@ -509,6 +596,7 @@ class CompanyService {
       };
     } catch (error) {
       console.error("Error in getAllCompanies:", error);
+      console.error("Error stack:", error.stack);
       throw new Error("Error fetching companies: " + error.message);
     }
   }
@@ -1499,63 +1587,185 @@ class CompanyService {
     }
   }
 
+  // static async createCompany({
+  //   company_name,
+  //   email,
+  //   company_size,
+  //   department_ids,
+  // }) {
+  //   const connection = await db.getConnection();
+  //   try {
+  //     await connection.beginTransaction();
+
+  //     // Insert the company into the `companies` table
+  //     const [companyResult] = await connection.query(
+  //       `INSERT INTO companies (company_name, email_domain, company_size) VALUES (?, ?, ?)`,
+  //       [company_name, email, company_size]
+  //     );
+
+  //     const companyId = companyResult.insertId;
+
+  //     // Validate and assign departments
+  //     if (department_ids && department_ids.length > 0) {
+  //       // Ensure the provided department IDs exist in the `departments` table
+  //       const [validDepartments] = await connection.query(
+  //         `SELECT id FROM departments WHERE id IN (?)`,
+  //         [department_ids]
+  //       );
+
+  //       if (validDepartments.length === 0) {
+  //         throw new Error("Invalid department IDs provided.");
+  //       }
+
+  //       // Insert valid department IDs into `company_departments`
+  //       const departmentValues = validDepartments.map((dept) => [
+  //         companyId,
+  //         dept.id,
+  //       ]);
+  //       await connection.query(
+  //         `INSERT INTO company_departments (company_id, department_id) VALUES ?`,
+  //         [departmentValues]
+  //       );
+  //     }
+
+  //     await connection.commit();
+
+  //     return {
+  //       status: true,
+  //       code: 201,
+  //       message: "Company created successfully with assigned departments",
+  //       data: {
+  //         id: companyId,
+  //         company_name,
+  //         email,
+  //         company_size,
+  //         assigned_departments: department_ids || [],
+  //       },
+  //     };
+  //   } catch (error) {
+  //     await connection.rollback();
+  //     throw new Error("Error creating company: " + error.message);
+  //   } finally {
+  //     connection.release();
+  //   }
+  // }
+
   static async createCompany({
     company_name,
-    email,
     company_size,
     department_ids,
+    contact_person_info
   }) {
+    console.log("Creating company with data:", {
+      company_name,
+      company_size,
+      department_ids,
+      contact_person_info
+    });
+  
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-
-      // Insert the company into the `companies` table
-      const [companyResult] = await connection.query(
-        `INSERT INTO companies (company_name, email_domain, company_size) VALUES (?, ?, ?)`,
-        [company_name, email, company_size]
+  
+      // First create the contact person user
+      const username = await CompanyService.generateUniqueUsername(
+        contact_person_info.first_name,
+        contact_person_info.last_name
       );
-
+  
+      // Generate a temporary password based on the first 4 characters of the username and append "1234"
+      const tempPassword = `${username.slice(0, 4)}1234`;
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+  
+      // Insert the contact person into users table
+      const [userResult] = await connection.query(
+        `INSERT INTO users (
+          email, 
+          phone, 
+          username,
+          password,
+          first_name, 
+          last_name,
+          role_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          contact_person_info.email,
+          contact_person_info.phone,
+          username,
+          hashedPassword,
+          contact_person_info.first_name,
+          contact_person_info.last_name,
+          2 // Assuming role_id 2 is for company contact person
+        ]
+      );
+  
+      const contactPersonId = userResult.insertId;
+  
+      // Insert the company with contact person reference and onboarding status
+      const [companyResult] = await connection.query(
+        `INSERT INTO companies (
+          company_name, 
+          company_size,
+          contact_person_id,
+          onboarding_status
+        ) VALUES (?, ?, ?, ?)`,
+        [company_name, company_size, contactPersonId, 1]  // Set onboarding_status to 1
+      );
+  
       const companyId = companyResult.insertId;
-
-      // Validate and assign departments
+  
+      // Assign departments if provided
       if (department_ids && department_ids.length > 0) {
-        // Ensure the provided department IDs exist in the `departments` table
+        // Validate department IDs
         const [validDepartments] = await connection.query(
           `SELECT id FROM departments WHERE id IN (?)`,
           [department_ids]
         );
-
+  
         if (validDepartments.length === 0) {
           throw new Error("Invalid department IDs provided.");
         }
-
-        // Insert valid department IDs into `company_departments`
-        const departmentValues = validDepartments.map((dept) => [
+  
+        // Insert department assignments
+        const departmentValues = validDepartments.map(dept => [
           companyId,
-          dept.id,
+          dept.id
         ]);
+        
         await connection.query(
           `INSERT INTO company_departments (company_id, department_id) VALUES ?`,
           [departmentValues]
         );
       }
-
+  
       await connection.commit();
-
+  
       return {
         status: true,
         code: 201,
-        message: "Company created successfully with assigned departments",
+        message: "Company created successfully",
         data: {
-          id: companyId,
-          company_name,
-          email,
-          company_size,
-          assigned_departments: department_ids || [],
-        },
+          company: {
+            id: companyId,
+            company_name,
+            company_size,
+            onboarding_status: 1,
+            assigned_departments: department_ids || []
+          },
+          contact_person: {
+            id: contactPersonId,
+            email: contact_person_info.email,
+            username,
+            first_name: contact_person_info.first_name,
+            last_name: contact_person_info.last_name,
+            phone: contact_person_info.phone,
+            temp_password: tempPassword
+          }
+        }
       };
     } catch (error) {
       await connection.rollback();
+      console.error("Error in createCompany:", error);
       throw new Error("Error creating company: " + error.message);
     } finally {
       connection.release();

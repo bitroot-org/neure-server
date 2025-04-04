@@ -764,16 +764,14 @@ class CompanyController {
     try {
       const { user_id, role_id } = req.user;
 
-      console.log("Received request to create company:", req.user);
-      const { company_name, email, company_size, department_ids } = req.body;
+      const { company_name, email, company_size, department_ids, contact_person_info } = req.body;
   
       // Check if the user exists and has the correct role_id in the database
       const [user] = await db.query(
         `SELECT role_id FROM users WHERE user_id = ? AND role_id = ?`,
-        [user_id, 1] // role_id = 1 for admin
+        [user_id, 1] 
       );
 
-      console.log("User role_id:", user[0].role_id);
 
       if (!user || user.length === 0 || user[0].role_id !== 1) {
       return res.status(403).json({
@@ -785,11 +783,11 @@ class CompanyController {
     }
   
       // Validate the required fields
-      if (!company_name || !email || !company_size) {
+      if (!company_name || !company_size || !contact_person_info) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: "company_name, email, and company_size are required.",
+          message: "company_name, contact_person_info, and company_size are required.",
           data: null,
         });
       }
@@ -807,9 +805,9 @@ class CompanyController {
       // Call the service to create the company
       const result = await createCompany({
         company_name,
-        email,
         company_size,
         department_ids,
+        contact_person_info
       });
   
       return res.status(result.code).json(result);

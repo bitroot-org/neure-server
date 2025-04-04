@@ -7,7 +7,8 @@ const {
   getMediaCounts,
   uploadGalleryItem,
   updateGalleryItem,
-  deleteGalleryItem
+  deleteGalleryItem,
+  assignToCompany
 } = require("../../controllers/gallery/galleryController");
 
 const router = express.Router();
@@ -55,6 +56,9 @@ router.put(
 );
 
 router.delete("/deleteGalleryItem/:itemId", authorization, deleteGalleryItem);
+
+// ...existing routes...
+router.post("/assignToCompany", authorization, assignToCompany);
 
 
 module.exports = router;

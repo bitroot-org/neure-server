@@ -4,12 +4,44 @@ const db = require("../../../config/db");
 
 
 class GalleryController {
+  // static async getGalleryItems(req, res) {
+  //   try {
+  //     const { companyId, type } = req.query;
+  //     const page = parseInt(req.query.page) || 1;
+  //     const limit = parseInt(req.query.limit) || 10;
+
+  //     if (!type) {
+  //       return res.status(400).json({
+  //         status: false,
+  //         code: 400,
+  //         message: "File type is required",
+  //         data: null,
+  //       });
+  //     }
+
+  //     const result = await GalleryService.getGalleryItems(
+  //       companyId,
+  //       type,
+  //       page,
+  //       limit
+  //     );
+  //     return res.status(result.code).json(result);
+  //   } catch (error) {
+  //     return res.status(500).json({
+  //       status: false,
+  //       code: 500,
+  //       message: error.message,
+  //       data: null,
+  //     });
+  //   }
+  // }
+
   static async getGalleryItems(req, res) {
     try {
-      const { companyId, type } = req.query;
+      const { companyId, type, showUnassigned } = req.query;
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-
+  
       if (!type) {
         return res.status(400).json({
           status: false,
@@ -18,15 +50,18 @@ class GalleryController {
           data: null,
         });
       }
-
+  
       const result = await GalleryService.getGalleryItems(
-        companyId,
+        companyId ? parseInt(companyId) : null,
         type,
         page,
-        limit
+        limit,
+        showUnassigned === 'true'
       );
+      
       return res.status(result.code).json(result);
     } catch (error) {
+      console.error("Get gallery items error:", error);
       return res.status(500).json({
         status: false,
         code: 500,
@@ -232,6 +267,54 @@ class GalleryController {
         code: 500,
         message: error.message,
         data: null,
+      });
+    }
+  }
+
+  static async assignToCompany(req, res) {
+    try {
+      const { company_id, resource_ids } = req.body;
+      
+      // Access user details from req.user (set by authorization middleware)
+      const { user_id, role_id } = req.user;
+
+      console.log("user_id : ", user_id);
+      console.log("role_id : ", role_id);
+  
+      // Check if user is admin (role_id = 1)
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Unauthorized: Only administrators can assign gallery items",
+          data: null
+        });
+      }
+  
+      // Validate required fields
+      if (!company_id || !resource_ids || !Array.isArray(resource_ids)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID and resource IDs array are required",
+          data: null
+        });
+      }
+  
+      const result = await GalleryService.assignToCompany({
+        company_id,
+        resource_ids,
+        user_id  // Pass the user_id to the service
+      });
+  
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Assign gallery items error:", error);
+      return res.status(error.message.includes('Unauthorized') ? 403 : 500).json({
+        status: false,
+        code: error.message.includes('Unauthorized') ? 403 : 500,
+        message: error.message,
+        data: null
       });
     }
   }
