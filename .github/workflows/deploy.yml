@@ -11,6 +11,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Test SSH Connection
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOYMENT_MAC_IP }}
+          username: ${{ secrets.DEPLOYMENT_MAC_USER }}
+          key: ${{ secrets.PRAVEEN_MAC_SSH_KEY }}
+          script: |
+            echo "✅ SSH Connection Successful"
+            uname -a  # Check system details
+            ls -lah   # List files for debugging
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -18,7 +29,7 @@ jobs:
           username: ${{ secrets.DEPLOYMENT_MAC_USER }}
           key: ${{ secrets.PRAVEEN_MAC_SSH_KEY }}
           script: |
-            cd path/to/your/repo  # Update this!
+            cd path/to/your/repo  # Update this path!
             git pull origin main
             docker-compose down
             docker-compose up -d --build
