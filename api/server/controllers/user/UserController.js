@@ -33,7 +33,7 @@ class UserController {
 
   static async login(req, res) {
     try {
-      console.log("Login request:", req.body);
+      // console.log("Login request:", req.body);
       const result = await login(req.body);
       return res.status(result.code).json(result);
     } catch (error) {

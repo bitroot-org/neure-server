@@ -1,6 +1,6 @@
 const {
     getNotificationAndAnnouncementsService,
-} = require('../../services/notifications/notificationService');
+} = require('../../services/notificationsAndAnnouncements/notificationService');
 
 class NotificationController {
     static async getNotificationAndAnnouncements(req, res) {
@@ -51,6 +51,8 @@ class NotificationController {
             });
         }
     }
+
+    
 
 }
 

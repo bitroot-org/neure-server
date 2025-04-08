@@ -93,6 +93,8 @@ class NotificationService {
       throw new Error("Database query failed");
     }
   }
+
+  
 }
 
 module.exports = NotificationService;

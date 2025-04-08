@@ -138,6 +138,51 @@ const calculateEngagementScore = async () => {
   }
 };
 
+const recordEmployeeDailyHistory = async () => {
+  try {
+    // Fetch the current stress level, engagement score, and active state for all employees
+    const [employees] = await db.query(`
+      SELECT 
+        ce.user_id,
+        ce.company_id,
+        ce.stress_level,
+        ce.engagement_score,
+        ce.is_active
+      FROM company_employees ce
+    `);
+
+    // Prepare the data for insertion
+    const today = new Date().toISOString().split("T")[0]; 
+    const historyData = employees.map(employee => [
+      employee.user_id,
+      employee.company_id,
+      employee.stress_level,
+      employee.engagement_score,
+      employee.is_active,
+      today
+    ]);
+
+    // Insert the data into the employee_daily_history table
+    await db.query(
+      `
+      INSERT INTO employee_daily_history (
+        user_id, 
+        company_id, 
+        stress_level, 
+        engagement_score, 
+        is_active, 
+        recorded_date
+      ) VALUES ?
+      `,
+      [historyData]
+    );
+
+    console.log("Employee daily history recorded successfully.");
+  } catch (error) {
+    console.error("Error recording employee daily history:", error.message);
+  }
+};
+
 // Schedule the cron job to run every start of the day seconds for debugging
 cron.schedule(
   "1 0 * * *",
@@ -184,9 +229,15 @@ cron.schedule(
   }
 );
 
+cron.schedule("0 0 * * *", recordEmployeeDailyHistory, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
+
 module.exports = {
   calculateCompanyStressLevel,
   calculateRetentionRate,
   calculatePSI,
   calculateEngagementScore,
+  recordEmployeeDailyHistory
 };

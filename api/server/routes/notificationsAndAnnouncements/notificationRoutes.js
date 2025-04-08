@@ -4,10 +4,11 @@ const { authorization } = require('../../../auth/tokenValidator.js');
 
 const {
     getNotificationAndAnnouncements
-} = require('../../controllers/notifications/notificationController.js');
+} = require('../../controllers/notificationsAndAnnouncements/notificationController.js');
 
 
 router.get('/getNotificationAndAnnouncements', authorization, getNotificationAndAnnouncements);
+
 
 
 module.exports = router;

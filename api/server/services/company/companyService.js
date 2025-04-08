@@ -1771,6 +1771,142 @@ class CompanyService {
       connection.release();
     }
   }
+
+  static async getCompanyAnalytics(company_id, startDate, endDate) {
+    try {
+      if (!company_id) {
+        throw new Error("company_id is required");
+      }
+
+      // Fetch basic analytics data for the company
+      const [companyData] = await db.query(
+        `
+        SELECT 
+          c.id as company_id,
+          c.company_name,
+          c.engagement_score,
+          c.psychological_safety_index as psi,
+          c.retention_rate,
+          c.stress_level,
+          COUNT(ce.user_id) as total_employees,
+          SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
+          SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
+          MAX(ce.joined_date) as last_employee_joined,
+          (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
+        FROM companies c
+        LEFT JOIN company_employees ce ON c.id = ce.company_id
+        WHERE c.id = ?
+        GROUP BY c.id
+        `,
+        [company_id]
+      );
+
+      if (!companyData || companyData.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Company analytics not found",
+          data: null,
+        };
+      }
+
+      // Fetch count of new users for the company in the given time period
+      const [newUsers] = await db.query(
+        `
+        SELECT COUNT(*) as new_users
+        FROM company_employees
+        WHERE company_id = ? AND DATE(joined_date) BETWEEN DATE(?) AND DATE(?)
+        `,
+        [company_id, startDate, endDate]
+      );
+
+      // Fetch engagement score and stress level trends for the company
+      const [trends] = await db.query(
+        `
+        SELECT 
+          recorded_date as date,
+          AVG(engagement_score) as avg_engagement_score,
+          AVG(stress_level) as avg_stress_level
+        FROM employee_daily_history
+        WHERE company_id = ? AND DATE(recorded_date) BETWEEN DATE(?) AND DATE(?)
+        GROUP BY recorded_date
+        ORDER BY recorded_date ASC
+        `,
+        [company_id, startDate, endDate]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "Company analytics retrieved successfully",
+        data: {
+          ...companyData[0],
+          new_users: newUsers[0]?.new_users || 0,
+          trends: trends.map(trend => ({
+            date: trend.date,
+            avg_engagement_score: trend.avg_engagement_score,
+            avg_stress_level: trend.avg_stress_level,
+          })),
+        },
+      };
+    } catch (error) {
+      console.error("Error fetching company analytics:", error);
+      throw new Error(`Error fetching company analytics: ${error.message}`);
+    }
+  }
+
+  static async getCompanyList({ page = 1, limit = 20, search = "" }) {
+    try {
+      const offset = (page - 1) * limit;
+  
+      // Add search condition if a search term is provided
+      const searchCondition = search
+        ? `WHERE company_name LIKE ?`
+        : "";
+  
+      const searchParams = search
+        ? [`%${search}%`]
+        : [];
+  
+      // Fetch the total count of companies for pagination
+      const [totalRows] = await db.query(
+        `SELECT COUNT(*) as count 
+         FROM companies 
+         ${searchCondition}`,
+        searchParams
+      );
+  
+      const total = totalRows[0].count;
+  
+      // Fetch the paginated list of companies
+      const [companies] = await db.query(
+        `SELECT id, company_name 
+         FROM companies 
+         ${searchCondition}
+         ORDER BY company_name ASC
+         LIMIT ? OFFSET ?`,
+        [...searchParams, limit, offset]
+      );
+  
+      const totalPages = Math.ceil(total / limit);
+  
+      return {
+        status: true,
+        code: 200,
+        message: "Company list retrieved successfully",
+        data: companies,
+        pagination: {
+          total,
+          current_page: page,
+          total_pages: totalPages,
+          per_page: limit,
+        },
+      };
+    } catch (error) {
+      console.error("Error fetching company list:", error);
+      throw new Error("Error fetching company list: " + error.message);
+    }
+  }
 }
 
 module.exports = CompanyService;

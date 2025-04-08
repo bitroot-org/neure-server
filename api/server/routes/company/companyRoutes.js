@@ -29,7 +29,9 @@ const {
   removeEmployee,
   searchEmployees,
   addDepartment,
-  createCompany
+  createCompany,
+  getCompanyAnalytics,
+  getCompanyList
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -79,5 +81,8 @@ router.get("/searchEmployees", authorization, searchEmployees);
 
 router.post("/addDepartment", authorization, addDepartment);
 router.post("/createCompany", authorization, createCompany);
+router.get("/analytics", authorization, getCompanyAnalytics);
+router.get("/getCompanyList", authorization, getCompanyList);
+
 
 module.exports = router;

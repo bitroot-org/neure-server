@@ -26,7 +26,9 @@ const {
   removeEmployee,
   searchEmployees,
   addDepartment,
-  createCompany
+  createCompany,
+  getCompanyAnalytics,
+  getCompanyList
 } = require("../../services/company/companyService");
 
 class CompanyController {
@@ -822,6 +824,72 @@ class CompanyController {
     }
   }
 
+  static async getCompanyAnalytics(req, res) {
+    try {
+      const { company_id, startDate, endDate } = req.query;
+      console.log("Received request to get company analytics:", req.query);
+  
+      // Validate company_id
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "company_id is required",
+          data: null,
+        });
+      }
+  
+      // Set default date range to the last 7 days if dates are not provided
+      const today = new Date();
+      const defaultEndDate = today.toISOString().split("T")[0]; // Today's date in YYYY-MM-DD format
+      const defaultStartDate = new Date(today);
+      defaultStartDate.setDate(today.getDate() - 7); // 7 days ago
+      const formattedStartDate = defaultStartDate.toISOString().split("T")[0];
+  
+      const finalStartDate = startDate || formattedStartDate;
+      const finalEndDate = endDate || defaultEndDate;
+  
+      console.log("Using date range:", { startDate: finalStartDate, endDate: finalEndDate });
+  
+      const result = await getCompanyAnalytics(
+        company_id,
+        finalStartDate,
+        finalEndDate
+      );
+  
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error fetching company analytics:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error fetching company analytics",
+        data: null,
+      });
+    }
+  }
+
+  static async getCompanyList(req, res) {
+    try {
+      const { page = 1, limit = 20, search = "" } = req.query;
+  
+      const result = await getCompanyList({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        search,
+      });
+  
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error fetching company list:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error fetching company list",
+        data: null,
+      });
+    }
+  }
 }
 
 module.exports = CompanyController;
