@@ -71,10 +71,10 @@ app.listen(PORT, () => {
 serverActive();
 
 // Ensure the cron jobs are scheduled
-calculateCompanyStressLevel();
-calculateRetentionRate();
-calculatePSI();
-calculateEngagementScore();
+// calculateCompanyStressLevel();
+// calculateRetentionRate();
+// calculatePSI();
+// calculateEngagementScore();
 
 app.get("*", (req, res) =>
   res.status(200).send({
