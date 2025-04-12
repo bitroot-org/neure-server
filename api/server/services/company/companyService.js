@@ -1,5 +1,6 @@
 const db = require("../../../config/db");
 const bcrypt = require("bcrypt");
+const EmailService = require("../email/emailService");
 
 class CompanyService {
   static async generateUniqueUsername(firstName, lastName) {
@@ -188,11 +189,11 @@ class CompanyService {
         const contactPersonKeys = Object.keys(contactPersonData).filter(
           (key) => key !== "user_id"
         );
-        
+
         const contactSetQuery = contactPersonKeys
           .map((key) => `${key} = ?`)
           .join(", ");
-        
+
         const contactValues = contactPersonKeys.map(
           (key) => contactPersonData[key]
         );
@@ -451,26 +452,26 @@ class CompanyService {
   // static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
   //   try {
   //     const offset = (page - 1) * limit;
-  
+
   //     const searchCondition = search
   //       ? `WHERE c.company_name LIKE ? OR c.email_domain LIKE ? OR c.industry LIKE ?`
   //       : "";
-  
+
   //     const searchParams = search
   //       ? [`%${search}%`, `%${search}%`, `%${search}%`]
   //       : [];
-  
+
   //     // Get total count
   //     const [totalRows] = await db.query(
-  //       `SELECT COUNT(DISTINCT c.id) as count 
-  //        FROM companies c 
+  //       `SELECT COUNT(DISTINCT c.id) as count
+  //        FROM companies c
   //        ${searchCondition}`,
   //       searchParams
   //     );
-  
+
   //     // Get companies with their departments
   //     const [companies] = await db.query(
-  //       `SELECT 
+  //       `SELECT
   //         c.*,
   //         GROUP_CONCAT(
   //           DISTINCT JSON_OBJECT(
@@ -487,17 +488,17 @@ class CompanyService {
   //       LIMIT ? OFFSET ?`,
   //       [...searchParams, limit, offset]
   //     );
-  
+
   //     // Parse the departments JSON string for each company
   //     const companiesWithDepartments = companies.map(company => ({
   //       ...company,
-  //       departments: company.departments 
+  //       departments: company.departments
   //         ? JSON.parse(`[${company.departments}]`)
   //         : []
   //     }));
-  
+
   //     const totalPages = Math.ceil(totalRows[0].count / limit);
-  
+
   //     return {
   //       companies: companiesWithDepartments,
   //       pagination: {
@@ -512,19 +513,19 @@ class CompanyService {
   //     throw new Error("Error fetching companies: " + error.message);
   //   }
   // }
-  
+
   static async getAllCompanies({ page = 1, limit = 10, search = "" }) {
     try {
       const offset = (page - 1) * limit;
-  
+
       const searchCondition = search
         ? `WHERE c.company_name LIKE ? OR c.email_domain LIKE ? OR c.industry LIKE ?`
         : "";
-  
+
       const searchParams = search
         ? [`%${search}%`, `%${search}%`, `%${search}%`]
         : [];
-  
+
       // Get total count
       const [totalRows] = await db.query(
         `SELECT COUNT(DISTINCT c.id) as count 
@@ -532,7 +533,7 @@ class CompanyService {
          ${searchCondition}`,
         searchParams
       );
-  
+
       // Get companies with their departments and contact person info
       const [companies] = await db.query(
         `SELECT 
@@ -561,30 +562,31 @@ class CompanyService {
         LIMIT ? OFFSET ?`,
         [...searchParams, limit, offset]
       );
-  
+
       console.log("Raw companies data:", companies);
-  
+
       // Parse the departments and contact person info for each company
-      const companiesWithDetails = companies.map(company => {
+      const companiesWithDetails = companies.map((company) => {
         console.log("Processing company:", company.id);
         console.log("Departments data:", company.departments);
         console.log("Contact person data:", company.contact_person_info);
-  
+
         return {
           ...company,
-          departments: company.departments 
+          departments: company.departments
             ? JSON.parse(`[${company.departments}]`)
             : [],
-          contact_person_info: typeof company.contact_person_info === 'string'
-            ? JSON.parse(company.contact_person_info)
-            : company.contact_person_info || null
+          contact_person_info:
+            typeof company.contact_person_info === "string"
+              ? JSON.parse(company.contact_person_info)
+              : company.contact_person_info || null,
         };
       });
-  
+
       console.log("Processed companies:", companiesWithDetails);
-  
+
       const totalPages = Math.ceil(totalRows[0].count / limit);
-  
+
       return {
         companies: companiesWithDetails,
         pagination: {
@@ -682,9 +684,9 @@ class CompanyService {
       const age = await CompanyService.calculateAge(date_of_birth);
 
       const dob = new Date(date_of_birth);
-      const day = String(dob.getDate()).padStart(2, "0"); 
+      const day = String(dob.getDate()).padStart(2, "0");
       const month = String(dob.getMonth() + 1).padStart(2, "0");
-      const password = `${first_name.slice(0, 4).toLowerCase()}${day}${month}`; 
+      const password = `${first_name.slice(0, 4).toLowerCase()}${day}${month}`;
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -728,6 +730,18 @@ class CompanyService {
       }
 
       await connection.commit();
+
+      // Send welcome email to the new employee
+      try {
+        await EmailService.sendEmployeeWelcomeEmail(
+          first_name,
+          email,
+          password, // Add the password parameter
+          process.env.DASHBOARD_URL
+        );
+      } catch (emailError) {
+        console.error("Error sending welcome email:", emailError);
+      }
 
       return {
         status: true,
@@ -870,26 +884,105 @@ class CompanyService {
     }
   }
 
-  static async assignReward(company_id, user_id, reward_id) {
-    try {
-      const query =
-        "INSERT INTO employee_rewards (company_id, user_id, reward_id) VALUES (?, ?, ?)";
-      const [result] = await db.execute(query, [
-        company_id,
-        user_id,
-        reward_id,
-      ]);
+  // static async assignReward(company_id, user_id, reward_id) {
+  //   try {
+  //     const query =
+  //       "INSERT INTO employee_rewards (company_id, user_id, reward_id) VALUES (?, ?, ?)";
+  //     const [result] = await db.execute(query, [
+  //       company_id,
+  //       user_id,
+  //       reward_id,
+  //     ]);
 
+  //     return {
+  //       status: true,
+  //       code: 201,
+  //       message: "Reward assigned successfully",
+  //       data: {
+  //         id: result.insertId,
+  //       },
+  //     };
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
+
+  static async assignReward(company_id, user_id, reward_id, admin_id) {
+    const connection = await db.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+  
+      // Get employee and admin details
+      const [[employee]] = await connection.query(
+        `SELECT first_name, email FROM users WHERE user_id = ?`,
+        [user_id]
+      );
+  
+      const [[admin]] = await connection.query(
+        `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+        [admin_id]
+      );
+  
+      // Insert reward assignment
+      const [result] = await connection.query(
+        `INSERT INTO employee_rewards (
+          company_id, 
+          user_id, 
+          reward_id,
+          rewarded_by,
+          awarded_at
+        ) VALUES (?, ?, ?, ?, NOW())`,
+        [company_id, user_id, reward_id, admin_id]
+      );
+  
+      // Get reward details
+      const [[reward]] = await connection.query(
+        `SELECT title AS name FROM rewards WHERE id = ?`,
+        [reward_id]
+      );
+  
+      await connection.commit();
+  
+      // Send email notification to employee
+      try {
+        await EmailService.sendEmployeeRewardEmail(
+          employee.first_name,
+          `${admin.first_name} ${admin.last_name}`,
+          employee.email
+        );
+  
+        // Send notification to admin about reward assignment
+        await EmailService.sendRewardRedemptionAdminEmail(
+          admin.first_name,
+          employee.first_name,
+          reward.name
+        );
+      } catch (emailError) {
+        console.error("Error sending reward notification email:", emailError);
+        // Don't throw error as reward is already assigned
+      }
+  
       return {
         status: true,
         code: 201,
         message: "Reward assigned successfully",
         data: {
           id: result.insertId,
-        },
+          company_id,
+          user_id,
+          reward_id,
+          awarded_by: admin_id,
+          awarded_at: new Date()
+        }
       };
+  
     } catch (error) {
-      throw error;
+      await connection.rollback();
+      console.error("Error in assignReward:", error);
+      throw new Error(`Failed to assign reward: ${error.message}`);
+    } finally {
+      connection.release();
     }
   }
 
@@ -1202,9 +1295,29 @@ class CompanyService {
       // If approved, deactivate the company
       if (status === "approved") {
         console.log(`Deactivating company ${request[0].company_id}`);
+
+        const [companyDetails] = await connection.query(
+          `SELECT c.company_name, u.first_name, u.email 
+           FROM companies c 
+           JOIN company_employees ce ON c.id = ce.company_id 
+           JOIN users u ON ce.user_id = u.user_id 
+           WHERE c.id = ? AND ce.is_active = 1`,
+          [request[0].company_id]
+      );
+
         await connection.query("UPDATE companies SET active = 0 WHERE id = ?", [
           request[0].company_id,
         ]);
+
+        // Send deactivation emails to all active employees
+        for (const employee of companyDetails) {
+            await EmailService.sendAccountDeactivationEmail(
+                employee.first_name,
+                employee.company_name,
+                employee.email
+            );
+        }
+
         console.log(
           `Company ${request[0].company_id} deactivated successfully`
         );
@@ -1654,29 +1767,29 @@ class CompanyService {
     company_name,
     company_size,
     department_ids,
-    contact_person_info
+    contact_person_info,
   }) {
     console.log("Creating company with data:", {
       company_name,
       company_size,
       department_ids,
-      contact_person_info
+      contact_person_info,
     });
-  
+
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-  
+
       // First create the contact person user
       const username = await CompanyService.generateUniqueUsername(
         contact_person_info.first_name,
         contact_person_info.last_name
       );
-  
+
       // Generate a temporary password based on the first 4 characters of the username and append "1234"
       const tempPassword = `${username.slice(0, 4)}1234`;
       const hashedPassword = await bcrypt.hash(tempPassword, 10);
-  
+
       // Insert the contact person into users table
       const [userResult] = await connection.query(
         `INSERT INTO users (
@@ -1695,12 +1808,12 @@ class CompanyService {
           hashedPassword,
           contact_person_info.first_name,
           contact_person_info.last_name,
-          2 // Assuming role_id 2 is for company contact person
+          2, // Assuming role_id 2 is for company contact person
         ]
       );
-  
+
       const contactPersonId = userResult.insertId;
-  
+
       // Insert the company with contact person reference and onboarding status
       const [companyResult] = await connection.query(
         `INSERT INTO companies (
@@ -1709,11 +1822,11 @@ class CompanyService {
           contact_person_id,
           onboarding_status
         ) VALUES (?, ?, ?, ?)`,
-        [company_name, company_size, contactPersonId, 1]  // Set onboarding_status to 1
+        [company_name, company_size, contactPersonId, 1] // Set onboarding_status to 1
       );
-  
+
       const companyId = companyResult.insertId;
-  
+
       // Assign departments if provided
       if (department_ids && department_ids.length > 0) {
         // Validate department IDs
@@ -1721,25 +1834,33 @@ class CompanyService {
           `SELECT id FROM departments WHERE id IN (?)`,
           [department_ids]
         );
-  
+
         if (validDepartments.length === 0) {
           throw new Error("Invalid department IDs provided.");
         }
-  
+
         // Insert department assignments
-        const departmentValues = validDepartments.map(dept => [
+        const departmentValues = validDepartments.map((dept) => [
           companyId,
-          dept.id
+          dept.id,
         ]);
-        
+
         await connection.query(
           `INSERT INTO company_departments (company_id, department_id) VALUES ?`,
           [departmentValues]
         );
       }
-  
+
       await connection.commit();
-  
+
+      const dashboardLink = process.env.DASHBOARD_URL;
+      await EmailService.sendAdminWelcomeEmail(
+        contact_person_info.first_name,
+        contact_person_info.email,
+        tempPassword,
+        dashboardLink
+      );
+
       return {
         status: true,
         code: 201,
@@ -1750,7 +1871,7 @@ class CompanyService {
             company_name,
             company_size,
             onboarding_status: 1,
-            assigned_departments: department_ids || []
+            assigned_departments: department_ids || [],
           },
           contact_person: {
             id: contactPersonId,
@@ -1759,9 +1880,9 @@ class CompanyService {
             first_name: contact_person_info.first_name,
             last_name: contact_person_info.last_name,
             phone: contact_person_info.phone,
-            temp_password: tempPassword
-          }
-        }
+            temp_password: tempPassword,
+          },
+        },
       };
     } catch (error) {
       await connection.rollback();
@@ -1842,7 +1963,7 @@ class CompanyService {
         data: {
           ...companyData[0],
           new_users: newUsers[0]?.new_users || 0,
-          trends: trends.map(trend => ({
+          trends: trends.map((trend) => ({
             date: trend.date,
             avg_engagement_score: trend.avg_engagement_score,
             avg_stress_level: trend.avg_stress_level,
@@ -1858,16 +1979,12 @@ class CompanyService {
   static async getCompanyList({ page = 1, limit = 20, search = "" }) {
     try {
       const offset = (page - 1) * limit;
-  
+
       // Add search condition if a search term is provided
-      const searchCondition = search
-        ? `WHERE company_name LIKE ?`
-        : "";
-  
-      const searchParams = search
-        ? [`%${search}%`]
-        : [];
-  
+      const searchCondition = search ? `WHERE company_name LIKE ?` : "";
+
+      const searchParams = search ? [`%${search}%`] : [];
+
       // Fetch the total count of companies for pagination
       const [totalRows] = await db.query(
         `SELECT COUNT(*) as count 
@@ -1875,9 +1992,9 @@ class CompanyService {
          ${searchCondition}`,
         searchParams
       );
-  
+
       const total = totalRows[0].count;
-  
+
       // Fetch the paginated list of companies
       const [companies] = await db.query(
         `SELECT id, company_name 
@@ -1887,9 +2004,9 @@ class CompanyService {
          LIMIT ? OFFSET ?`,
         [...searchParams, limit, offset]
       );
-  
+
       const totalPages = Math.ceil(total / limit);
-  
+
       return {
         status: true,
         code: 200,

@@ -1,30 +1,40 @@
 const db = require("../../../config/db");
 
 class AnnouncementService {
-  static async createAnnouncement({ title, content, link, audience_type = "employees", company_ids, is_global = 0 }) {
+  static async createAnnouncement({
+    title,
+    content,
+    link,
+    audience_type = "employees",
+    company_ids,
+    is_global = 0,
+  }) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-  
+
       // Insert into announcements table
       const [result] = await connection.query(
         `INSERT INTO announcements (title, content, link, audience_type, is_global, is_active, created_at)
          VALUES (?, ?, ?, ?, ?, 1, NOW())`,
         [title, content, link, audience_type, is_global]
       );
-  
+
       const announcementId = result.insertId;
-  
+
       // Insert into announcement_company table if company_ids are provided and is_global = 0
       if (!is_global && company_ids && company_ids.length > 0) {
-        const companyValues = company_ids.map(company_id => [announcementId, company_id]);
+        const companyValues = company_ids.map((company_id) => [
+          announcementId,
+          company_id,
+        ]);
         await connection.query(
           `INSERT INTO announcement_company (announcement_id, company_id)
            VALUES ?`,
           [companyValues]
         );
       }
-  
+
       await connection.commit();
       return { success: true, announcementId };
     } catch (error) {
@@ -39,7 +49,7 @@ class AnnouncementService {
   static async getAnnouncements({ company_id, page = 1, limit = 10 }) {
     try {
       const offset = (page - 1) * limit;
-  
+
       let query = `
         SELECT a.id, a.title, a.content, a.link, a.audience_type, a.is_global, a.created_at
         FROM announcements a
@@ -50,7 +60,7 @@ class AnnouncementService {
       `;
       const queryParams = [];
       const countParams = [];
-  
+
       if (company_id) {
         // If company_id is provided, fetch company-specific and global announcements
         query += `
@@ -72,20 +82,20 @@ class AnnouncementService {
         query += `WHERE a.is_active = 1`;
         countQuery += `WHERE a.is_active = 1`;
       }
-  
+
       query += `
         ORDER BY a.created_at DESC
         LIMIT ? OFFSET ?
       `;
       queryParams.push(limit, offset);
-  
+
       // Fetch total count of announcements
       const [countResult] = await db.query(countQuery, countParams);
       const totalAnnouncements = countResult[0].count;
-  
+
       // Fetch paginated announcements
       const [announcements] = await db.query(query, queryParams);
-  
+
       return {
         announcements,
         pagination: {
@@ -100,7 +110,14 @@ class AnnouncementService {
     }
   }
 
-  static async updateAnnouncement({ id, title, content, link, audience_type, is_active }) {
+  static async updateAnnouncement({
+    id,
+    title,
+    content,
+    link,
+    audience_type,
+    is_active,
+  }) {
     try {
       const [result] = await db.query(
         `UPDATE announcements
@@ -123,7 +140,9 @@ class AnnouncementService {
   static async deleteAnnouncement({ id }) {
     try {
       const [result] = await db.query(
-        `DELETE FROM announcements WHERE id = ?`,
+        `UPDATE announcements
+       SET is_active = 0
+       WHERE id = ?`,
         [id]
       );
 

@@ -6,8 +6,9 @@ class AssessmentsController {
     try {
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 10;
+      const { user_id } = req.user; // Get user_id from JWT token
 
-      const { assessments, pagination } = await AssessmentsService.getAllAssessments(page, limit);
+      const { assessments, pagination } = await AssessmentsService.getAllAssessments(page, limit, user_id);
 
       return successResponse(res, 'Assessments retrieved successfully', { assessments, pagination });
     } catch (error) {
@@ -122,6 +123,41 @@ class AssessmentsController {
         return errorResponse(res, error.message, null, 404);
       }
       return errorResponse(res, 'Error deleting assessment', error);
+    }
+  }
+
+  static async submitAssessment(req, res) {
+    try {
+      const { assessment_id, responses, company_id } = req.body;
+      const { user_id } = req.user;
+
+      console.log("user_id", user_id);
+
+      // Validate required fields
+      if (!assessment_id || !responses || !Array.isArray(responses)) {
+        return errorResponse(res, 'Invalid submission format', null, 400);
+      }
+
+      // Validate responses format
+      for (const response of responses) {
+        if (!response.question_id || !response.selected_options || !Array.isArray(response.selected_options)) {
+          return errorResponse(res, 'Invalid response format', null, 400);
+        }
+      }
+
+      const result = await AssessmentsService.submitAssessment({
+        user_id,
+        company_id,
+        assessment_id,
+        responses
+      });
+
+      return successResponse(res, 'Assessment submitted successfully', result);
+    } catch (error) {
+      if (error.message === 'Assessment not found' || error.message === 'Assessment already submitted') {
+        return errorResponse(res, error.message, null, 400);
+      }
+      return errorResponse(res, 'Error submitting assessment', error);
     }
   }
 }

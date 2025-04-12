@@ -14,6 +14,7 @@ const {
   updateUserSubscription,
   getUserSubscription,
   updateUserStressLevel,
+  updateDashboardTourStatus
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -475,13 +476,14 @@ class UserController {
 
   static async updateUserStressLevel(req, res) {
     try {
-      const { user_id, company_id, stress_level, stress_message } = req.body;
+      const { user_id, company_id, stress_level, stress_message, last_stress_modal_seen_at } = req.body;
 
       console.log("Received stress level update request:", {
         user_id,
         company_id,
         stress_level,
         stress_message,
+        last_stress_modal_seen_at
       });
 
       // Validate required fields
@@ -498,7 +500,8 @@ class UserController {
         user_id,
         company_id,
         stress_level,
-        stress_message
+        stress_message,
+        last_stress_modal_seen_at
       );
 
       return res.status(result.code).json(result);
@@ -508,6 +511,32 @@ class UserController {
         status: false,
         code: 500,
         message: "Error updating stress level",
+        data: null,
+      });
+    }
+  }
+
+  static async updateDashboardTourStatus(req, res) {
+    try {
+      const { user_id } = req.body;
+
+      if (!user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id is required",
+          data: null,
+        });
+      }
+
+      const result = await updateDashboardTourStatus(user_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateDashboardTourStatus controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating dashboard tour status",
         data: null,
       });
     }

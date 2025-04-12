@@ -347,19 +347,19 @@ class CompanyController {
 
   static async assignReward(req, res) {
     try {
-      const { company_id, user_id, reward_id } = req.body;
+      const { company_id, user_id, reward_id , admin_id} = req.body;
       console.log(req.body);
 
-      if (!company_id || !user_id || !reward_id) {
+      if (!company_id || !user_id || !reward_id || !admin_id) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: "company_id, user_id, and reward_id are required.",
+          message: "company_id, user_id, admin_id and reward_id are required.",
           data: null,
         });
       }
 
-      const id = await assignReward(company_id, user_id, reward_id);
+      const id = await assignReward(company_id, user_id, reward_id, admin_id);
 
       return res.status(201).json({
         status: true,
