@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
 const { updateCompanyStressLevel } = require("../../utils/stressLevelCalculator");
+const { updateCompanyPSI } = require("../../utils/psiCalculator");
 
 function calculateAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -1327,6 +1328,63 @@ class UserServices {
       await connection.rollback();
       console.error("Error updating dashboard tour status:", error);
       throw new Error(`Error updating dashboard tour status: ${error.message}`);
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async submitPSI(user_id, company_id, psi_score) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Check if employee exists and is active
+      const [employee] = await connection.query(
+        `SELECT * FROM company_employees 
+         WHERE user_id = ? AND company_id = ? AND is_active = 1`,
+        [user_id, company_id]
+      );
+
+      if (!employee || employee.length === 0) {
+        await connection.rollback();
+        return {
+          status: false,
+          code: 404,
+          message: "Employee not found or not active in this company",
+          data: null,
+        };
+      }
+
+      // Update employee's PSI score
+      await connection.query(
+        `UPDATE company_employees 
+         SET 
+           psi = ?,
+           last_activity_date = NOW()
+         WHERE user_id = ? AND company_id = ?`,
+        [psi_score, user_id, company_id]
+      );
+
+      await connection.commit();
+
+      // Update company's overall PSI
+      const psiUpdateResult = await updateCompanyPSI(company_id);
+
+      return {
+        status: true,
+        code: 200,
+        message: "PSI score submitted successfully",
+        data: {
+          user_id,
+          company_id,
+          psi_score,
+          company_psi: psiUpdateResult.psi
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      console.error("Error submitting PSI score:", error);
+      throw new Error(`Error submitting PSI score: ${error.message}`);
     } finally {
       connection.release();
     }

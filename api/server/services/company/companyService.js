@@ -1,6 +1,7 @@
 const db = require("../../../config/db");
 const bcrypt = require("bcrypt");
 const EmailService = require("../email/emailService");
+const { getCompanyRetentionHistory } = require('../../utils/retentionCalculator');
 
 class CompanyService {
   static async generateUniqueUsername(firstName, lastName) {
@@ -2022,6 +2023,33 @@ class CompanyService {
     } catch (error) {
       console.error("Error fetching company list:", error);
       throw new Error("Error fetching company list: " + error.message);
+    }
+  }
+
+  static async getRetentionHistory(company_id, months) {
+    try {
+      // Verify company exists and is active
+      const [company] = await db.query(
+        "SELECT id FROM companies WHERE id = ? AND active = 1",
+        [company_id]
+      );
+
+      if (!company || company.length === 0) {
+        return {
+          status: false,
+          message: "Company not found or inactive"
+        };
+      }
+
+      const history = await getCompanyRetentionHistory(company_id, months);
+      return {
+        status: true,
+        message: "Retention history retrieved successfully",
+        data: history.data
+      };
+    } catch (error) {
+      console.error("Error in getRetentionHistory:", error);
+      throw new Error(`Error retrieving retention history: ${error.message}`);
     }
   }
 }

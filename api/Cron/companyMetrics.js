@@ -1,5 +1,6 @@
 const cron = require("node-cron");
 const db = require("../config/db");
+const { calculateMonthlyRetention } = require('../server/utils/retentionCalculator');
 
 // Function to calculate the company stress level
 const calculateCompanyStressLevel = async () => {
@@ -195,11 +196,17 @@ cron.schedule(
   }
 );
 
-// Schedule the cron job to run every day at 00:01 IST for retention rate calculation
+// Schedule the cron job to run at 00:01 on the first day of each month
 cron.schedule(
-  "0 0 1 * *",
-  () => {
-    calculateRetentionRate();
+  "1 0 1 * *",
+  async () => {
+    try {
+      console.log("Starting monthly retention rate calculation...");
+      const result = await calculateMonthlyRetention();
+      console.log("Retention rate calculation completed:", result);
+    } catch (error) {
+      console.error("Error in retention rate cron job:", error);
+    }
   },
   {
     scheduled: true,

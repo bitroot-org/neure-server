@@ -16,7 +16,8 @@ const {
   updateUserStressLevel,
   updateTherapist,
   deleteTherapist,
-  updateDashboardTourStatus
+  updateDashboardTourStatus,
+  submitPSI
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -43,5 +44,6 @@ router.post("/updateStressLevel", authorization, updateUserStressLevel);
 router.put("/updateTherapist/:therapistId", authorization, updateTherapist);
 router.delete("/deleteTherapist/:therapistId", authorization, deleteTherapist);
 router.put("/updateDashboardTourStatus", authorization, updateDashboardTourStatus);
+router.post("/submitPSI", authorization, submitPSI);
 
 module.exports = router;

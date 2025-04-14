@@ -31,7 +31,8 @@ const {
   addDepartment,
   createCompany,
   getCompanyAnalytics,
-  getCompanyList
+  getCompanyList,
+  getRetentionHistory
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -83,6 +84,6 @@ router.post("/addDepartment", authorization, addDepartment);
 router.post("/createCompany", authorization, createCompany);
 router.get("/analytics", authorization, getCompanyAnalytics);
 router.get("/getCompanyList", authorization, getCompanyList);
-
+router.get("/retention-history/:company_id", authorization, getRetentionHistory);
 
 module.exports = router;

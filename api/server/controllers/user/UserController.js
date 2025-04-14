@@ -541,6 +541,44 @@ class UserController {
       });
     }
   }
+
+  static async submitPSI(req, res) {
+    console.log("Received PSI submission request:", req.body);
+    try {
+      const { user_id, company_id, psi_score } = req.body;
+
+      // Validate required fields
+      if (!user_id || !company_id || psi_score === undefined) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_id, company_id, and psi_score are required",
+          data: null,
+        });
+      }
+
+      // Validate PSI score range (1-5)
+      if (psi_score < 1 || psi_score > 5) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "PSI score must be between 1 and 5",
+          data: null,
+        });
+      }
+
+      const result = await UserServices.submitPSI(user_id, company_id, psi_score);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in submitPSI controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error submitting PSI score",
+        data: null,
+      });
+    }
+  }
 }
 
 module.exports = UserController;
