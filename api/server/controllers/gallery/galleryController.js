@@ -41,7 +41,7 @@ class GalleryController {
       const { companyId, type, showUnassigned } = req.query;
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-  
+
       if (!type) {
         return res.status(400).json({
           status: false,
@@ -50,7 +50,7 @@ class GalleryController {
           data: null,
         });
       }
-  
+
       const result = await GalleryService.getGalleryItems(
         companyId ? parseInt(companyId) : null,
         type,
@@ -58,7 +58,7 @@ class GalleryController {
         limit,
         showUnassigned === 'true'
       );
-      
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Get gallery items error:", error);
@@ -90,16 +90,8 @@ class GalleryController {
     try {
       const { companyId } = req.query;
 
-      if (!companyId) {
-        return res.status(400).json({
-          status: false,
-          code: 400,
-          message: "Company ID is required",
-          data: null,
-        });
-      }
-
-      const result = await GalleryService.getMediaCounts(companyId);
+      // companyId is now optional
+      const result = await GalleryService.getMediaCounts(companyId ? parseInt(companyId) : null);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -114,7 +106,7 @@ class GalleryController {
   static async uploadGalleryItem(req, res) {
     try {
       const { type, title, description, tags, url } = req.body;
-  
+
       // Validate required fields
       if (!type || !title) {
         return res.status(400).json({
@@ -124,9 +116,9 @@ class GalleryController {
           data: null,
         });
       }
-  
+
       let fileUrl = url;
-  
+
       // If no URL is provided, handle file upload
       if (!fileUrl && req.file) {
         const uploadResult = await uploadGalleryFile(req);
@@ -140,7 +132,7 @@ class GalleryController {
         }
         fileUrl = uploadResult.url;
       }
-  
+
       // Call the service to handle the upload
       const result = await GalleryService.uploadGalleryItem({
         type,
@@ -149,7 +141,7 @@ class GalleryController {
         tags,
         url: fileUrl,
       });
-  
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Upload gallery item error:", error);
@@ -165,7 +157,7 @@ class GalleryController {
   static async updateGalleryItem(req, res) {
     try {
       const { id, type, title, description, tags, url } = req.body;
-  
+
       // Validate required fields
       if (!id) {
         return res.status(400).json({
@@ -175,9 +167,9 @@ class GalleryController {
           data: null,
         });
       }
-  
+
       let fileUrl = url;
-  
+
       // If no URL is provided, handle file upload
       if (!fileUrl && req.file) {
         const uploadResult = await uploadGalleryFile(req);
@@ -191,7 +183,7 @@ class GalleryController {
         }
         fileUrl = uploadResult.url;
       }
-  
+
       // Call the service to handle the update
       const result = await GalleryService.updateGalleryItem({
         id,
@@ -201,7 +193,7 @@ class GalleryController {
         tags,
         url: fileUrl,
       });
-  
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Update gallery item error:", error);
@@ -217,7 +209,7 @@ class GalleryController {
   static async deleteGalleryItem(req, res) {
     try {
       const { itemId } = req.params;
-  
+
       if (!itemId) {
         return res.status(400).json({
           status: false,
@@ -226,7 +218,7 @@ class GalleryController {
           data: null,
         });
       }
-  
+
       // Get file URL directly from gallery table
       const [item] = await db.query(
         'SELECT file_url, file_type FROM gallery WHERE id = ?',
@@ -234,7 +226,7 @@ class GalleryController {
       );
 
       console.log("item  :  ", item);
-  
+
       if (!item || item.length === 0) {
         return res.status(404).json({
           status: false,
@@ -243,7 +235,7 @@ class GalleryController {
           data: null,
         });
       }
-  
+
       // Delete file from AWS S3
       if (item[0].file_type !== 'video') {
         const s3Result = await deleteGalleryFile(item[0].file_url);
@@ -256,7 +248,7 @@ class GalleryController {
           });
         }
       }
-  
+
       // Delete from database
       const result = await GalleryService.deleteGalleryItem(itemId);
       return res.status(result.code).json(result);
@@ -274,13 +266,13 @@ class GalleryController {
   static async assignToCompany(req, res) {
     try {
       const { company_id, resource_ids } = req.body;
-      
+
       // Access user details from req.user (set by authorization middleware)
       const { user_id, role_id } = req.user;
 
       console.log("user_id : ", user_id);
       console.log("role_id : ", role_id);
-  
+
       // Check if user is admin (role_id = 1)
       if (role_id !== 1) {
         return res.status(403).json({
@@ -290,7 +282,7 @@ class GalleryController {
           data: null
         });
       }
-  
+
       // Validate required fields
       if (!company_id || !resource_ids || !Array.isArray(resource_ids)) {
         return res.status(400).json({
@@ -300,13 +292,13 @@ class GalleryController {
           data: null
         });
       }
-  
+
       const result = await GalleryService.assignToCompany({
         company_id,
         resource_ids,
         user_id  // Pass the user_id to the service
       });
-  
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Assign gallery items error:", error);

@@ -23,20 +23,20 @@ class GalleryService {
       }
 
       let totalQuery = `
-      SELECT COUNT(DISTINCT g.id) as count 
+      SELECT COUNT(DISTINCT g.id) as count
       FROM gallery g
     `;
 
       let itemsQuery = `
       SELECT DISTINCT
-        g.id, 
+        g.id,
         g.title,
         g.description,
-        g.file_type, 
-        g.file_url, 
+        g.file_type,
+        g.file_url,
         g.size,
-        g.tags, 
-        g.created_at 
+        g.tags,
+        g.created_at
       FROM gallery g
     `;
 
@@ -46,28 +46,28 @@ class GalleryService {
         if (showUnassigned) {
           // Show items NOT assigned to the company
           totalQuery += `
-          LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id 
+          LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
           AND cga.company_id = ?
-          WHERE g.file_type = ? 
+          WHERE g.file_type = ?
           AND cga.gallery_item_id IS NULL
         `;
           itemsQuery += `
-          LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id 
+          LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
           AND cga.company_id = ?
-          WHERE g.file_type = ? 
+          WHERE g.file_type = ?
           AND cga.gallery_item_id IS NULL
         `;
           queryParams.push(companyId, fileType);
         } else {
           // Show items assigned to the company
           totalQuery += `
-          INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id 
-          WHERE g.file_type = ? 
+          INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+          WHERE g.file_type = ?
           AND cga.company_id = ?
         `;
           itemsQuery += `
-          INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id 
-          WHERE g.file_type = ? 
+          INNER JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+          WHERE g.file_type = ?
           AND cga.company_id = ?
         `;
           queryParams.push(fileType, companyId);
@@ -88,10 +88,10 @@ class GalleryService {
 
       // Get paginated gallery items
       const [items] = await db.query(
-        itemsQuery, 
+        itemsQuery,
         [...queryParams, ...paginationParams]
       );
-      
+
       return {
         status: true,
         code: 200,
@@ -114,14 +114,14 @@ class GalleryService {
   static async getGalleryItemById(itemId) {
     try {
       const [item] = await db.query(
-        `SELECT 
-          g.id, 
-          g.file_type, 
-          g.file_url, 
+        `SELECT
+          g.id,
+          g.file_type,
+          g.file_url,
           g.title,
           g.description,
           g.tags,
-          g.size, 
+          g.size,
           g.created_at,
           GROUP_CONCAT(cga.company_id) as assigned_companies
         FROM gallery g
@@ -169,15 +169,32 @@ class GalleryService {
 
   static async getMediaCounts(companyId) {
     try {
-      const [counts] = await db.query(
-        `SELECT 
+      let query;
+      let queryParams = [];
+
+      if (companyId) {
+        // If companyId is provided, get counts for that specific company
+        query = `SELECT
           cga.item_type as file_type,
           COUNT(*) as count
         FROM company_gallery_assignments cga
         WHERE cga.company_id = ?
-        GROUP BY cga.item_type`,
-        [companyId]
-      );
+        GROUP BY cga.item_type`;
+        queryParams = [companyId];
+      } else {
+        // If no companyId is provided, get total counts across all companies
+        query = `SELECT
+          cga.item_type as file_type,
+          COUNT(*) as count
+        FROM company_gallery_assignments cga
+        GROUP BY cga.item_type`;
+      }
+
+      console.log("query  :  ", query);
+
+      const [counts] = await db.query(query, queryParams);
+
+      console.log("counts  :  ", counts);
 
       // Format the results into an object with default values
       const formattedCounts = {
@@ -243,7 +260,7 @@ class GalleryService {
 
       // Insert the new gallery item into the database
       const [result] = await db.query(
-        `INSERT INTO gallery (file_type, title, description, tags, file_url, created_at) 
+        `INSERT INTO gallery (file_type, title, description, tags, file_url, created_at)
          VALUES (?, ?, ?, ?, ?, NOW())`,
         [type, title, description || null, tagsJson || null, url]
       );
@@ -438,8 +455,8 @@ class GalleryService {
       ]);
 
       await connection.query(
-        `INSERT INTO company_gallery_assignments 
-         (company_id, gallery_item_id, item_type, assigned_at) 
+        `INSERT INTO company_gallery_assignments
+         (company_id, gallery_item_id, item_type, assigned_at)
          VALUES ?`,
         [assignments]
       );
