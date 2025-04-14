@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
+const { updateCompanyStressLevel } = require("../../utils/stressLevelCalculator");
 
 function calculateAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -954,19 +955,80 @@ class UserServices {
     }
   }
 
+  // static async claimReward(user_id, reward_id) {
+  //   try {
+  //     console.log(
+  //       `Claiming reward for user_id: ${user_id}, reward_id: ${reward_id}`
+  //     );
+
+  //     // Check if the reward is assigned to the user and not already claimed
+  //     const [reward] = await db.query(
+  //       `SELECT * FROM employee_rewards 
+  //        WHERE user_id = ? AND reward_id = ? AND claimed_status = 0`,
+  //       [user_id, reward_id]
+  //     );
+
+  //     if (!reward || reward.length === 0) {
+  //       console.log(
+  //         `Reward not found or already claimed for user_id: ${user_id}, reward_id: ${reward_id}`
+  //       );
+  //       return {
+  //         status: false,
+  //         code: 404,
+  //         message: "Reward not found or already claimed",
+  //         data: null,
+  //       };
+  //     }
+
+  //     await db.query(
+  //       `UPDATE employee_rewards 
+  //        SET claimed_status = 1, claimed_at = NOW() 
+  //        WHERE id = ?`,
+  //       [reward[0].id]
+  //     );
+
+  //     console.log(
+  //       `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
+  //     );
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: "Reward claimed successfully",
+  //       data: null,
+  //     };
+  //   } catch (error) {
+  //     console.error("Error in claimReward:", error);
+  //     throw new Error(`Error claiming reward: ${error.message}`);
+  //   }
+  // }
+
   static async claimReward(user_id, reward_id) {
+    const connection = await db.getConnection();
     try {
+      await connection.beginTransaction();
       console.log(
         `Claiming reward for user_id: ${user_id}, reward_id: ${reward_id}`
       );
-
-      // Check if the reward is assigned to the user and not already claimed
-      const [reward] = await db.query(
-        `SELECT * FROM employee_rewards 
-         WHERE user_id = ? AND reward_id = ? AND claimed_status = 0`,
+  
+      // Get reward details including admin info and reward name
+      const [reward] = await connection.query(
+        `SELECT 
+          er.*,
+          r.title as reward_name,
+          u.first_name as employee_name,
+          admin.first_name as admin_name
+         FROM employee_rewards er
+         JOIN rewards r ON er.reward_id = r.id
+         JOIN users u ON er.user_id = u.user_id
+         JOIN users admin ON er.rewarded_by = admin.user_id
+         WHERE er.user_id = ? AND er.reward_id = ? AND er.claimed_status = 0`,
         [user_id, reward_id]
       );
 
+      console.log("reward:", reward);
+
+      console.log("employee name:", reward[0].employee_name);
+  
       if (!reward || reward.length === 0) {
         console.log(
           `Reward not found or already claimed for user_id: ${user_id}, reward_id: ${reward_id}`
@@ -978,14 +1040,25 @@ class UserServices {
           data: null,
         };
       }
-
-      await db.query(
+  
+      // Update reward status
+      await connection.query(
         `UPDATE employee_rewards 
          SET claimed_status = 1, claimed_at = NOW() 
          WHERE id = ?`,
         [reward[0].id]
       );
-
+  
+      await connection.commit();
+  
+      // Send email notification to admin
+      const EmailService = require('../email/emailService');
+      await EmailService.sendRewardRedemptionAdminEmail(
+        reward[0].admin_name,
+        reward[0].employee_name,
+        reward[0].reward_name
+      );
+  
       console.log(
         `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
       );
@@ -996,8 +1069,11 @@ class UserServices {
         data: null,
       };
     } catch (error) {
+      await connection.rollback();
       console.error("Error in claimReward:", error);
       throw new Error(`Error claiming reward: ${error.message}`);
+    } finally {
+      connection.release();
     }
   }
 
@@ -1130,27 +1206,32 @@ class UserServices {
     user_id,
     company_id,
     stress_level,
-    stress_message
+    stress_message,
+    last_stress_modal_seen_at
   ) {
+    const connection = await db.getConnection();
     try {
-      // Validate stress level is between 0 and 10
+      // Validate stress level is between 0 and 100
       if (stress_level < 0 || stress_level > 100) {
         return {
           status: false,
           code: 400,
-          message: "Stress level must be between 0 and 10",
+          message: "Stress level must be between 0 and 100",
           data: null,
         };
       }
 
+      await connection.beginTransaction();
+
       // Check if employee exists in company
-      const [employee] = await db.query(
+      const [employee] = await connection.query(
         `SELECT * FROM company_employees 
-       WHERE user_id = ? AND company_id = ? AND is_active = 1`,
+         WHERE user_id = ? AND company_id = ? AND is_active = 1`,
         [user_id, company_id]
       );
 
       if (!employee || employee.length === 0) {
+        await connection.rollback();
         return {
           status: false,
           code: 404,
@@ -1159,15 +1240,29 @@ class UserServices {
         };
       }
 
-      // Update stress level and message
-      await db.query(
+      // Update stress level and message in company_employees
+      await connection.query(
         `UPDATE company_employees 
-       SET stress_level = ?, 
-           stress_message = ?,
-           stress_bar_updated = 1
-       WHERE user_id = ? AND company_id = ?`,
+         SET stress_level = ?, 
+             stress_message = ?,
+             stress_bar_updated = 1,
+             last_activity_date = NOW()
+         WHERE user_id = ? AND company_id = ?`,
         [stress_level, stress_message, user_id, company_id]
       );
+
+      // Update last_stress_modal_seen_at in users table
+      await connection.query(
+        `UPDATE users 
+         SET last_stress_modal_seen_at = ? 
+         WHERE user_id = ?`,
+        [last_stress_modal_seen_at || new Date(), user_id]
+      );
+
+      await connection.commit();
+
+      // Update company average stress level
+      await updateCompanyStressLevel(company_id);
 
       return {
         status: true,
@@ -1178,11 +1273,62 @@ class UserServices {
           company_id,
           stress_level,
           stress_message,
+          last_stress_modal_seen_at
         },
       };
     } catch (error) {
+      await connection.rollback();
       console.error("Error updating stress level:", error);
       throw new Error(`Error updating stress level: ${error.message}`);
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateDashboardTourStatus(user_id) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Check if user exists
+      const [user] = await connection.query(
+        'SELECT * FROM users WHERE user_id = ?',
+        [user_id]
+      );
+
+      if (!user || user.length === 0) {
+        await connection.rollback();
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+
+      // Update has_seen_dashboard_tour status
+      await connection.query(
+        'UPDATE users SET has_seen_dashboard_tour = 1 WHERE user_id = ?',
+        [user_id]
+      );
+
+      await connection.commit();
+
+      return {
+        status: true,
+        code: 200,
+        message: "Dashboard tour status updated successfully",
+        data: {
+          user_id,
+          has_seen_dashboard_tour: true
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      console.error("Error updating dashboard tour status:", error);
+      throw new Error(`Error updating dashboard tour status: ${error.message}`);
+    } finally {
+      connection.release();
     }
   }
 }
