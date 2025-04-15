@@ -775,38 +775,43 @@ class CompanyService {
 
       await connection.beginTransaction();
 
-      // Get unique department names
-      const departmentNames = [
-        ...new Set(
-          employees.filter((emp) => emp.department).map((emp) => emp.department)
-        ),
-      ];
+      // Get unique department IDs instead of names
+      const departmentIds = [...new Set(
+        employees.filter(emp => emp.department_id).map(emp => emp.department_id)
+      )];
 
-      // Fetch department IDs
-      const [departments] = await connection.query(
-        `SELECT id, department_name 
-         FROM departments 
-         WHERE department_name IN (?)`,
-        [departmentNames]
-      );
+      console.log("Department IDs:", departmentIds);
 
-      // Create department name to ID mapping
-      const departmentMap = departments.reduce((acc, dept) => {
-        acc[dept.department_name] = dept.id;
-        return acc;
-      }, {});
+      // Validate department IDs if any exist
+      if (departmentIds.length > 0) {
+        const [departments] = await connection.query(
+          `SELECT id FROM departments WHERE id IN (?)`,
+          [departmentIds]
+        );
+
+        // Create department ID validation set
+        const validDepartmentIds = new Set(departments.map(dept => dept.id));
+
+        console.log("Valid department IDs:", validDepartmentIds);
+      }
 
       for (const employee of employees) {
         try {
-          const password = Math.random().toString(36).slice(-8);
+          // Calculate age based on date_of_birth
+          const dob = new Date(Math.round((employee.date_of_birth - 25569) * 86400 * 1000));
+          const age = Math.floor((new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000));
+          
+          const day = String(dob.getDate()).padStart(2, "0");
+          const month = String(dob.getMonth() + 1).padStart(2, "0");
+          const password = `${employee.first_name.slice(0, 4).toLowerCase()}${day}${month}`;
           const hashedPassword = await bcrypt.hash(password, 10);
 
           // Insert user
           const [userResult] = await connection.query(
             `INSERT INTO users (
               email, phone, password, username, first_name, last_name,
-              gender, date_of_birth, job_title, age, role_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3)`,
+              gender, date_of_birth, job_title, age, role_id, city
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)`,
             [
               employee.email,
               employee.phone,
@@ -815,9 +820,10 @@ class CompanyService {
               employee.first_name,
               employee.last_name,
               employee.gender,
-              employee.date_of_birth,
-              employee.job_title,
-              employee.age,
+              dob,
+              employee.job_title || null,
+              age,
+              employee.city
             ]
           );
 
@@ -830,13 +836,25 @@ class CompanyService {
           );
 
           // Insert department if provided
-          if (employee.department && departmentMap[employee.department]) {
+          if (employee.department_id) {
             await connection.query(
               `INSERT INTO user_departments (
                 user_id, department_id
               ) VALUES (?, ?)`,
-              [userResult.insertId, departmentMap[employee.department]]
+              [userResult.insertId, employee.department_id]
             );
+          }
+
+          // Send welcome email
+          try {
+            await EmailService.sendEmployeeWelcomeEmail(
+              employee.first_name,
+              employee.email,
+              password,
+              process.env.DASHBOARD_URL
+            );
+          } catch (emailError) {
+            console.error("Error sending welcome email:", emailError);
           }
 
           results.successful.push({

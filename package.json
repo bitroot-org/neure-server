@@ -12,7 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.758.0",
+    "@aws-sdk/client-s3": "^3.787.0",
     "@aws-sdk/client-ses": "^3.782.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
@@ -26,9 +26,11 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.12.0",
-    "nanoid": "^3.3.7",
+    "nanoid": "^3.3.11",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.0",
+    "pdfkit": "^0.17.0",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

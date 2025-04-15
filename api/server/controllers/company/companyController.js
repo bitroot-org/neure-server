@@ -315,10 +315,12 @@ class CompanyController {
         });
       }
 
+
       const workbook = XLSX.readFile(req.file.path);
       const sheetName = workbook.SheetNames[0];
       const employees = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
+      console.log("Received employees data:", employees);
       const result = await bulkCreateEmployees(employees, req.body.company_id);
       return res.status(201).json(result);
     } catch (error) {

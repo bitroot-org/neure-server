@@ -13,7 +13,11 @@ const {
   getAllWorkshopSchedules,
   scheduleWorkshop,
   cancelWorkshopSchedule,
-  rescheduleWorkshop
+  rescheduleWorkshop,
+  getWorkshopAttendance,
+  getUserWorkshopTickets,
+  markAttendance,
+  getWorkshopStats
 } = require('../../controllers/company/workshopController.js');
 
 
@@ -39,5 +43,11 @@ router.post('/scheduleWorkshop', authorization, scheduleWorkshop);
 
 router.put('/cancelWorkshopSchedule', authorization, cancelWorkshopSchedule);
 router.put('/rescheduleWorkshop', authorization, rescheduleWorkshop);
+
+// New attendance-related routes
+router.get('/attendance/:workshopId', authorization, getWorkshopAttendance);
+router.get('/tickets/:userId', authorization, getUserWorkshopTickets);
+router.post('/mark-attendance', authorization, markAttendance);
+router.get('/stats/:workshopId', authorization, getWorkshopStats);
 
 module.exports = router;

@@ -9,7 +9,12 @@ const {
   getAllWorkshopSchedules,
   scheduleWorkshop,
   cancelWorkshopSchedule,
-  rescheduleWorkshop
+  rescheduleWorkshop,
+  getWorkshopAttendance,
+  getUserWorkshopTickets,
+
+  markAttendance,
+  getWorkshopStats
 } = require('../../services/company/workshopService');
 
 class workshopController {
@@ -226,7 +231,7 @@ class workshopController {
   static async scheduleWorkshop(req, res) {
     try {
       const { company_id, date, time, workshop_id } = req.body;
-  
+
       // Validate required fields
       if (!company_id || !date || !time || !workshop_id) {
         return res.status(400).json({
@@ -236,10 +241,13 @@ class workshopController {
           data: null,
         });
       }
-  
-      // Call the service to schedule the workshop
+
+      // Call the service to schedule the workshop and generate PDFs
       const result = await scheduleWorkshop({ company_id, date, time, workshop_id });
-  
+
+      // Send notification or email to employees about the scheduled workshop
+      // and their PDF tickets (you'll need to implement this part)
+
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -297,6 +305,149 @@ class workshopController {
         code: 500,
         message: error.message,
         data: null,
+      });
+    }
+  }
+
+  static async getWorkshopAttendance(req, res) {
+    try {
+      const { workshopId } = req.params;
+      
+      if (!workshopId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Workshop ID is required",
+          data: null
+        });
+      }
+  
+      const results = await getWorkshopAttendance(workshopId);
+      
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Workshop attendance retrieved successfully",
+        data: results
+      });
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
+  static async getUserWorkshopTickets(req, res) {
+    try {
+      const { userId } = req.params;
+      console.log("Received request for user workshop tickets:", userId);
+      
+      if (!userId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "User ID is required",
+          data: null
+        });
+      }
+  
+      const tickets = await getUserWorkshopTickets(userId);
+      
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "User workshop tickets retrieved successfully",
+        data: tickets
+      });
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
+  static async markAttendance(req, res) {
+    try {
+      const { ticketCode } = req.body;
+      
+      if (!ticketCode) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Ticket code is required",
+          data: null
+        });
+      }
+  
+      const success = await markAttendance(ticketCode);
+      
+      if (!success) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Invalid ticket code or attendance already marked",
+          data: null
+        });
+      }
+  
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Attendance marked successfully",
+        data: { ticketCode }
+      });
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
+  static async getWorkshopStats(req, res) {
+    try {
+      const { workshopId } = req.params;
+      
+      if (!workshopId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Workshop ID is required",
+          data: null
+        });
+      }
+  
+      const stats = await getWorkshopStats(workshopId);
+      
+      if (!stats) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Workshop not found or no statistics available",
+          data: null
+        });
+      }
+  
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Workshop statistics retrieved successfully",
+        data: stats
+      });
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
       });
     }
   }
