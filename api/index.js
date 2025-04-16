@@ -17,6 +17,7 @@ const dashboardRoutes = require("./server/routes/dashboard/dashboardRoutes");
 const analyticsRoutes = require("./server/routes/analytics/analyticsRoutes");
 
 const serverActive = require("./Cron/serverActive");
+const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
 const {
   calculateCompanyStressLevel,
   calculateRetentionRate,

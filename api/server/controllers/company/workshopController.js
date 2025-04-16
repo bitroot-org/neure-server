@@ -21,7 +21,8 @@ class workshopController {
   static async getWorkshopDetails(req, res) {
     try {
       const { workshop_id, company_id } = req.query;
-      if (!workshop_id) {
+      
+      if (!workshop_id || !company_id) {
         return res.status(400).json({
           status: false,
           code: 400,
@@ -30,7 +31,7 @@ class workshopController {
         });
       }
 
-      const result = await getWorkshopDetails(workshop_id);
+      const result = await getWorkshopDetails(workshop_id, company_id);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -312,6 +313,7 @@ class workshopController {
   static async getWorkshopAttendance(req, res) {
     try {
       const { workshopId } = req.params;
+      const { company_id } = req.query;
       
       if (!workshopId) {
         return res.status(400).json({
@@ -321,15 +323,9 @@ class workshopController {
           data: null
         });
       }
-  
-      const results = await getWorkshopAttendance(workshopId);
-      
-      return res.status(200).json({
-        status: true,
-        code: 200,
-        message: "Workshop attendance retrieved successfully",
-        data: results
-      });
+
+      const result = await getWorkshopAttendance(workshopId, company_id);
+      return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
         status: false,
@@ -375,6 +371,7 @@ class workshopController {
   static async markAttendance(req, res) {
     try {
       const { ticketCode } = req.body;
+      const { company_id } = req.body;
       
       if (!ticketCode) {
         return res.status(400).json({
@@ -384,24 +381,9 @@ class workshopController {
           data: null
         });
       }
-  
-      const success = await markAttendance(ticketCode);
-      
-      if (!success) {
-        return res.status(404).json({
-          status: false,
-          code: 404,
-          message: "Invalid ticket code or attendance already marked",
-          data: null
-        });
-      }
-  
-      return res.status(200).json({
-        status: true,
-        code: 200,
-        message: "Attendance marked successfully",
-        data: { ticketCode }
-      });
+
+      const result = await markAttendance(ticketCode, company_id);
+      return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
         status: false,
@@ -415,6 +397,7 @@ class workshopController {
   static async getWorkshopStats(req, res) {
     try {
       const { workshopId } = req.params;
+      const { company_id } = req.query;
       
       if (!workshopId) {
         return res.status(400).json({
@@ -424,24 +407,9 @@ class workshopController {
           data: null
         });
       }
-  
-      const stats = await getWorkshopStats(workshopId);
-      
-      if (!stats) {
-        return res.status(404).json({
-          status: false,
-          code: 404,
-          message: "Workshop not found or no statistics available",
-          data: null
-        });
-      }
-  
-      return res.status(200).json({
-        status: true,
-        code: 200,
-        message: "Workshop statistics retrieved successfully",
-        data: stats
-      });
+
+      const result = await getWorkshopStats(workshopId, company_id);
+      return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
         status: false,

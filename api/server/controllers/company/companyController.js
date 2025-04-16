@@ -29,7 +29,8 @@ const {
   createCompany,
   getCompanyAnalytics,
   getCompanyList,
-  getRetentionHistory
+  getRetentionHistory,
+  getCompanyStressTrends
 } = require("../../services/company/companyService");
 
 class CompanyController {
@@ -906,6 +907,23 @@ class CompanyController {
       return res.status(500).json({
         status: false,
         message: "Error fetching retention history",
+        error: error.message
+      });
+    }
+  }
+
+  static async getCompanyStressTrends(req, res) {
+    try {
+      const { company_id } = req.params;
+      const months = parseInt(req.query.months) || 12;
+
+      const result = await getCompanyStressTrends(company_id, months);
+      return res.status(result.status ? 200 : 404).json(result);
+    } catch (error) {
+      console.error("Error in getCompanyStressTrends controller:", error);
+      return res.status(500).json({
+        status: false,
+        message: "Error fetching company stress trends",
         error: error.message
       });
     }

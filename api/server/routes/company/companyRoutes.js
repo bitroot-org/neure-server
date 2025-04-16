@@ -32,7 +32,8 @@ const {
   createCompany,
   getCompanyAnalytics,
   getCompanyList,
-  getRetentionHistory
+  getRetentionHistory,
+  getCompanyStressTrends
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -85,5 +86,11 @@ router.post("/createCompany", authorization, createCompany);
 router.get("/analytics", authorization, getCompanyAnalytics);
 router.get("/getCompanyList", authorization, getCompanyList);
 router.get("/retention-history/:company_id", authorization, getRetentionHistory);
+
+router.get(
+  "/stress-trends/:company_id",
+  authorization,
+  getCompanyStressTrends
+);
 
 module.exports = router;

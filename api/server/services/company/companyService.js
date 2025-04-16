@@ -604,8 +604,60 @@ class CompanyService {
     }
   }
 
+  // static async getCompanyMetrics(company_id) {
+  //   try {
+  //     const [metrics] = await db.query(
+  //       `SELECT 
+  //         c.id as company_id,
+  //         c.company_name,
+  //         c.company_profile_url,
+  //         c.psychological_safety_index,
+  //         c.retention_rate,
+  //         c.stress_level,
+  //         c.engagement_score,
+  //         COUNT(*) as total_employees,
+  //         SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
+  //         SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
+  //         MAX(ce.joined_date) as last_employee_joined,
+  //         (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
+  //       FROM companies c
+  //       LEFT JOIN company_employees ce ON c.id = ce.company_id
+  //       LEFT JOIN users u ON ce.user_id = u.user_id
+  //       WHERE c.id = ?
+  //       GROUP BY c.id`,
+  //       [company_id]
+  //     );
+
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: "Company metrics retrieved successfully",
+  //       data: {
+  //         metrics: {
+  //           companyId: metrics[0].company_id,
+  //           companyName: metrics[0].company_name,
+  //           company_profile_url: metrics[0].company_profile_url,
+  //           psychological_safety_index:
+  //             metrics[0].psychological_safety_index || 0,
+  //           retention_rate: metrics[0].retention_rate || 0,
+  //           stress_level: metrics[0].stress_level || 0,
+  //           engagement_score: metrics[0].engagement_score || 0,
+  //           total_employees: metrics[0].total_employees || 0,
+  //           active_employees: metrics[0].active_employees || 0,
+  //           inactive_employees: metrics[0].inactive_employees || 0,
+  //           last_employee_joined: metrics[0].last_employee_joined,
+  //           total_departments: metrics[0].total_departments || 0,
+  //         },
+  //       },
+  //     };
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
+
   static async getCompanyMetrics(company_id) {
     try {
+      // Get current company metrics
       const [metrics] = await db.query(
         `SELECT 
           c.id as company_id,
@@ -627,26 +679,64 @@ class CompanyService {
         GROUP BY c.id`,
         [company_id]
       );
-
+  
+      if (metrics.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Company not found",
+        };
+      }
+  
+      const c = metrics[0];
+  
+      // Fetch most recent historical metrics
+      const [history] = await db.query(
+        `SELECT 
+           stress_level,
+           retention_rate,
+           engagement_score,
+           psychological_safety_index
+         FROM company_metrics_history
+         WHERE company_id = ?
+         ORDER BY month_year DESC
+         LIMIT 1`,
+        [company_id]
+      );
+  
+      const h = history[0] || {};
+  
+      const getTrend = (current, previous) => {
+        if (previous == null) return "no_data";
+        if (current > previous) return "up";
+        if (current < previous) return "down";
+        return "no_change";
+      };
+  
       return {
         status: true,
         code: 200,
         message: "Company metrics retrieved successfully",
         data: {
           metrics: {
-            companyId: metrics[0].company_id,
-            companyName: metrics[0].company_name,
-            company_profile_url: metrics[0].company_profile_url,
-            psychological_safety_index:
-              metrics[0].psychological_safety_index || 0,
-            retention_rate: metrics[0].retention_rate || 0,
-            stress_level: metrics[0].stress_level || 0,
-            engagement_score: metrics[0].engagement_score || 0,
-            total_employees: metrics[0].total_employees || 0,
-            active_employees: metrics[0].active_employees || 0,
-            inactive_employees: metrics[0].inactive_employees || 0,
-            last_employee_joined: metrics[0].last_employee_joined,
-            total_departments: metrics[0].total_departments || 0,
+            companyId: c.company_id,
+            companyName: c.company_name,
+            company_profile_url: c.company_profile_url,
+            psychological_safety_index: c.psychological_safety_index || 0,
+            retention_rate: c.retention_rate || 0,
+            stress_level: c.stress_level || 0,
+            engagement_score: c.engagement_score || 0,
+            total_employees: c.total_employees || 0,
+            active_employees: c.active_employees || 0,
+            inactive_employees: c.inactive_employees || 0,
+            last_employee_joined: c.last_employee_joined,
+            total_departments: c.total_departments || 0,
+  
+            // Trend indicators
+            psi_trend: getTrend(c.psychological_safety_index, h.psychological_safety_index),
+            retention_trend: getTrend(c.retention_rate, h.retention_rate),
+            stress_trend: getTrend(c.stress_level, h.stress_level),
+            engagement_trend: getTrend(c.engagement_score, h.engagement_score),
           },
         },
       };
@@ -655,6 +745,7 @@ class CompanyService {
     }
   }
 
+  
   static async createEmployee(employeeData) {
     const connection = await db.getConnection();
 
@@ -2068,6 +2159,104 @@ class CompanyService {
     } catch (error) {
       console.error("Error in getRetentionHistory:", error);
       throw new Error(`Error retrieving retention history: ${error.message}`);
+    }
+  }
+
+  static async getCompanyStressTrends(company_id, months = 12) {
+    try {
+      // Verify company exists
+      const [company] = await db.query(
+        "SELECT id FROM companies WHERE id = ? AND active = 1",
+        [company_id]
+      );
+
+      if (!company || company.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Company not found or inactive"
+        };
+      }
+
+      // Fetch historical stress data
+      const [trends] = await db.query(
+        `SELECT 
+          DATE_FORMAT(month_year, '%Y-%m') as period,
+          stress_level,
+          engagement_score,
+          psychological_safety_index
+        FROM company_metrics_history
+        WHERE company_id = ?
+        AND month_year >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+        ORDER BY month_year ASC`,  // This ensures ascending order by date
+        [company_id, months]
+      );
+
+      // Get current month's data
+      const [currentMetrics] = await db.query(
+        `SELECT 
+          DATE_FORMAT(CURDATE(), '%Y-%m') as period,
+          stress_level,
+          engagement_score,
+          psychological_safety_index
+        FROM companies
+        WHERE id = ?`,
+        [company_id]
+      );
+
+      // Combine historical and current data
+      const allTrends = [...trends];
+      if (currentMetrics && currentMetrics[0]) {
+        // Only add current month if it's not already in the trends
+        const currentPeriod = currentMetrics[0].period;
+        if (!trends.some(trend => trend.period === currentPeriod)) {
+          allTrends.push(currentMetrics[0]);
+        }
+      }
+
+      // Sort the combined data to ensure it's in ascending order
+      allTrends.sort((a, b) => a.period.localeCompare(b.period));
+
+      // Calculate month-over-month changes
+      const trendsWithChanges = allTrends.map((trend, index) => {
+        const previousTrend = index > 0 ? allTrends[index - 1] : null;
+        return {
+          period: trend.period,
+          stress_level: trend.stress_level || 0,
+          stress_level_change: previousTrend 
+            ? (trend.stress_level || 0) - (previousTrend.stress_level || 0)
+            : 0,
+          // engagement_score: trend.engagement_score || 0,
+          // engagement_score_change: previousTrend
+          //   ? (trend.engagement_score || 0) - (previousTrend.engagement_score || 0)
+          //   : 0,
+          // psychological_safety_index: trend.psychological_safety_index || 0,
+          // psi_change: previousTrend
+          //   ? (trend.psychological_safety_index || 0) - (previousTrend.psychological_safety_index || 0)
+          //   : 0
+        };
+      });
+
+      return {
+        status: true,
+        code: 200,
+        message: "Company stress trends retrieved successfully",
+        data: {
+          company_id,
+          trends: trendsWithChanges,
+          summary: {
+            current_stress_level: currentMetrics[0]?.stress_level || 0,
+            average_stress_level: Number(
+              (trendsWithChanges.reduce((sum, t) => sum + t.stress_level, 0) / trendsWithChanges.length).toFixed(2)
+            ),
+            highest_stress_level: Math.max(...trendsWithChanges.map(t => t.stress_level)),
+            lowest_stress_level: Math.min(...trendsWithChanges.map(t => t.stress_level))
+          }
+        }
+      };
+    } catch (error) {
+      console.error("Error in getCompanyStressTrends:", error);
+      throw error;
     }
   }
 }

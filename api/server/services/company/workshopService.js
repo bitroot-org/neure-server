@@ -2,9 +2,10 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
 const WorkshopPdfService = require("../pdf/workshopPdfService");
+const CsvGenerator = require('../../utils/csvGenerator');
 
 class workshopService {
-  static async getWorkshopDetails(workshop_id) {
+  static async getWorkshopDetails(workshop_id, company_id) {
     try {
       // Fetch workshop details
       const [workshops] = await db.query(
@@ -21,10 +22,24 @@ class workshopService {
         };
       }
 
-      // Fetch schedule details for the workshop
+      // Fetch schedule details for the workshop and specific company
       const [schedules] = await db.query(
-        "SELECT start_time,end_time,status,max_participants FROM workshop_schedules WHERE workshop_id = ?",
-        [workshop_id]
+        `SELECT 
+          ws.start_time,
+          ws.end_time,
+          ws.status,
+          ws.max_participants,
+          COALESCE(
+            (SELECT COUNT(*) 
+             FROM workshop_tickets wt 
+             WHERE wt.workshop_id = ws.workshop_id 
+             AND wt.company_id = ws.company_id),
+            0
+          ) as current_participants
+        FROM workshop_schedules ws
+        WHERE ws.workshop_id = ? 
+        AND ws.company_id = ?`,
+        [workshop_id, company_id]
       );
 
       if (schedules.length === 0) {
@@ -39,7 +54,9 @@ class workshopService {
       // Combine workshop and schedule details
       const workshopDetails = {
         ...workshops[0],
-        schedules,
+        schedules: schedules.map(schedule => ({
+          ...schedule
+        }))
       };
 
       return {
@@ -605,75 +622,243 @@ class workshopService {
   }
 
   // Get workshop details with attendance information
-  static async getWorkshopAttendance(workshop_id) {
-    const query = `
-      SELECT 
-  w.title AS workshop_title,
-  wt.created_at AS ticket_generated_at,
-  u.first_name,
-  u.last_name,
-  u.email,
-  wt.ticket_code,
-  wt.is_attended
-FROM workshop_tickets wt
-JOIN workshops w ON wt.workshop_id = w.id
-JOIN users u ON wt.user_id = u.user_id
-WHERE wt.workshop_id = ?
-ORDER BY u.first_name;
-`;
+  static async getWorkshopAttendance(workshop_id, company_id = null, format = 'json') {
+    try {
+      let query = `
+        WITH LatestTickets AS (
+          SELECT 
+            wt.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY wt.workshop_id, wt.user_id 
+              ORDER BY wt.created_at DESC
+            ) as rn
+          FROM workshop_tickets wt
+          WHERE wt.workshop_id = ?
+        )
+        SELECT 
+          w.title AS workshop_title,
+          w.id AS workshop_id,
+          lt.company_id,
+          c.company_name,
+          lt.created_at AS ticket_generated_at,
+          u.first_name,
+          u.last_name,
+          u.email,
+          lt.ticket_code,
+          lt.is_attended,
+          lt.updated_at
+        FROM LatestTickets lt
+        JOIN workshops w ON lt.workshop_id = w.id
+        JOIN companies c ON lt.company_id = c.id
+        JOIN users u ON lt.user_id = u.user_id
+        WHERE lt.rn = 1
+      `;
 
-    const [results] = await db.query(query, [workshop_id]);
-    return results;
+      const queryParams = [workshop_id];
+
+      if (company_id) {
+        query += ' AND lt.company_id = ?';
+        queryParams.push(company_id);
+      }
+
+      query += ' ORDER BY u.first_name, u.last_name';
+
+      const [results] = await db.query(query, queryParams);
+
+      if (results.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: company_id 
+            ? `No attendance data found for workshop ID ${workshop_id} and company ID ${company_id}`
+            : `No attendance data found for workshop ID ${workshop_id}`,
+          data: null
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Workshop attendance retrieved successfully",
+        data: results
+      };
+    } catch (error) {
+      throw new Error("Error fetching workshop attendance: " + error.message);
+    }
   }
 
   // Get user's workshop tickets
   static async getUserWorkshopTickets(user_id) {
     const query = `
       SELECT 
-  w.title AS workshop_title,
-  wt.created_at AS ticket_generated_at,
-  u.first_name,
-  u.last_name,
-  u.email,
-  wt.ticket_code,
-  wt.is_attended
-FROM workshop_tickets wt
-JOIN workshops w ON wt.workshop_id = w.id
-JOIN users u ON wt.user_id = u.user_id
-WHERE wt.user_id = ?
-ORDER BY wt.created_at DESC;
-`;
+        w.title AS workshop_title,
+        wt.created_at AS ticket_generated_at,
+        u.first_name,
+        u.last_name,
+        u.email,
+        wt.ticket_code,
+        wt.is_attended,
+        c.company_name
+      FROM workshop_tickets wt
+      JOIN workshops w ON wt.workshop_id = w.id
+      JOIN users u ON wt.user_id = u.user_id
+      JOIN companies c ON wt.company_id = c.id
+      WHERE wt.user_id = ?
+      ORDER BY wt.created_at DESC
+    `;
 
     const [tickets] = await db.query(query, [user_id]);
     return tickets;
   }
 
   // Mark attendance using ticket code
-  static async markAttendance(ticket_code) {
-    const query = `
-      UPDATE workshop_tickets 
-      SET is_attended = TRUE 
-      WHERE ticket_code = ?`;
+  static async markAttendance(ticket_code, company_id = null) {
+    try {
+      // First check if the ticket exists and get related information
+      let query = `
+        SELECT 
+          wt.id as ticket_id,
+          wt.user_id,
+          wt.workshop_id,
+          wt.company_id,
+          wt.is_attended,
+          w.title as workshop_title
+        FROM workshop_tickets wt
+        JOIN workshops w ON wt.workshop_id = w.id
+        WHERE wt.ticket_code = ?
+      `;
 
-    const [result] = await db.query(query, [ticket_code]);
-    return result.affectedRows > 0;
+      const queryParams = [ticket_code];
+
+      if (company_id) {
+        query += ' AND wt.company_id = ?';
+        queryParams.push(company_id);
+      }
+
+      const [ticketInfo] = await db.query(query, queryParams);
+
+      // If ticket not found
+      if (!ticketInfo || ticketInfo.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: company_id 
+            ? `Invalid ticket code or ticket not associated with company ID ${company_id}`
+            : "Invalid ticket code",
+          data: null
+        };
+      }
+
+      const ticket = ticketInfo[0];
+
+      // Check if already attended
+      if (ticket.is_attended) {
+        return {
+          status: false,
+          code: 400,
+          message: "Attendance already marked for this ticket",
+          data: {
+            workshop_title: ticket.workshop_title,
+            marked_at: ticket.attendance_marked_at
+          }
+        };
+      }
+
+      // Mark attendance with timestamp
+      const updateQuery = `
+        UPDATE workshop_tickets 
+        SET 
+          is_attended = TRUE,
+          updated_at = NOW()
+        WHERE ticket_code = ? 
+        AND is_attended = FALSE
+      `;
+
+      const [result] = await db.query(updateQuery, [ticket_code]);
+
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: "Failed to mark attendance",
+          data: null
+        };
+      }
+
+      // Get user details for notification
+      const [userInfo] = await db.query(
+        "SELECT first_name, email FROM users WHERE user_id = ?",
+        [ticket.user_id]
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "Attendance marked successfully",
+        data: {
+          ticket_code,
+          workshop_title: ticket.workshop_title,
+          marked_at: new Date(),
+          user_id: ticket.user_id,
+          company_id: ticket.company_id,
+          workshop_id: ticket.workshop_id
+        }
+      };
+    } catch (error) {
+      console.error("Error in markAttendance:", error);
+      throw new Error("Error marking attendance: " + error.message);
+    }
   }
 
   // Get workshop attendance statistics
-  static async getWorkshopStats(workshop_id) {
-    const query = `
-      SELECT 
-        w.title,
-        COUNT(wt.id) as total_tickets,
-        SUM(wt.is_attended) as attended_count,
-        (SUM(wt.is_attended) / COUNT(wt.id) * 100) as attendance_percentage
-      FROM workshops w
-      LEFT JOIN workshop_tickets wt ON w.id = wt.workshop_id
-      WHERE w.id = ?
-      GROUP BY w.id`;
+  static async getWorkshopStats(workshop_id, company_id = null) {
+    try {
+      let query = `
+        SELECT 
+          w.title,
+          w.id AS workshop_id,
+          wt.company_id,
+          c.company_name,
+          COUNT(wt.id) as total_tickets,
+          SUM(wt.is_attended) as attended_count,
+          (SUM(wt.is_attended) / COUNT(wt.id) * 100) as attendance_percentage
+        FROM workshops w
+        JOIN workshop_tickets wt ON w.id = wt.workshop_id
+        JOIN companies c ON wt.company_id = c.id
+        WHERE w.id = ?
+      `;
 
-    const [stats] = await db.query(query, [workshop_id]);
-    return stats[0];
+      const queryParams = [workshop_id];
+
+      if (company_id) {
+        query += ' AND wt.company_id = ?';
+        queryParams.push(company_id);
+      }
+
+      query += ' GROUP BY w.id, wt.company_id';
+
+      const [stats] = await db.query(query, queryParams);
+
+      if (stats.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: company_id 
+            ? `No statistics found for workshop ID ${workshop_id} and company ID ${company_id}`
+            : `No statistics found for workshop ID ${workshop_id}`,
+          data: null
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Workshop statistics retrieved successfully",
+        data: stats
+      };
+    } catch (error) {
+      throw new Error("Error fetching workshop statistics: " + error.message);
+    }
   }
 }
 
