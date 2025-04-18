@@ -15,6 +15,7 @@ const galleryRoutes = require("./server/routes/gallery/galleryRoutes");
 const assessmentsRoutes = require('./server/routes/assessments/assessmentsRoutes');
 const dashboardRoutes = require("./server/routes/dashboard/dashboardRoutes");
 const analyticsRoutes = require("./server/routes/analytics/analyticsRoutes");
+const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackingRoutes');
 
 const serverActive = require("./Cron/serverActive");
 const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
@@ -24,6 +25,8 @@ const {
   calculatePSI,
   calculateEngagementScore,
 } = require("./Cron/companyMetrics");
+const { updateContentEngagementPercentage } = require("./Cron/resourceUsageMetrics");
+const { checkAssessmentCompletion } = require("./Cron/assessmentCompletionCheck");
 
 // Initialize environment variables
 dotenv.config();
@@ -32,20 +35,9 @@ const app = express();
 
 // Middleware
 app.use(express.json());
-app.use(cors());
-
-
 app.use(cors({
   origin: '*'
 }));
-
-
-// app.use(
-//   cors({
-//     origin: "http://localhost:5173", // Replace with your frontend's URL
-//     credentials: true, // Enable cookies and HTTP authentication
-//   })
-// );
 
 // Routes
 app.use("/api/company", companyRoutes);
@@ -61,6 +53,7 @@ app.use("/api", galleryRoutes);
 app.use('/api/assessments', assessmentsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use('/api/tracking', resourceTrackingRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;
@@ -73,11 +66,13 @@ app.listen(PORT, () => {
 // Keep the server active
 serverActive();
 
-// Ensure the cron jobs are scheduled
+// Initialize all cron jobs
 // calculateCompanyStressLevel();
 // calculateRetentionRate();
 // calculatePSI();
-// calculateEngagementScore();
+calculateEngagementScore();
+updateContentEngagementPercentage();
+checkAssessmentCompletion();
 
 app.get("*", (req, res) =>
   res.status(200).send({

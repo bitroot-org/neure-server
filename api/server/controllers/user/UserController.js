@@ -36,6 +36,7 @@ class UserController {
     try {
       // console.log("Login request:", req.body);
       const result = await login(req.body);
+      console.log("Login result:", result);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(401).json({
@@ -575,6 +576,33 @@ class UserController {
         status: false,
         code: 500,
         message: "Error submitting PSI score",
+        data: null,
+      });
+    }
+  }
+
+  static async updateTermsAcceptance(req, res) {
+    try {
+      const { user_id } = req.user; // Get user_id from the authenticated token
+      const { accepted_terms } = req.body;
+
+      if (accepted_terms === undefined) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "accepted_terms field is required",
+          data: null,
+        });
+      }
+
+      const result = await UserServices.updateTermsAcceptance(user_id, accepted_terms);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateTermsAcceptance controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating terms acceptance status",
         data: null,
       });
     }

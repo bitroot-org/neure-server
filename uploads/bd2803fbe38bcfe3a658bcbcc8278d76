@@ -1,0 +1,6 @@
+email,phone,username,first_name,last_name,gender,date_of_birth,job_title,department_id,city
+prem@gmail.com,1234567890,prem.chopra,Prem,Chopra,male,2025-04-15,,4,Thane
+radha@gmail.com,9876543210,radha.kapoor,Radha,Kapoor,female,1990-06-10,Designer,3,Mumbai
+amit@gmail.com,1231231231,amit.verma,Amit,Verma,male,1988-12-22,Engineer,2,Pune
+sneha@gmail.com,9090909090,sneha.singh,Sneha,Singh,female,1995-08-05,Manager,1,Nashik
+rahul@gmail.com,8080808080,rahul.jain,Rahul,Jain,male,1992-03-17,Analyst,5,Nagpur

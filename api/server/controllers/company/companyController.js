@@ -30,7 +30,9 @@ const {
   getCompanyAnalytics,
   getCompanyList,
   getRetentionHistory,
-  getCompanyStressTrends
+  getCompanyStressTrends,
+  getDeactivationRequests,
+  getDeactivatedCompanies
 } = require("../../services/company/companyService");
 
 class CompanyController {
@@ -568,16 +570,17 @@ class CompanyController {
       
       const result = await processDeactivationRequest({
         request_id,
-        status
+        status,
+        user: req.user // Pass the user object from the request
       });
-      
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Error in processDeactivationRequest controller:", error);
       return res.status(500).json({
         status: false,
         code: 500,
-        message: "Error processing deactivation request.",
+        message: error.message,
         data: null,
       });
     }
@@ -925,6 +928,70 @@ class CompanyController {
         status: false,
         message: "Error fetching company stress trends",
         error: error.message
+      });
+    }
+  }
+
+  static async getDeactivationRequests(req, res) {
+    try {
+      const { status, page = 1, limit = 10 } = req.query;
+      
+      // Check if user is superadmin
+      if (!req.user || req.user.role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmin can view deactivation requests.",
+          data: null,
+        });
+      }
+      
+      const result = await getDeactivationRequests({
+        status,
+        page: parseInt(page),
+        limit: parseInt(limit)
+      });
+      
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getDeactivationRequests controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
+      });
+    }
+  }
+
+  static async getDeactivatedCompanies(req, res) {
+    try {
+      const { page = 1, limit = 10, search = '' } = req.query;
+      
+      // Check if user is superadmin
+      if (!req.user || req.user.role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmin can view deactivated companies.",
+          data: null,
+        });
+      }
+      
+      const result = await getDeactivatedCompanies({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        search
+      });
+      
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in getDeactivatedCompanies controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null
       });
     }
   }

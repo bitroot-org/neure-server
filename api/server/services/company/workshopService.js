@@ -87,6 +87,7 @@ class workshopService {
       });
       let baseQuery = "";
       const queryParams = [];
+      const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
 
       if (user_id) {
         baseQuery = `
@@ -95,18 +96,22 @@ class workshopService {
           FROM workshops w
           INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-          WHERE wa.user_id = ? AND w.is_active = 1
+          WHERE wa.user_id = ? 
+          AND w.is_active = 1
+          AND DATE(ws.start_time) >= ?
         `;
-        queryParams.push(user_id);
+        queryParams.push(user_id, today);
       } else if (company_id) {
         baseQuery = `
           SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
                  ws.start_time, ws.end_time, ws.status, ws.max_participants, w.location, w.poster_image 
           FROM workshops w
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-          WHERE ws.company_id = ? AND w.is_active = 1
+          WHERE ws.company_id = ? 
+          AND w.is_active = 1 AND ws.status != 'canceled'
+          AND DATE(ws.start_time) >= ?
         `;
-        queryParams.push(company_id);
+        queryParams.push(company_id, today);
       } else {
         return {
           status: false,
@@ -159,6 +164,7 @@ class workshopService {
     try {
       let query = "";
       const queryParams = [];
+      const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
 
       if (user_id) {
         query = `
@@ -166,17 +172,21 @@ class workshopService {
           FROM workshop_schedules ws
           INNER JOIN workshops w ON w.id = ws.workshop_id
           INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
-          WHERE wa.user_id = ? AND w.is_active = 1
+          WHERE wa.user_id = ? 
+          AND w.is_active = 1 AND ws.status != 'canceled'
+          AND DATE(ws.start_time) >= ?
         `;
-        queryParams.push(user_id);
+        queryParams.push(user_id, today);
       } else if (company_id) {
         query = `
           SELECT DISTINCT ws.start_time as date
           FROM workshop_schedules ws
           INNER JOIN workshops w ON w.id = ws.workshop_id
-          WHERE ws.company_id = ? AND w.is_active = 1
+          WHERE ws.company_id = ? 
+          AND w.is_active = 1 AND ws.status != 'canceled'
+          AND DATE(ws.start_time) >= ?
         `;
-        queryParams.push(company_id);
+        queryParams.push(company_id, today);
       } else {
         return {
           status: false,
@@ -472,7 +482,7 @@ class workshopService {
       if (schedules.length === 0) {
         return {
           status: false,
-          code: 404,
+          code: 200,
           message: "No workshop schedules found",
           data: null,
         };
@@ -764,46 +774,71 @@ class workshopService {
         };
       }
 
-      // Mark attendance with timestamp
-      const updateQuery = `
-        UPDATE workshop_tickets 
-        SET 
-          is_attended = TRUE,
-          updated_at = NOW()
-        WHERE ticket_code = ? 
-        AND is_attended = FALSE
-      `;
+      // Start transaction
+      await db.query('START TRANSACTION');
 
-      const [result] = await db.query(updateQuery, [ticket_code]);
+      try {
+        // Mark attendance with timestamp
+        const updateQuery = `
+          UPDATE workshop_tickets 
+          SET 
+            is_attended = TRUE,
+            updated_at = NOW()
+          WHERE ticket_code = ? 
+          AND is_attended = FALSE
+        `;
 
-      if (result.affectedRows === 0) {
-        return {
-          status: false,
-          code: 400,
-          message: "Failed to mark attendance",
-          data: null
-        };
-      }
+        const [result] = await db.query(updateQuery, [ticket_code]);
 
-      // Get user details for notification
-      const [userInfo] = await db.query(
-        "SELECT first_name, email FROM users WHERE user_id = ?",
-        [ticket.user_id]
-      );
-
-      return {
-        status: true,
-        code: 200,
-        message: "Attendance marked successfully",
-        data: {
-          ticket_code,
-          workshop_title: ticket.workshop_title,
-          marked_at: new Date(),
-          user_id: ticket.user_id,
-          company_id: ticket.company_id,
-          workshop_id: ticket.workshop_id
+        if (result.affectedRows === 0) {
+          await db.query('ROLLBACK');
+          return {
+            status: false,
+            code: 400,
+            message: "Failed to mark attendance",
+            data: null
+          };
         }
-      };
+
+        // Update company_employees table
+        const updateEmployeeQuery = `
+          UPDATE company_employees 
+          SET 
+            workshop_attendance_count = workshop_attendance_count + 1,
+            last_activity_date = NOW(),
+            last_activity_type = 'workshop'
+          WHERE company_id = ? 
+          AND user_id = ?
+        `;
+
+        await db.query(updateEmployeeQuery, [ticket.company_id, ticket.user_id]);
+
+        // Commit transaction
+        await db.query('COMMIT');
+
+        // Get user details for notification
+        const [userInfo] = await db.query(
+          "SELECT first_name, email FROM users WHERE user_id = ?",
+          [ticket.user_id]
+        );
+
+        return {
+          status: true,
+          code: 200,
+          message: "Attendance marked successfully",
+          data: {
+            ticket_code,
+            workshop_title: ticket.workshop_title,
+            marked_at: new Date(),
+            user_id: ticket.user_id,
+            company_id: ticket.company_id,
+            workshop_id: ticket.workshop_id
+          }
+        };
+      } catch (error) {
+        await db.query('ROLLBACK');
+        throw error;
+      }
     } catch (error) {
       console.error("Error in markAttendance:", error);
       throw new Error("Error marking attendance: " + error.message);

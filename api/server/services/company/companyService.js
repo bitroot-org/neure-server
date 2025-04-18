@@ -1,7 +1,9 @@
 const db = require("../../../config/db");
 const bcrypt = require("bcrypt");
 const EmailService = require("../email/emailService");
-const { getCompanyRetentionHistory } = require('../../utils/retentionCalculator');
+const {
+  getCompanyRetentionHistory,
+} = require("../../utils/retentionCalculator");
 
 class CompanyService {
   static async generateUniqueUsername(firstName, lastName) {
@@ -282,7 +284,7 @@ class CompanyService {
           u.EngagementScore,
           u.job_title,
           u.user_type,
-          ce.employee_code,
+          ce.is_active,
           ce.joined_date,
           d.id as department_id,
           d.department_name,
@@ -607,7 +609,7 @@ class CompanyService {
   // static async getCompanyMetrics(company_id) {
   //   try {
   //     const [metrics] = await db.query(
-  //       `SELECT 
+  //       `SELECT
   //         c.id as company_id,
   //         c.company_name,
   //         c.company_profile_url,
@@ -679,7 +681,7 @@ class CompanyService {
         GROUP BY c.id`,
         [company_id]
       );
-  
+
       if (metrics.length === 0) {
         return {
           status: false,
@@ -687,9 +689,9 @@ class CompanyService {
           message: "Company not found",
         };
       }
-  
+
       const c = metrics[0];
-  
+
       // Fetch most recent historical metrics
       const [history] = await db.query(
         `SELECT 
@@ -703,16 +705,16 @@ class CompanyService {
          LIMIT 1`,
         [company_id]
       );
-  
+
       const h = history[0] || {};
-  
+
       const getTrend = (current, previous) => {
         if (previous == null) return "no_data";
         if (current > previous) return "up";
         if (current < previous) return "down";
         return "no_change";
       };
-  
+
       return {
         status: true,
         code: 200,
@@ -731,9 +733,12 @@ class CompanyService {
             inactive_employees: c.inactive_employees || 0,
             last_employee_joined: c.last_employee_joined,
             total_departments: c.total_departments || 0,
-  
+
             // Trend indicators
-            psi_trend: getTrend(c.psychological_safety_index, h.psychological_safety_index),
+            psi_trend: getTrend(
+              c.psychological_safety_index,
+              h.psychological_safety_index
+            ),
             retention_trend: getTrend(c.retention_rate, h.retention_rate),
             stress_trend: getTrend(c.stress_level, h.stress_level),
             engagement_trend: getTrend(c.engagement_score, h.engagement_score),
@@ -745,7 +750,6 @@ class CompanyService {
     }
   }
 
-  
   static async createEmployee(employeeData) {
     const connection = await db.getConnection();
 
@@ -801,6 +805,18 @@ class CompanyService {
           age,
           city,
         ]
+      );
+
+      // Add subscription record for the new user
+      await connection.query(
+        `INSERT INTO user_subscriptions (
+          user_id, 
+          email_notification, 
+          sms_notification, 
+          workshop_event_reminder, 
+          system_updates_announcement
+        ) VALUES (?, 1, 1, 1, 1)`,
+        [userResult.insertId]
       );
 
       // Insert company_employee
@@ -867,9 +883,13 @@ class CompanyService {
       await connection.beginTransaction();
 
       // Get unique department IDs instead of names
-      const departmentIds = [...new Set(
-        employees.filter(emp => emp.department_id).map(emp => emp.department_id)
-      )];
+      const departmentIds = [
+        ...new Set(
+          employees
+            .filter((emp) => emp.department_id)
+            .map((emp) => emp.department_id)
+        ),
+      ];
 
       console.log("Department IDs:", departmentIds);
 
@@ -881,7 +901,7 @@ class CompanyService {
         );
 
         // Create department ID validation set
-        const validDepartmentIds = new Set(departments.map(dept => dept.id));
+        const validDepartmentIds = new Set(departments.map((dept) => dept.id));
 
         console.log("Valid department IDs:", validDepartmentIds);
       }
@@ -889,12 +909,18 @@ class CompanyService {
       for (const employee of employees) {
         try {
           // Calculate age based on date_of_birth
-          const dob = new Date(Math.round((employee.date_of_birth - 25569) * 86400 * 1000));
-          const age = Math.floor((new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000));
-          
+          const dob = new Date(
+            Math.round((employee.date_of_birth - 25569) * 86400 * 1000)
+          );
+          const age = Math.floor(
+            (new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000)
+          );
+
           const day = String(dob.getDate()).padStart(2, "0");
           const month = String(dob.getMonth() + 1).padStart(2, "0");
-          const password = `${employee.first_name.slice(0, 4).toLowerCase()}${day}${month}`;
+          const password = `${employee.first_name
+            .slice(0, 4)
+            .toLowerCase()}${day}${month}`;
           const hashedPassword = await bcrypt.hash(password, 10);
 
           // Insert user
@@ -914,8 +940,20 @@ class CompanyService {
               dob,
               employee.job_title || null,
               age,
-              employee.city
+              employee.city,
             ]
+          );
+
+          // Add subscription record for the new user
+          await connection.query(
+            `INSERT INTO user_subscriptions (
+              user_id, 
+              email_notification, 
+              sms_notification, 
+              workshop_event_reminder, 
+              system_updates_announcement
+            ) VALUES (?, 1, 1, 1, 1)`,
+            [userResult.insertId]
           );
 
           // Insert company_employee
@@ -1019,21 +1057,21 @@ class CompanyService {
 
   static async assignReward(company_id, user_id, reward_id, admin_id) {
     const connection = await db.getConnection();
-    
+
     try {
       await connection.beginTransaction();
-  
+
       // Get employee and admin details
       const [[employee]] = await connection.query(
         `SELECT first_name, email FROM users WHERE user_id = ?`,
         [user_id]
       );
-  
+
       const [[admin]] = await connection.query(
         `SELECT first_name, last_name FROM users WHERE user_id = ?`,
         [admin_id]
       );
-  
+
       // Insert reward assignment
       const [result] = await connection.query(
         `INSERT INTO employee_rewards (
@@ -1045,15 +1083,15 @@ class CompanyService {
         ) VALUES (?, ?, ?, ?, NOW())`,
         [company_id, user_id, reward_id, admin_id]
       );
-  
+
       // Get reward details
       const [[reward]] = await connection.query(
         `SELECT title AS name FROM rewards WHERE id = ?`,
         [reward_id]
       );
-  
+
       await connection.commit();
-  
+
       // Send email notification to employee
       try {
         await EmailService.sendEmployeeRewardEmail(
@@ -1061,7 +1099,7 @@ class CompanyService {
           `${admin.first_name} ${admin.last_name}`,
           employee.email
         );
-  
+
         // Send notification to admin about reward assignment
         await EmailService.sendRewardRedemptionAdminEmail(
           admin.first_name,
@@ -1072,7 +1110,7 @@ class CompanyService {
         console.error("Error sending reward notification email:", emailError);
         // Don't throw error as reward is already assigned
       }
-  
+
       return {
         status: true,
         code: 201,
@@ -1083,10 +1121,9 @@ class CompanyService {
           user_id,
           reward_id,
           awarded_by: admin_id,
-          awarded_at: new Date()
-        }
+          awarded_at: new Date(),
+        },
       };
-  
     } catch (error) {
       await connection.rollback();
       console.error("Error in assignReward:", error);
@@ -1357,9 +1394,20 @@ class CompanyService {
     }
   }
 
-  static async processDeactivationRequest({ request_id, status }) {
+  static async processDeactivationRequest({ request_id, status, user }) {
     const connection = await db.getConnection();
     try {
+      // Check if user is superadmin
+      if (!user || user.role_id !== 1) {
+        return {
+          status: false,
+          code: 403,
+          message:
+            "Access denied. Only superadmin can process deactivation requests.",
+          data: null,
+        };
+      }
+
       await connection.beginTransaction();
       console.log(
         `Processing deactivation request ${request_id} with status: ${status}`
@@ -1413,7 +1461,7 @@ class CompanyService {
            JOIN users u ON ce.user_id = u.user_id 
            WHERE c.id = ? AND ce.is_active = 1`,
           [request[0].company_id]
-      );
+        );
 
         await connection.query("UPDATE companies SET active = 0 WHERE id = ?", [
           request[0].company_id,
@@ -1421,11 +1469,11 @@ class CompanyService {
 
         // Send deactivation emails to all active employees
         for (const employee of companyDetails) {
-            await EmailService.sendAccountDeactivationEmail(
-                employee.first_name,
-                employee.company_name,
-                employee.email
-            );
+          await EmailService.sendAccountDeactivationEmail(
+            employee.first_name,
+            employee.company_name,
+            employee.email
+          );
         }
 
         console.log(
@@ -2146,7 +2194,7 @@ class CompanyService {
       if (!company || company.length === 0) {
         return {
           status: false,
-          message: "Company not found or inactive"
+          message: "Company not found or inactive",
         };
       }
 
@@ -2154,7 +2202,7 @@ class CompanyService {
       return {
         status: true,
         message: "Retention history retrieved successfully",
-        data: history.data
+        data: history.data,
       };
     } catch (error) {
       console.error("Error in getRetentionHistory:", error);
@@ -2174,7 +2222,7 @@ class CompanyService {
         return {
           status: false,
           code: 404,
-          message: "Company not found or inactive"
+          message: "Company not found or inactive",
         };
       }
 
@@ -2188,7 +2236,7 @@ class CompanyService {
         FROM company_metrics_history
         WHERE company_id = ?
         AND month_year >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-        ORDER BY month_year ASC`,  // This ensures ascending order by date
+        ORDER BY month_year ASC`, // This ensures ascending order by date
         [company_id, months]
       );
 
@@ -2209,7 +2257,7 @@ class CompanyService {
       if (currentMetrics && currentMetrics[0]) {
         // Only add current month if it's not already in the trends
         const currentPeriod = currentMetrics[0].period;
-        if (!trends.some(trend => trend.period === currentPeriod)) {
+        if (!trends.some((trend) => trend.period === currentPeriod)) {
           allTrends.push(currentMetrics[0]);
         }
       }
@@ -2223,7 +2271,7 @@ class CompanyService {
         return {
           period: trend.period,
           stress_level: trend.stress_level || 0,
-          stress_level_change: previousTrend 
+          stress_level_change: previousTrend
             ? (trend.stress_level || 0) - (previousTrend.stress_level || 0)
             : 0,
           // engagement_score: trend.engagement_score || 0,
@@ -2247,16 +2295,177 @@ class CompanyService {
           summary: {
             current_stress_level: currentMetrics[0]?.stress_level || 0,
             average_stress_level: Number(
-              (trendsWithChanges.reduce((sum, t) => sum + t.stress_level, 0) / trendsWithChanges.length).toFixed(2)
+              (
+                trendsWithChanges.reduce((sum, t) => sum + t.stress_level, 0) /
+                trendsWithChanges.length
+              ).toFixed(2)
             ),
-            highest_stress_level: Math.max(...trendsWithChanges.map(t => t.stress_level)),
-            lowest_stress_level: Math.min(...trendsWithChanges.map(t => t.stress_level))
-          }
-        }
+            highest_stress_level: Math.max(
+              ...trendsWithChanges.map((t) => t.stress_level)
+            ),
+            lowest_stress_level: Math.min(
+              ...trendsWithChanges.map((t) => t.stress_level)
+            ),
+          },
+        },
       };
     } catch (error) {
       console.error("Error in getCompanyStressTrends:", error);
       throw error;
+    }
+  }
+
+  static async getDeactivationRequests({ status, page = 1, limit = 10 }) {
+    try {
+      const offset = (page - 1) * limit;
+
+      let query = `
+        SELECT 
+          dr.*,
+          c.company_name,
+          c.email_domain as company_email
+        FROM 
+          company_deactivation_requests dr
+        JOIN 
+          companies c ON dr.company_id = c.id
+        WHERE 
+          dr.status != 'approved' AND dr.status != 'rejected'
+      `;
+
+      const queryParams = [];
+
+      if (status) {
+        query += ` AND dr.status = ?`;
+        queryParams.push(status);
+      }
+
+      // Get total count for pagination
+      const countQuery = query.replace(
+        "dr.*, c.company_name, c.email_domain as company_email",
+        "COUNT(*) as total"
+      );
+      
+      const [countResult] = await db.query(countQuery, queryParams);
+      const total = countResult && countResult[0] ? countResult[0].total : 0;
+
+      // If no results found, return early with empty data
+      if (total === 0) {
+        return {
+          status: true,
+          code: 200,
+          message: "No deactivation requests found",
+          data: [],
+          pagination: {
+            total: 0,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: 0
+          }
+        };
+      }
+
+      // Add sorting and pagination
+      query += ` ORDER BY dr.created_at DESC LIMIT ? OFFSET ?`;
+      queryParams.push(parseInt(limit), offset);
+
+      const [requests] = await db.query(query, queryParams);
+
+      return {
+        status: true,
+        code: 200,
+        message: "Deactivation requests retrieved successfully",
+        data: requests || [], // Ensure we always return an array
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      console.error("Error fetching deactivation requests:", error);
+      throw new Error(`Error fetching deactivation requests: ${error.message}`);
+    }
+  }
+
+  static async getDeactivatedCompanies({ page = 1, limit = 10, search = '' }) {
+    try {
+      const offset = (page - 1) * limit;
+      
+      let query = `
+        SELECT 
+          c.*,
+          dr.deactivation_reason,
+          dr.detailed_reason,
+          dr.created_at as deactivation_request_date,
+          dr.status as deactivation_status
+        FROM 
+          companies c
+        LEFT JOIN 
+          company_deactivation_requests dr ON c.id = dr.company_id
+        WHERE 
+          c.active = 0
+      `;
+      
+      const queryParams = [];
+      
+      if (search) {
+        query += ` AND (
+          c.company_name LIKE ? OR 
+          c.email LIKE ? OR
+          dr.deactivation_reason LIKE ?
+        )`;
+        const searchTerm = `%${search}%`;
+        queryParams.push(searchTerm, searchTerm, searchTerm);
+      }
+      
+      // Get total count for pagination
+      const countQuery = query.replace(
+        'c.*, dr.deactivation_reason, dr.detailed_reason, dr.created_at as deactivation_request_date, dr.status as deactivation_status',
+        'COUNT(DISTINCT c.id) as total'
+      );
+      const [countResult] = await db.query(countQuery, queryParams);
+      
+      // Default to 0 if no results
+      const total = countResult && countResult[0] ? countResult[0].total : 0;
+      
+      // If total is 0, return early with empty data
+      if (total === 0) {
+        return {
+          status: true,
+          code: 200,
+          message: "No deactivated companies found",
+          data: [],
+          pagination: {
+            total: 0,
+            page: parseInt(page),
+            limit: parseInt(limit),
+            pages: 0
+          }
+        };
+      }
+      
+      // Add sorting and pagination
+      query += ` ORDER BY dr.created_at DESC LIMIT ? OFFSET ?`;
+      queryParams.push(parseInt(limit), offset);
+      
+      const [companies] = await db.query(query, queryParams);
+      
+      return {
+        status: true,
+        code: 200,
+        message: "Deactivated companies retrieved successfully",
+        data: companies || [], // Ensure we always return an array
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      console.error("Error fetching deactivated companies:", error);
+      throw new Error(`Error fetching deactivated companies: ${error.message}`);
     }
   }
 }

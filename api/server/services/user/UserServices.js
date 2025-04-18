@@ -94,6 +94,11 @@ class UserServices {
       if (!isMatch) {
         throw new Error("Invalid credentials");
       }
+
+       await db.query(
+      "UPDATE users SET last_login = NOW() WHERE user_id = ?",
+      [user.user_id]
+    );
   
       let companyData = null;
   
@@ -368,6 +373,18 @@ class UserServices {
           age,
           phone,
         ]
+      );
+
+      // Add this after user creation
+      await connection.query(
+        `INSERT INTO user_subscriptions (
+          user_id, 
+          email_notification, 
+          sms_notification, 
+          workshop_event_reminder, 
+          system_updates_announcement
+        ) VALUES (?, 1, 1, 1, 1)`, // Default all notifications to true for new users
+        [userResult.insertId]
       );
 
       // Create therapist profile
@@ -1385,6 +1402,58 @@ class UserServices {
       await connection.rollback();
       console.error("Error submitting PSI score:", error);
       throw new Error(`Error submitting PSI score: ${error.message}`);
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateTermsAcceptance(user_id, accepted_terms) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Check if user exists
+      const [user] = await connection.query(
+        'SELECT * FROM users WHERE user_id = ?',
+        [user_id]
+      );
+
+      if (!user || user.length === 0) {
+        await connection.rollback();
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+
+      // Update accepted_terms status and add timestamp
+      await connection.query(
+        `UPDATE users 
+         SET 
+           accepted_terms = ?
+         WHERE user_id = ?`,
+        [
+          accepted_terms,
+          user_id
+        ]
+      );
+
+      await connection.commit();
+
+      return {
+        status: true,
+        code: 200,
+        message: "Terms acceptance status updated successfully",
+        data: {
+          user_id,
+          accepted_terms,
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error("Error updating terms acceptance: " + error.message);
     } finally {
       connection.release();
     }

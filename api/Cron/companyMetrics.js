@@ -88,31 +88,63 @@ const calculatePSI = async () => {
 
 const calculateEngagementScore = async () => {
   try {
+    // First, get total workshops scheduled for each company (excluding canceled ones)
+    const [companyWorkshops] = await db.query(`
+      SELECT 
+        company_id,
+        COUNT(DISTINCT workshop_id) as total_workshops
+      FROM 
+        workshop_schedules
+      WHERE 
+        status != 'canceled'
+      GROUP BY 
+        company_id
+    `);
+
+    // Create a map for quick lookup of total workshops per company
+    const companyWorkshopsMap = companyWorkshops.reduce((acc, curr) => {
+      acc[curr.company_id] = curr.total_workshops;
+      return acc;
+    }, {});
+
     // Query to calculate the engagement score for each employee
     const [employeeResults] = await db.query(`
       SELECT 
-        company_id,
-        user_id,
-        workshop_attendance_percentage,
-        content_engagement_percentage,
-        stress_bar_updated,
-        assessment_completion
+        ce.company_id,
+        ce.user_id,
+        ce.workshop_attendance_count,
+        ce.content_engagement_percentage,
+        ce.stress_bar_updated,
+        ce.assessment_completion
       FROM 
-        company_employees
+        company_employees ce
     `);
 
     // Update the engagement score for each employee
     for (const employee of employeeResults) {
+      const totalWorkshops = companyWorkshopsMap[employee.company_id] || 0;
+      
+      // Calculate workshop attendance percentage (only for engagement score calculation)
+      const workshopAttendancePercentage = totalWorkshops > 0
+        ? Math.min((employee.workshop_attendance_count / totalWorkshops) * 100, 100) // Cap at 100%
+        : 0;
+
       const engagementScore =
-        (employee.workshop_attendance_percentage +
+        (workshopAttendancePercentage +
           employee.content_engagement_percentage +
           (employee.stress_bar_updated ? 100 : 0) +
           (employee.assessment_completion ? 100 : 0)) /
         4;
 
       await db.query(
-        `UPDATE company_employees SET engagement_score = ? WHERE company_id = ? AND user_id = ?`,
-        [engagementScore, employee.company_id, employee.user_id]
+        `UPDATE company_employees SET 
+          engagement_score = ? 
+        WHERE company_id = ? AND user_id = ?`,
+        [
+          engagementScore,
+          employee.company_id,
+          employee.user_id
+        ]
       );
     }
 
@@ -129,13 +161,16 @@ const calculateEngagementScore = async () => {
 
     // Update the average engagement score in the companies table
     for (const company of companyResults) {
-      await db.query(`UPDATE companies SET engagement_score = ? WHERE id = ?`, [
-        company.average_engagement_score,
-        company.company_id,
-      ]);
+      await db.query(
+        `UPDATE companies SET engagement_score = ? WHERE id = ?`,
+        [company.average_engagement_score, company.company_id]
+      );
     }
+
+    console.log(`[${new Date().toISOString()}] Engagement scores updated successfully`);
   } catch (error) {
     console.error("Error calculating engagement score:", error.message);
+    throw error;
   }
 };
 
@@ -226,7 +261,7 @@ cron.schedule(
 );
 
 cron.schedule(
-  "0 0 * * *",
+  " 0 0 * * *",
   () => {
     calculateEngagementScore();
   },

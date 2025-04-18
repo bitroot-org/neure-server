@@ -91,7 +91,7 @@ class DashboardService {
   static async getUserEngagement() {
     const [results] = await db.query(`
       SELECT
-        (SELECT COUNT(*) FROM company_employees WHERE workshop_attendance_percentage > 0) as workshop_engaged_users,
+        (SELECT COUNT(*) FROM company_employees WHERE workshop_attendance_count > 0) as workshop_engaged_users,
         (SELECT COUNT(*) FROM company_employees WHERE content_engagement_percentage > 0) as content_engaged_users,
         (SELECT COUNT(*) FROM company_employees WHERE stress_bar_updated = 1) as stress_tracking_users,
         (SELECT COUNT(*) FROM company_employees WHERE assessment_completion = 1) as assessment_complete_users

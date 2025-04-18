@@ -167,16 +167,17 @@ class WorkshopPdfService {
         workshop_id: workshop.id,
         user_id: employee.user_id,
         ticket_code: ticketId,
-        pdf_url: pdfUrl
+        pdf_url: pdfUrl,
+        company_id: company.id
       };
 
       console.log('Inserting ticket data:', ticketData);
 
       await db.query(
         `INSERT INTO workshop_tickets 
-          (workshop_id, user_id, ticket_code, pdf_url) 
-         VALUES (?, ?, ?, ?)`,
-        [ticketData.workshop_id, ticketData.user_id, ticketData.ticket_code, ticketData.pdf_url]
+          (workshop_id, user_id, company_id, ticket_code, pdf_url) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [ticketData.workshop_id, ticketData.user_id, ticketData.company_id, ticketData.ticket_code, ticketData.pdf_url]
       );
 
       return {
