@@ -283,7 +283,6 @@ class CompanyService {
           u.Task_completed,
           u.EngagementScore,
           u.job_title,
-          u.user_type,
           ce.is_active,
           ce.joined_date,
           d.id as department_id,
@@ -375,7 +374,6 @@ class CompanyService {
           u.Task_completed,
           u.EngagementScore,
           u.job_title,
-          u.user_type,
           ce.employee_code,
           ce.joined_date,
           ce.is_active,
@@ -1402,16 +1400,13 @@ class CompanyService {
         return {
           status: false,
           code: 403,
-          message:
-            "Access denied. Only superadmin can process deactivation requests.",
+          message: "Access denied. Only superadmin can process deactivation requests.",
           data: null,
         };
       }
 
       await connection.beginTransaction();
-      console.log(
-        `Processing deactivation request ${request_id} with status: ${status}`
-      );
+      console.log(`Processing deactivation request ${request_id} with status: ${status}`);
 
       // Get the deactivation request
       const [request] = await connection.query(
@@ -1431,10 +1426,7 @@ class CompanyService {
 
       // Check if request has already been processed
       if (request[0].status !== "pending") {
-        console.log(
-          `Request ${request_id} already processed with status:`,
-          request[0].status
-        );
+        console.log(`Request ${request_id} already processed with status:`, request[0].status);
         return {
           status: false,
           code: 400,
@@ -1450,7 +1442,7 @@ class CompanyService {
         [status, request_id]
       );
 
-      // If approved, deactivate the company
+      // If approved, deactivate the company and its employees
       if (status === "approved") {
         console.log(`Deactivating company ${request[0].company_id}`);
 
@@ -1463,9 +1455,17 @@ class CompanyService {
           [request[0].company_id]
         );
 
-        await connection.query("UPDATE companies SET active = 0 WHERE id = ?", [
-          request[0].company_id,
-        ]);
+        // Deactivate the company
+        await connection.query(
+          "UPDATE companies SET active = 0 WHERE id = ?",
+          [request[0].company_id]
+        );
+
+        // Deactivate all active employees of the company
+        await connection.query(
+          "UPDATE company_employees SET is_active = 0 WHERE company_id = ? AND is_active = 1",
+          [request[0].company_id]
+        );
 
         // Send deactivation emails to all active employees
         for (const employee of companyDetails) {
@@ -1476,19 +1476,13 @@ class CompanyService {
           );
         }
 
-        console.log(
-          `Company ${request[0].company_id} deactivated successfully`
-        );
+        console.log(`Company ${request[0].company_id} and its employees deactivated successfully`);
       } else {
-        console.log(
-          `Request rejected, company ${request[0].company_id} remains active`
-        );
+        console.log(`Request rejected, company ${request[0].company_id} remains active`);
       }
 
       await connection.commit();
-      console.log(
-        `Request ${request_id} processed successfully with status: ${status}`
-      );
+      console.log(`Request ${request_id} processed successfully with status: ${status}`);
 
       return {
         status: true,
@@ -1503,9 +1497,7 @@ class CompanyService {
     } catch (error) {
       console.error("Error in processDeactivationRequest:", error);
       await connection.rollback();
-      throw new Error(
-        `Error processing deactivation request: ${error.message}`
-      );
+      throw new Error(`Error processing deactivation request: ${error.message}`);
     } finally {
       connection.release();
     }
@@ -1972,6 +1964,18 @@ class CompanyService {
 
       const contactPersonId = userResult.insertId;
 
+      // Add subscription record for the new user
+      await connection.query(
+        `INSERT INTO user_subscriptions (
+          user_id, 
+          email_notification, 
+          sms_notification, 
+          workshop_event_reminder, 
+          system_updates_announcement
+        ) VALUES (?, 1, 1, 1, 1)`,
+        [contactPersonId]
+      );
+
       // Insert the company with contact person reference and onboarding status
       const [companyResult] = await connection.query(
         `INSERT INTO companies (
@@ -1984,6 +1988,31 @@ class CompanyService {
       );
 
       const companyId = companyResult.insertId;
+
+      // Add contact person to company_employees table
+      await connection.query(
+        `INSERT INTO company_employees (
+          company_id,
+          user_id,
+          is_active,
+          joined_date
+        ) VALUES (?, ?, 1, NOW())`,
+        [companyId, contactPersonId]
+      );
+
+      // Add company subscription with default values
+      await connection.query(
+        `INSERT INTO company_subscriptions (
+          company_id,
+          email_notification,
+          sms_notification,
+          workshop_event_reminder,
+          system_updates_announcement,
+          plan_type,
+          renewal_date
+        ) VALUES (?, 1, 1, 1, 1, 'monthly', DATE_ADD(CURDATE(), INTERVAL 1 MONTH))`,
+        [companyId]
+      );
 
       // Assign departments if provided
       if (department_ids && department_ids.length > 0) {
@@ -2323,11 +2352,13 @@ class CompanyService {
         SELECT 
           dr.*,
           c.company_name,
-          c.email_domain as company_email
+          u.email as contact_person_email
         FROM 
           company_deactivation_requests dr
         JOIN 
           companies c ON dr.company_id = c.id
+        LEFT JOIN
+          users u ON c.contact_person_id = u.user_id
         WHERE 
           dr.status != 'approved' AND dr.status != 'rejected'
       `;
@@ -2341,7 +2372,7 @@ class CompanyService {
 
       // Get total count for pagination
       const countQuery = query.replace(
-        "dr.*, c.company_name, c.email_domain as company_email",
+        "dr.*, c.company_name, u.email as contact_person_email",
         "COUNT(*) as total"
       );
       

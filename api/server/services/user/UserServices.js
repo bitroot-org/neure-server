@@ -67,44 +67,55 @@ class UserServices {
 
   static async login(userData) {
     try {
-      console.log("Login data:", userData);
-  
       // Validate JWT secrets first
       if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
         throw new Error("JWT configuration missing");
       }
-  
+
       const { email, password, role_id } = userData;
-  
+
       // Find user
       const [users] = await db.query(
         "SELECT * FROM users WHERE email = ? AND role_id = ?",
         [email, role_id]
       );
-  
+
       if (users.length === 0) {
         throw new Error("Invalid credentials");
       }
-  
+
       const user = users[0];
-  
+
       // Verify password
       const isMatch = await bcrypt.compare(password, user.password);
-  
+
       if (!isMatch) {
         throw new Error("Invalid credentials");
       }
 
-       await db.query(
-      "UPDATE users SET last_login = NOW() WHERE user_id = ?",
-      [user.user_id]
-    );
-  
+      // For role_id 2 (company admin) and 3 (employee), check if they are active
+      if (user.role_id === 2 || user.role_id === 3) {
+        const [activeStatus] = await db.query(
+          `SELECT ce.is_active 
+           FROM company_employees ce 
+           WHERE ce.user_id = ?`,
+          [user.user_id]
+        );
+
+        if (!activeStatus.length || activeStatus[0].is_active !== 1) {
+          throw new Error("Account is inactive. Please contact administrator.");
+        }
+      }
+
+      await db.query(
+        "UPDATE users SET last_login = NOW() WHERE user_id = ?",
+        [user.user_id]
+      );
+
       let companyData = null;
-  
+
       // Handle role_id = 1 (Super Admin)
       if (user.role_id === 1) {
-        // Super Admin does not have associated company data
         companyData = {
           id: null,
           onboarding_status: null,
@@ -131,7 +142,7 @@ class UserServices {
              WHERE ce.user_id = ? AND ce.is_active = 1`,
             [user.user_id]
           );
-  
+
           // Then get stress level data
           const [stressData] = await db.query(
             `SELECT 
@@ -141,14 +152,14 @@ class UserServices {
              WHERE user_id = ? AND is_active = 1`,
             [user.user_id]
           );
-  
+
           if (companyResult.length > 0) {
             companyData = {
               id: companyResult[0].id,
               onboarding_status: companyResult[0].onboarding_status,
             };
           }
-  
+
           // Add stress data to the response
           if (stressData.length > 0) {
             user.stress_level = stressData[0].stress_level;
@@ -156,20 +167,20 @@ class UserServices {
           }
         }
       }
-  
+
       // Generate tokens
       const accessToken = jwt.sign(
         { user_id: users[0].user_id, email, role_id: user.role_id },
         process.env.JWT_SECRET,
         { expiresIn: "5h" }
       );
-  
+
       const refreshToken = jwt.sign(
         { user_id: users[0].user_id, role_id: user.role_id },
         process.env.REFRESH_TOKEN_SECRET,
         { expiresIn: "7d" }
       );
-  
+
       // Store refresh token
       await db.query(
         "INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
@@ -179,11 +190,11 @@ class UserServices {
           new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         ]
       );
-  
+
       const decoded = jwt.decode(accessToken);
       const loginTime = new Date().toISOString();
       const { password: _, ...userWithoutPassword } = users[0];
-  
+
       return {
         status: true,
         code: 200,

@@ -4,7 +4,7 @@ const ResourceTrackingController = require('../../controllers/tracking/resourceT
 
 const router = express.Router();
 
-router.post('/track', authorization, ResourceTrackingController.trackResourceView);
+router.post('/trackResourceView', authorization, ResourceTrackingController.trackResourceView);
 router.get('/user-history', authorization, ResourceTrackingController.getUserResourceHistory);
 
 module.exports = router;

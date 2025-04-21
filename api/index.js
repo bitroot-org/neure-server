@@ -64,15 +64,15 @@ app.listen(PORT, () => {
 });
 
 // Keep the server active
-serverActive();
+// serverActive();
 
 // Initialize all cron jobs
 // calculateCompanyStressLevel();
 // calculateRetentionRate();
 // calculatePSI();
-calculateEngagementScore();
-updateContentEngagementPercentage();
-checkAssessmentCompletion();
+// calculateEngagementScore();
+// updateContentEngagementPercentage();
+// checkAssessmentCompletion();
 
 app.get("*", (req, res) =>
   res.status(200).send({
