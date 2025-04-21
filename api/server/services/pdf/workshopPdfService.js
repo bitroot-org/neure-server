@@ -129,7 +129,6 @@ class WorkshopPdfService {
       // Add workshop details
       const startTime = new Date(workshop.start_time).toLocaleString();
       doc.fontSize(14).text(`Date & Time: ${startTime}`);
-      doc.text(`Venue: ${workshop.location}`);
       doc.text(`Hosted by: ${workshop.host_name}`);
       doc.text(`Company: ${company.company_name}`);
       doc.text(`Ticket ID: ${ticketId}`);
