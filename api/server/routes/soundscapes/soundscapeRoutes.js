@@ -3,9 +3,13 @@ const multer = require("multer");
 const { authorization } = require("../../../auth/tokenValidator");
 const {
   getSoundscapes,
-  getSoundscapeById,
+  getSoundscapeByUserId,
   createSoundscape,
-  deleteSoundscape
+  deleteSoundscape,
+  likeSoundscape,
+  unlikeSoundscape,
+  isLikedByUser,
+  getLikedSoundscapes
 } = require("../../controllers/soundscapes/soundscapeController");
 
 const router = express.Router();
@@ -33,7 +37,7 @@ const upload = multer({
 });
 
 router.get("/getSoundscapes", authorization, getSoundscapes);
-router.get("/soundscapes/:soundscapeId", getSoundscapeById);
+router.get("/getSoundscapeByUserId",authorization, getSoundscapeByUserId);
 router.post(
   "/createSoundscape",
   authorization,
@@ -45,5 +49,13 @@ router.post(
 );
 
 router.delete("/deleteSoundscape", authorization, deleteSoundscape);
+
+// Like/Unlike routes
+router.post('/like/:soundscapeId', authorization, likeSoundscape);
+router.delete('/unlike/:soundscapeId', authorization, unlikeSoundscape);
+router.get('/islike/:soundscapeId', authorization, isLikedByUser);
+
+// Get liked soundscapes
+router.get('/getLikedSoundscapes', authorization, getLikedSoundscapes);
 
 module.exports = router;

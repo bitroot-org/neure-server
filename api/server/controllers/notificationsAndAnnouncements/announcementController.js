@@ -42,12 +42,13 @@ class AnnouncementController {
   // Get announcements
   static async getAnnouncements(req, res) {
     try {
-      const { company_id, page = 1, limit = 10 } = req.query;
+      const { company_id, page = 1, limit = 10, audience_type } = req.query;
   
       const result = await AnnouncementService.getAnnouncements({
         company_id: company_id ? parseInt(company_id) : null,
         page: parseInt(page),
         limit: parseInt(limit),
+        audience_type
       });
   
       return res.status(200).json({

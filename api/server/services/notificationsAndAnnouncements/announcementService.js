@@ -46,7 +46,7 @@ class AnnouncementService {
     }
   }
 
-  static async getAnnouncements({ company_id, page = 1, limit = 10 }) {
+  static async getAnnouncements({ company_id, page = 1, limit = 10, audience_type }) {
     try {
       const offset = (page - 1) * limit;
 
@@ -62,19 +62,35 @@ class AnnouncementService {
       const countParams = [];
 
       if (company_id) {
-        // If company_id is provided, fetch company-specific and global announcements
-        query += `
-          LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
-          WHERE a.is_active = 1 AND (
-            a.is_global = 1 OR ac.company_id = ?
-          )
-        `;
-        countQuery += `
-          LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
-          WHERE a.is_active = 1 AND (
-            a.is_global = 1 OR ac.company_id = ?
-          )
-        `;
+        if (audience_type === 'employees') {
+          // For employees, fetch global employee announcements and company-specific employee announcements
+          query += `
+            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+            WHERE a.is_active = 1 
+            AND a.audience_type = 'employees'
+            AND (a.is_global = 1 OR ac.company_id = ?)
+          `;
+          countQuery += `
+            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+            WHERE a.is_active = 1 
+            AND a.audience_type = 'employees'
+            AND (a.is_global = 1 OR ac.company_id = ?)
+          `;
+        } else {
+          // For companies, fetch global company announcements and company-specific announcements
+          query += `
+            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+            WHERE a.is_active = 1 
+            AND a.audience_type = 'company'
+            AND (a.is_global = 1 OR ac.company_id = ?)
+          `;
+          countQuery += `
+            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+            WHERE a.is_active = 1 
+            AND a.audience_type = 'company'
+            AND (a.is_global = 1 OR ac.company_id = ?)
+          `;
+        }
         queryParams.push(company_id);
         countParams.push(company_id);
       } else {

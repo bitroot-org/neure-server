@@ -157,10 +157,10 @@ class CompanyService {
     try {
       await connection.beginTransaction();
 
-      console.log("companyData", companyData);
       console.log("contactPersonData", contactPersonData);
 
       if (companyData && companyData.id) {
+        console.log("companyData", companyData);
         if (companyData.services_interested) {
           companyData.services_interested = JSON.stringify(
             companyData.services_interested
@@ -175,6 +175,8 @@ class CompanyService {
           .map((key) => `${key} = ?`)
           .join(", ");
 
+        console.log("companySetQuery: ", companySetQuery);
+
         const companyValues = companyKeys.map((key) => companyData[key]);
         companyValues.push(companyData.id);
 
@@ -184,10 +186,16 @@ class CompanyService {
         );
       }
 
-      if (contactPersonData && contactPersonData.user_id) {
-        // Extract department info before updating user
+      if (contactPersonData && (contactPersonData.user_id || contactPersonData.id)) {
+        console.log("contactPersonData", contactPersonData);
         const departmentData = contactPersonData.department;
-        delete contactPersonData.department; // Remove department from user update data
+        delete contactPersonData.department; 
+
+        // Map id to user_id if needed
+        if (contactPersonData.id && !contactPersonData.user_id) {
+          contactPersonData.user_id = contactPersonData.id;
+          delete contactPersonData.id;
+        }
 
         const contactPersonKeys = Object.keys(contactPersonData).filter(
           (key) => key !== "user_id"
@@ -202,11 +210,16 @@ class CompanyService {
         );
         contactValues.push(contactPersonData.user_id);
 
+
+        console.log("contactSetQuery: ", contactSetQuery);
+
+
         // Update user information
         await connection.query(
           `UPDATE users SET ${contactSetQuery} WHERE user_id = ?`,
           contactValues
         );
+
 
         // Handle department update
         if (departmentData && departmentData.id) {
