@@ -2512,6 +2512,82 @@ class CompanyService {
       throw new Error(`Error fetching deactivated companies: ${error.message}`);
     }
   }
+
+  static async getFeedback({ 
+    feedback_type = null, 
+    page = 1, 
+    limit = 10,
+    start_date = null,
+    end_date = null
+  }) {
+    try {
+      const offset = (page - 1) * limit;
+      let query = `
+        SELECT 
+          f.*,
+          c.company_name
+        FROM feedback f
+        JOIN companies c ON f.company_id = c.id
+        WHERE 1=1
+      `;
+      
+      const queryParams = [];
+      let countQuery = `SELECT COUNT(*) as total FROM feedback f WHERE 1=1`;
+      const countParams = [];
+
+      // Add feedback type filter
+      if (feedback_type) {
+        query += ` AND f.feedback_type = ?`;
+        countQuery += ` AND feedback_type = ?`;
+        queryParams.push(feedback_type);
+        countParams.push(feedback_type);
+      }
+
+      // Add date range filter
+      if (start_date) {
+        query += ` AND DATE(f.created_at) >= ?`;
+        countQuery += ` AND DATE(created_at) >= ?`;
+        queryParams.push(start_date);
+        countParams.push(start_date);
+      }
+
+      if (end_date) {
+        query += ` AND DATE(f.created_at) <= ?`;
+        countQuery += ` AND DATE(created_at) <= ?`;
+        queryParams.push(end_date);
+        countParams.push(end_date);
+      }
+
+      // Add ordering
+      query += ` ORDER BY f.created_at DESC`;
+
+      // Add pagination
+      query += ` LIMIT ? OFFSET ?`;
+      queryParams.push(limit, offset);
+
+      // Execute queries
+      const [feedbacks] = await db.query(query, queryParams);
+      const [totalRows] = await db.query(countQuery, countParams);
+
+      return {
+        status: true,
+        code: 200,
+        message: "Feedback retrieved successfully",
+        data: {
+          feedbacks,
+          pagination: {
+            total: totalRows[0].total,
+            currentPage: page,
+            totalPages: Math.ceil(totalRows[0].total / limit),
+            limit
+          }
+        }
+      };
+    } catch (error) {
+      console.error("Error in getFeedback:", error);
+      throw new Error("Failed to fetch feedback: " + error.message);
+    }
+  }
 }
 
 module.exports = CompanyService;

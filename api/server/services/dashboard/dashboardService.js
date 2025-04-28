@@ -45,7 +45,6 @@ class DashboardService {
 
   // Get total counts of companies, users, etc.
   static async getTotalStats() {
-    console.log("Fetching total stats");
     const [results] = await db.query(`
       SELECT
         (SELECT COUNT(*) FROM companies WHERE active = 1) as total_companies,

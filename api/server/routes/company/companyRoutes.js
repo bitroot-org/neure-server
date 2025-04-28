@@ -36,6 +36,7 @@ const {
   getCompanyStressTrends,
   getDeactivationRequests,
   getDeactivatedCompanies,
+  getFeedback
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -66,6 +67,8 @@ router.get(
   getEmployeeRewardHistory
 );
 router.post("/createFeedback", authorization, createFeedback);
+router.get("/getFeedback", authorization, getFeedback);
+
 router.put(
   "/updateCompanySubscription",
   authorization,

@@ -32,10 +32,21 @@ const {
   getRetentionHistory,
   getCompanyStressTrends,
   getDeactivationRequests,
-  getDeactivatedCompanies
+  getDeactivatedCompanies,
+  getFeedback
 } = require("../../services/company/companyService");
 
+// Helper function to validate date format
+function isValidDate(dateString) {
+  const regex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!regex.test(dateString)) return false;
+  
+  const date = new Date(dateString);
+  return date instanceof Date && !isNaN(date);
+}
+
 class CompanyController {
+  
   static async registerCompany(req, res) {
     const { companyName, emailDomain } = req.body;
 
@@ -283,6 +294,18 @@ class CompanyController {
 
   static async createEmployee(req, res) {
     try {
+      // Check user role
+      const { role_id } = req.user;
+      
+      if (role_id !== 1 && role_id !== 2) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only Super Admin and Company Admin can create employees",
+          data: null,
+        });
+      }
+
       const employeeData = req.body;
 
       if (!employeeData.company_id) {
@@ -648,6 +671,18 @@ class CompanyController {
 
   static async removeEmployee(req, res) {
     try {
+      // Check user role
+      const { role_id } = req.user;
+      
+      if (role_id !== 1 && role_id !== 2) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only Super Admin and Company Admin can remove employees",
+          data: null,
+        });
+      }
+
       const { company_id, user_id, user_ids } = req.body;
       
       // Handle both single user_id and array of user_ids
@@ -995,6 +1030,57 @@ class CompanyController {
       });
     }
   }
+
+  static async getFeedback(req, res) {
+    try {
+      const { 
+        feedback_type, 
+        page = 1, 
+        limit = 10,
+        start_date,
+        end_date 
+      } = req.query;
+
+      // Validate feedback_type if provided
+      if (feedback_type && !['bug', 'suggestion', 'other'].includes(feedback_type)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Invalid feedback type. Must be one of: bug, suggestion, other",
+          data: null
+        });
+      }
+
+      // Validate dates if provided
+      if ((start_date && !isValidDate(start_date)) || (end_date && !isValidDate(end_date))) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Invalid date format. Use YYYY-MM-DD",
+          data: null
+        });
+      }
+
+      const result = await getFeedback({
+        feedback_type,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        start_date,
+        end_date
+      });
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Error in getFeedback controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error retrieving feedback",
+        data: null
+      });
+    }
+  }
+  
 }
 
 module.exports = CompanyController;

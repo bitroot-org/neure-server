@@ -20,7 +20,7 @@ class articleController {
     } catch (error) {
       return res.status(500).json({
         status: false,
-        code: 500,
+        I500,
         message: error.message,
         data: null,
       });

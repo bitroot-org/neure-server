@@ -2,7 +2,6 @@ const DashboardService = require("../../services/dashboard/dashboardService");
 
 class DashboardController {
   static async getDashboardMetrics(req, res) {
-    console.log("Dashboard metrics request");
     try {
       const result = await DashboardService.getDashboardMetrics();
       return res.status(result.code).json(result);
