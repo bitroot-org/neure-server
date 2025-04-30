@@ -83,7 +83,7 @@ router.post(
 );
 router.get("/getCompanyInvoices", authorization, getCompanyInvoices);
 router.get("/getInvoiceById", authorization, getInvoiceById);
-router.put("/removeEmployee", authorization, removeEmployee);
+router.delete("/removeEmployee", authorization, removeEmployee);
 router.get("/searchEmployees", authorization, searchEmployees);
 
 router.post("/addDepartment", authorization, addDepartment);

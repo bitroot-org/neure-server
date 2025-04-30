@@ -254,103 +254,6 @@ class MediaController {
     }
   }
 
-  // static async uploadSound(req, res) {
-  //   // Declare variables at the start
-  //   let s3Path = '';
-  //   let coverImagePath = '';
-
-  //   try {
-  //     console.log('Received files:', req.files);
-
-  //     if (!req.files || !req.files.sound || !req.files.sound[0]) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         message: "No sound file uploaded"
-  //       });
-  //     }
-
-  //     const soundFile = req.files.sound[0];
-  //     const coverImage = req.files.coverImage ? req.files.coverImage[0] : null;
-  //     const title = req.body.title || soundFile.originalname.split('.')[0];
-  //     const fileSize = soundFile.size;
-
-  //     // Extract audio duration using ffmpeg
-  //     let duration = null;
-  //     try {
-  //       if (soundFile.path) {
-  //         duration = await getMediaDuration(soundFile.path);
-  //         console.log("Extracted duration:", duration);
-  //       }
-  //     } catch (durationError) {
-  //       console.warn("Could not extract audio duration:", durationError.message);
-  //     }
-
-  //     // Upload sound file to S3
-  //     const soundFilename = `${nanoid()}.${soundFile.originalname.split('.').pop()}`;
-  //     s3Path = `sounds/therapy/${soundFilename}`;
-
-  //     const soundUploadParams = {
-  //       Bucket: process.env.AWS_BUCKET_NAME,
-  //       Key: s3Path,
-  //       Body: createReadStream(soundFile.path),
-  //       ContentType: soundFile.mimetype,
-  //       ACL: 'public-read'
-  //     };
-
-  //     const soundCommand = new PutObjectCommand(soundUploadParams);
-  //     await s3Client.send(soundCommand);
-
-  //     // Upload cover image if provided
-  //     let coverImageUrl = null;
-  //     if (coverImage) {
-  //       const imageFilename = `${nanoid()}.${coverImage.originalname.split('.').pop()}`;
-  //       coverImagePath = `sounds/therapy/covers/${imageFilename}`;
-
-  //       const imageUploadParams = {
-  //         Bucket: process.env.AWS_BUCKET_NAME,
-  //         Key: coverImagePath,
-  //         Body: createReadStream(coverImage.path),
-  //         ContentType: coverImage.mimetype,
-  //         ACL: 'public-read'
-  //       };
-
-  //       const imageCommand = new PutObjectCommand(imageUploadParams);
-  //       await s3Client.send(imageCommand);
-
-  //       coverImageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverImagePath}`;
-  //       unlinkSync(coverImage.path);
-  //     }
-
-  //     // Clean up sound file
-  //     unlinkSync(soundFile.path);
-
-  //     // Save file info to database
-  //     const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-
-  //     const savedFile = await MediaService.uploadSoundService({
-  //       title,
-  //       url: fileUrl,
-  //       path: s3Path,
-  //       fileSize,
-  //       duration,
-  //       coverImageUrl
-  //     });
-
-  //     return res.status(200).json({
-  //       success: true,
-  //       message: "Sound file uploaded successfully",
-  //       data: savedFile
-  //     });
-
-  //   } catch (error) {
-  //     console.error("Upload error:", error);
-  //     return res.status(500).json({
-  //       success: false,
-  //       message: "Error uploading sound file",
-  //       error: error.message
-  //     });
-  //   }
-  // }
 
   static async uploadSound({ soundFile, coverImage }) {
     try {
@@ -489,33 +392,73 @@ class MediaController {
     }
   }
 
-  static async deleteImage(req, res) {
+  static async deleteImage(req, res = null) {
     try {
-      const { fileId } = req.body;
-
-      if (!fileId) {
-        return res.status(400).json({
-          success: false,
-          message: "File ID is required"
-        });
-      }
-
-      const file = await MediaService.getFileById(fileId);
-      if (!file) {
-        return res.status(404).json({
-          success: false,
-          message: "File not found"
-        });
-      }
-
-      // ... rest of delete logic remains same
-    } catch (error) {
-      console.error("Delete error:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Error deleting file",
-        error: error.message
+      const { url, type } = req.body;
+      console.log('🗑️ Attempting to delete image:', {
+        url,
+        type,
+        timestamp: new Date().toISOString()
       });
+
+      if (!url) {
+        console.error('❌ Delete image failed: No URL provided');
+        const error = { success: false, message: "Image URL is required" };
+        return res ? res.status(400).json(error) : error;
+      }
+
+      // Extract S3 key from URL
+      const s3Key = url.split(`${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/`)[1];
+      console.log('📍 Extracted S3 Key:', s3Key);
+
+      if (!s3Key) {
+        console.error('❌ Delete image failed: Invalid S3 URL format');
+        const error = { success: false, message: "Invalid S3 URL format" };
+        return res ? res.status(400).json(error) : error;
+      }
+
+      // Delete from S3
+      const deleteParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: s3Key
+      };
+
+      const command = new DeleteObjectCommand(deleteParams);
+      await s3Client.send(command);
+      
+      console.log('✅ Successfully deleted image from S3:', {
+        bucket: process.env.AWS_BUCKET_NAME,
+        key: s3Key,
+        type,
+        originalUrl: url
+      });
+
+      const response = {
+        success: true,
+        message: "Image deleted successfully",
+        deletedFile: {
+          type,
+          s3Key,
+          originalUrl: url
+        }
+      };
+
+      return res ? res.status(200).json(response) : response;
+
+    } catch (error) {
+      console.error('❌ Delete image error:', {
+        error: error.message,
+        stack: error.stack,
+        requestBody: req.body
+      });
+      
+      const errorResponse = {
+        success: false,
+        message: "Error deleting image",
+        error: error.message
+      };
+
+      return res ? res.status(500).json(errorResponse) : errorResponse;
     }
   }
 
@@ -648,6 +591,19 @@ class MediaController {
         });
       }
 
+      // First get existing workshop files
+      const [existingWorkshop] = await db.query(
+        "SELECT pdf_url, poster_image FROM workshops WHERE id = ?",
+        [workshopId]
+      );
+
+      if (!existingWorkshop) {
+        return res.status(404).json({
+          success: false,
+          message: "Workshop not found"
+        });
+      }
+
       const pdfFile = req.files?.pdf?.[0];
       const coverImageFile = req.files?.coverImage?.[0];
 
@@ -663,6 +619,11 @@ class MediaController {
 
       // Upload PDF to S3
       if (pdfFile) {
+        // Delete existing PDF if it exists
+        if (existingWorkshop.pdf_url) {
+          await MediaController.deleteGalleryFile(existingWorkshop.pdf_url);
+        }
+
         const pdfFilename = `${nanoid()}.${pdfFile.originalname.split('.').pop()}`;
         const pdfPath = `workshops/${workshopId}/files/${pdfFilename}`;
 
@@ -683,6 +644,11 @@ class MediaController {
 
       // Upload cover image to S3
       if (coverImageFile) {
+        // Delete existing cover image if it exists
+        if (existingWorkshop.poster_image) {
+          await MediaController.deleteGalleryFile(existingWorkshop.poster_image);
+        }
+
         const imageFilename = `${nanoid()}.${coverImageFile.originalname.split('.').pop()}`;
         const imagePath = `workshops/${workshopId}/cover/${imageFilename}`;
 
@@ -704,8 +670,8 @@ class MediaController {
       // Save file info to the database
       const savedFiles = await MediaService.uploadWorkshopFilesService({
         workshopId,
-        pdfUrl,
-        coverImageUrl
+        pdfUrl: pdfUrl || existingWorkshop.pdf_url,
+        coverImageUrl: coverImageUrl || existingWorkshop.poster_image
       });
 
       return res.status(200).json({
@@ -743,6 +709,45 @@ class MediaController {
       };
     } catch (error) {
       console.error("Delete S3 file error:", error);
+      return {
+        success: false,
+        message: error.message
+      };
+    }
+  }
+
+  static async deleteWorkshopFiles(id) {
+    try {
+      // Get existing workshop files
+      const [workshop] = await db.query(
+        "SELECT pdf_url, poster_image FROM workshops WHERE id = ?",
+        [id]
+      );
+
+      if (!workshop) {
+        return {
+          success: false,
+          message: "Workshop not found"
+        };
+      }
+
+      // Delete PDF if exists
+      if (workshop.pdf_url) {
+        await MediaController.deleteGalleryFile(workshop.pdf_url);
+      }
+
+      // Delete cover image if exists
+      if (workshop.poster_image) {
+        await MediaController.deleteGalleryFile(workshop.poster_image);
+      }
+
+      return {
+        success: true,
+        message: "Workshop files deleted successfully"
+      };
+
+    } catch (error) {
+      console.error("Delete workshop files error:", error);
       return {
         success: false,
         message: error.message

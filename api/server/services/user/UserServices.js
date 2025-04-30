@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
 const { updateCompanyStressLevel } = require("../../utils/stressLevelCalculator");
 const { updateCompanyPSI } = require("../../utils/psiCalculator");
+const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 function calculateAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -641,6 +642,15 @@ class UserServices {
         user[0].user_id,
       ]);
 
+      // Create notification using NotificationService
+      await NotificationService.createNotification({
+        title: "Password Changed Successfully",
+        content: `Your password was changed successfully on ${new Date().toLocaleString()}. If you didn't perform this action, please contact support immediately.`,
+        type: "ACCOUNT_UPDATE",
+        user_id: user[0].user_id,
+        priority: "HIGH"
+      });
+
       console.log("Password change successful");
       return {
         status: true,
@@ -852,6 +862,16 @@ class UserServices {
         );
       }
 
+      // Create notification after successful update
+      const updatedFieldNames = fields.map(field => field.split(' = ')[0]);
+      await NotificationService.createNotification({
+        title: "Profile Update",
+        content: `Your profile information has been updated. Updated fields: ${updatedFieldNames.join(', ')}`,
+        type: "PROFILE_UPDATE",
+        user_id: user_id,
+        priority: "MEDIUM"
+      });
+
       console.log(`User details updated for user_id: ${user_id}`);
       return {
         status: true,
@@ -1042,26 +1062,25 @@ class UserServices {
       // Get reward details including admin info and reward name
       const [reward] = await connection.query(
         `SELECT 
-          er.*,
-          r.title as reward_name,
-          u.first_name as employee_name,
-          admin.first_name as admin_name
-         FROM employee_rewards er
-         JOIN rewards r ON er.reward_id = r.id
-         JOIN users u ON er.user_id = u.user_id
-         JOIN users admin ON er.rewarded_by = admin.user_id
-         WHERE er.user_id = ? AND er.reward_id = ? AND er.claimed_status = 0`,
+          er.id,
+          er.company_id,
+          r.title AS reward_name,
+          u1.first_name AS employee_name,
+          u2.first_name AS admin_name,
+          c.contact_person_id,
+          u3.first_name AS contact_person_name,
+          u3.email AS contact_person_email
+        FROM employee_rewards er
+        JOIN rewards r ON er.reward_id = r.id
+        JOIN users u1 ON er.user_id = u1.user_id
+        JOIN users u2 ON er.rewarded_by = u2.user_id
+        JOIN companies c ON er.company_id = c.id
+        JOIN users u3 ON c.contact_person_id = u3.user_id
+        WHERE er.user_id = ? AND er.reward_id = ? AND er.claimed_status = 0`,
         [user_id, reward_id]
       );
 
-      console.log("reward:", reward);
-
-      console.log("employee name:", reward[0].employee_name);
-  
       if (!reward || reward.length === 0) {
-        console.log(
-          `Reward not found or already claimed for user_id: ${user_id}, reward_id: ${reward_id}`
-        );
         return {
           status: false,
           code: 404,
@@ -1069,7 +1088,7 @@ class UserServices {
           data: null,
         };
       }
-  
+
       // Update reward status
       await connection.query(
         `UPDATE employee_rewards 
@@ -1077,17 +1096,33 @@ class UserServices {
          WHERE id = ?`,
         [reward[0].id]
       );
-  
+
+      // Create notification for company contact person
+      await NotificationService.createNotification({
+        title: "Reward Redemption Alert",
+        content: `${reward[0].employee_name} has redeemed the reward "${reward[0].reward_name}" that was assigned by ${reward[0].admin_name}.`,
+        type: "REWARD_REDEMPTION",
+        company_id: reward[0].company_id,
+        user_id: reward[0].contact_person_id,
+        priority: "MEDIUM",
+        metadata: JSON.stringify({
+          reward_id: reward_id,
+          employee_id: user_id,
+          admin_id: reward[0].rewarded_by,
+          redemption_date: new Date().toISOString()
+        })
+      });
+
       await connection.commit();
-  
+
       // Send email notification to admin
       const EmailService = require('../email/emailService');
       await EmailService.sendRewardRedemptionAdminEmail(
-        reward[0].admin_name,
+        reward[0].contact_person_name,
         reward[0].employee_name,
         reward[0].reward_name
       );
-  
+
       console.log(
         `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
       );

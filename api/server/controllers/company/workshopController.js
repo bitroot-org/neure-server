@@ -1,3 +1,4 @@
+const { query } = require('../../../config/db');
 const {
   getWorkshopDetails,
   getWorkshopsByCompanyIdOrUserId,
@@ -16,6 +17,7 @@ const {
   markAttendance,
   getWorkshopStats
 } = require('../../services/company/workshopService');
+const MediaController = require('../upload/UploadController');
 
 class workshopController {
   static async getWorkshopDetails(req, res) {
@@ -99,11 +101,13 @@ class workshopController {
   // }
 
   static async getAllWorkshops(req, res) {
+    console.log("Received request to get all workshops:", req.query);
     try {
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 10;
       const start_date = req.query.start_date || null;
       const end_date = req.query.end_date || null;
+
 
       const result = await getAllWorkshops(page, limit, start_date, end_date);
       return res.status(result.code).json(result);
@@ -143,27 +147,55 @@ class workshopController {
     }
   }
 
+  // static async deleteWorkshop(req, res) {
+  //   try {
+  //     const { id } = req.params;
+
+  //     if (!id) {
+  //       return res.status(400).json({
+  //         status: false,
+  //         code: 400,
+  //         message: 'Workshop ID is required',
+  //         data: null,
+  //       });
+  //     }
+
+  //     const result = await deleteWorkshop(id);
+  //     return res.status(result.code).json(result);
+  //   } catch (error) {
+  //     return res.status(500).json({
+  //       status: false,
+  //       code: 500,
+  //       message: error.message,
+  //       data: null,
+  //     });
+  //   }
+  // }
+
   static async deleteWorkshop(req, res) {
     try {
-      const { id } = req.body;
+      const { id } = req.params;
 
       if (!id) {
         return res.status(400).json({
-          status: false,
-          code: 400,
-          message: 'Workshop ID is required',
-          data: null,
+          success: false,
+          message: "Workshop ID is required"
         });
       }
-
+  
+      // First delete the files
+      await MediaController.deleteWorkshopFiles(id);
+  
+      // Then delete the workshop record
       const result = await deleteWorkshop(id);
+  
       return res.status(result.code).json(result);
     } catch (error) {
+      console.error("Delete workshop error:", error);
       return res.status(500).json({
-        status: false,
-        code: 500,
-        message: error.message,
-        data: null,
+        success: false,
+        message: "Error deleting workshop",
+        error: error.message
       });
     }
   }
@@ -214,10 +246,9 @@ class workshopController {
 
   static async getAllWorkshopSchedules(req, res) {
     try {
-      const start_date = req.query.start_date || null;
-      const end_date = req.query.end_date || null;
+      const { start_date, end_date, search_term } = req.query;
 
-      const result = await getAllWorkshopSchedules(start_date, end_date);
+      const result = await getAllWorkshopSchedules(start_date, end_date, search_term);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -231,23 +262,36 @@ class workshopController {
 
   static async scheduleWorkshop(req, res) {
     try {
-      const { company_id, date, time, workshop_id } = req.body;
+      const { company_id, date, time, workshop_id, duration_minutes } = req.body;
 
       // Validate required fields
-      if (!company_id || !date || !time || !workshop_id) {
+      if (!company_id || !date || !time || !workshop_id || !duration_minutes) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: 'Company ID, date, time, and workshop ID are required',
+          message: 'Company ID, date, time, workshop ID, and duration minutes are required',
+          data: null,
+        });
+      }
+
+      // Validate duration_minutes is a positive number
+      if (isNaN(duration_minutes) || duration_minutes <= 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: 'Duration minutes must be a positive number',
           data: null,
         });
       }
 
       // Call the service to schedule the workshop and generate PDFs
-      const result = await scheduleWorkshop({ company_id, date, time, workshop_id });
-
-      // Send notification or email to employees about the scheduled workshop
-      // and their PDF tickets (you'll need to implement this part)
+      const result = await scheduleWorkshop({ 
+        company_id, 
+        date, 
+        time, 
+        workshop_id,
+        duration_minutes 
+      });
 
       return res.status(result.code).json(result);
     } catch (error) {
@@ -287,18 +331,34 @@ class workshopController {
 
   static async rescheduleWorkshop(req, res) {
     try {
-      const { schedule_id, new_start_time, new_end_time } = req.body;
+      const { schedule_id, new_start_time, new_end_time, duration_minutes } = req.body;
 
-      if (!schedule_id || !new_start_time || !new_end_time) {
+      if (!schedule_id || !new_start_time || !new_end_time || !duration_minutes) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: 'Schedule ID, new start time, and new end time are required',
+          message: 'Schedule ID, new start time, new end time, and duration minutes are required',
           data: null,
         });
       }
 
-      const result = await rescheduleWorkshop(schedule_id, new_start_time, new_end_time);
+      // Validate duration_minutes is a positive number
+      if (isNaN(duration_minutes) || duration_minutes <= 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: 'Duration minutes must be a positive number',
+          data: null,
+        });
+      }
+
+      const result = await rescheduleWorkshop(
+        schedule_id, 
+        new_start_time, 
+        new_end_time, 
+        duration_minutes
+      );
+      
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

@@ -1,11 +1,21 @@
 const db = require("../../../config/db");
 
 class RewardsService {
-  static async createReward(title, termsAndConditions) {
+  static async createReward(title, termsAndConditions, iconUrl = null) {
     try {
-      const query =
-        "INSERT INTO rewards (title, terms_and_conditions) VALUES (?, ?)";
-      const [result] = await db.execute(query, [title, termsAndConditions]);
+      const query = `
+        INSERT INTO rewards (
+          title, 
+          terms_and_conditions, 
+          icon_url
+        ) VALUES (?, ?, ?)
+      `;
+      
+      const [result] = await db.execute(query, [
+        title, 
+        termsAndConditions, 
+        iconUrl
+      ]);
 
       return {
         status: true,
@@ -15,6 +25,7 @@ class RewardsService {
           id: result.insertId,
           title,
           terms_and_conditions: termsAndConditions,
+          icon_url: iconUrl
         },
       };
     } catch (error) {
@@ -77,6 +88,65 @@ class RewardsService {
         code: 200,
         message: "Reward deleted successfully",
         data: null,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async updateReward(id, { title, terms_and_conditions, icon_url }) {
+    try {
+      // First check if reward exists
+      const [existingReward] = await db.execute(
+        "SELECT * FROM rewards WHERE id = ?",
+        [id]
+      );
+
+      if (!existingReward || existingReward.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Reward not found",
+          data: null,
+        };
+      }
+
+      const query = `
+        UPDATE rewards 
+        SET title = ?, 
+            terms_and_conditions = ?,
+            icon_url = COALESCE(?, icon_url),
+            updated_at = NOW()
+        WHERE id = ?
+      `;
+
+      const [result] = await db.execute(query, [
+        title,
+        terms_and_conditions,
+        icon_url,
+        id
+      ]);
+
+      if (result.affectedRows === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: "No changes were made to the reward",
+          data: null,
+        };
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Reward updated successfully",
+        data: {
+          id,
+          title,
+          terms_and_conditions,
+          icon_url,
+          updated_at: new Date()
+        },
       };
     } catch (error) {
       throw error;

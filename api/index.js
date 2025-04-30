@@ -19,6 +19,7 @@ const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackin
 
 const serverActive = require("./Cron/serverActive");
 const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
+const workshopReminder = require("./Cron/workshopReminder");
 const {
   calculateCompanyStressLevel,
   calculateRetentionRate,

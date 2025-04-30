@@ -3,7 +3,9 @@ const {
   getAllRewards,
   getRewardById,
   deleteReward,
+  updateReward,
 } = require("../../services/company/rewardsService");
+const { uploadImage, deleteImage } = require("../../controllers/upload/UploadController");
 
 class RewardsController {
   static async createReward(req, res) {
@@ -19,14 +21,25 @@ class RewardsController {
         });
       }
 
-      const id = await createReward(title, terms_and_conditions);
+      let iconUrl = null;
+      // Handle icon upload if file is present
+      if (req.file) {
+        req.body.type = 'icon';
+        const uploadResult = await uploadImage(req);
+        
+        if (!uploadResult.success) {
+          return res.status(500).json({
+            status: false,
+            code: 500,
+            message: "Error uploading icon",
+            data: null,
+          });
+        }
+        iconUrl = uploadResult.url;
+      }
 
-      res.status(201).json({
-        status: true,
-        code: 201,
-        message: "Reward added successfully",
-        data: { id },
-      });
+      const result = await createReward(title, terms_and_conditions, iconUrl);
+      res.status(result.code).json(result);
     } catch (error) {
       console.error("Error creating reward:", error);
       res.status(500).json({
@@ -93,9 +106,10 @@ class RewardsController {
   static async deleteReward(req, res) {
     try {
       const { id } = req.params;
-      const deletedRows = await deleteReward(id);
 
-      if (deletedRows === 0) {
+      const reward = await getRewardById(id);
+      
+      if (!reward || !reward.data) {
         return res.status(404).json({
           status: false,
           code: 404,
@@ -104,10 +118,23 @@ class RewardsController {
         });
       }
 
+      // Delete icon if it exists
+      if (reward.data.icon_url) {
+        const deleteReq = {
+          body: {
+            url: reward.data.icon_url,
+            type: 'icon'
+          }
+        };
+        await deleteImage(deleteReq);
+      }
+
+      const deletedRows = await deleteReward(id);
+
       res.status(200).json({
         status: true,
         code: 200,
-        message: "Reward deleted successfully",
+        message: "Reward and associated icon deleted successfully",
         data: null,
       });
     } catch (error) {
@@ -116,6 +143,84 @@ class RewardsController {
         status: false,
         code: 500,
         message: "An error occurred while deleting the reward",
+        data: null,
+      });
+    }
+  }
+
+  static async updateReward(req, res) {
+    try {
+      const { id } = req.params;
+      const { title, terms_and_conditions } = req.body;
+
+      // Check if any update data is provided
+      if (!title && !terms_and_conditions && !req.file) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "At least one field (title, terms_and_conditions, or icon) is required for update",
+          data: null,
+        });
+      }
+
+      // First get the existing reward
+      const existingReward = await getRewardById(id);
+      if (!existingReward || !existingReward.data) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Reward not found",
+          data: null,
+        });
+      }
+
+      // Prepare update data with existing values as fallback
+      const updateData = {
+        title: title || existingReward.data.title,
+        terms_and_conditions: terms_and_conditions || existingReward.data.terms_and_conditions,
+        icon_url: existingReward.data.icon_url
+      };
+
+      // If new file is uploaded, handle old icon deletion and new upload
+      if (req.file) {
+        // Delete existing icon if it exists
+        if (existingReward.data.icon_url) {
+          const deleteReq = {
+            body: {
+              url: existingReward.data.icon_url,
+              type: 'icon'
+            }
+          };
+          const deleteResult = await deleteImage(deleteReq);
+          if (!deleteResult.success) {
+            console.error("Failed to delete old icon:", deleteResult.message);
+          }
+        }
+
+        // Upload new icon
+        req.body.type = 'icon';
+        const uploadResult = await uploadImage(req);
+        
+        if (!uploadResult.success) {
+          return res.status(500).json({
+            status: false,
+            code: 500,
+            message: "Error uploading new icon",
+            data: null,
+          });
+        }
+        updateData.icon_url = uploadResult.url;
+      }
+
+      const result = await updateReward(id, updateData);
+
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error updating reward:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while updating the reward",
         data: null,
       });
     }

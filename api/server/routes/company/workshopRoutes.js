@@ -32,7 +32,7 @@ router.get('/getAllWorkshops', authorization, getAllWorkshops);
 router.put('/updateWorkshop', authorization, updateWorkshop);
 
 // Delete a workshop
-router.delete('/deleteWorkshop', authorization, deleteWorkshop);
+router.delete('/deleteWorkshop/:id', authorization, deleteWorkshop);
 
 // Create a workshop
 router.post('/createWorkshop', authorization, createWorkshop);

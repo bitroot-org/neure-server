@@ -577,13 +577,7 @@ class CompanyService {
         [...searchParams, limit, offset]
       );
 
-      console.log("Raw companies data:", companies);
-
-      // Parse the departments and contact person info for each company
       const companiesWithDetails = companies.map((company) => {
-        console.log("Processing company:", company.id);
-        console.log("Departments data:", company.departments);
-        console.log("Contact person data:", company.contact_person_info);
 
         return {
           ...company,
@@ -597,7 +591,6 @@ class CompanyService {
         };
       });
 
-      console.log("Processed companies:", companiesWithDetails);
 
       const totalPages = Math.ceil(totalRows[0].count / limit);
 
@@ -611,8 +604,6 @@ class CompanyService {
         },
       };
     } catch (error) {
-      console.error("Error in getAllCompanies:", error);
-      console.error("Error stack:", error.stack);
       throw new Error("Error fetching companies: " + error.message);
     }
   }
@@ -1634,101 +1625,106 @@ class CompanyService {
   }
 
   static async removeEmployee(company_id, user_ids) {
+    const connection = await db.getConnection();
     try {
-      // Convert single user_id to array for consistent processing
-      const userIdArray = Array.isArray(user_ids) ? user_ids : [user_ids];
-      console.log(
-        `Attempting to deactivate ${userIdArray.length} employees from company: ${company_id}`
-      );
+        const userIdArray = Array.isArray(user_ids) ? user_ids : [user_ids];
+        console.log(
+            `Attempting to delete ${userIdArray.length} employees from company: ${company_id}`
+        );
 
-      if (userIdArray.length === 0) {
-        return {
-          status: false,
-          code: 400,
-          message: "No employee IDs provided",
-          data: null,
-        };
-      }
-
-      // Results tracking
-      const results = {
-        successful: [],
-        failed: [],
-      };
-
-      // Process each employee
-      for (const user_id of userIdArray) {
-        try {
-          // Check if the employee exists and is active
-          const [employee] = await db.query(
-            `SELECT * FROM company_employees 
-             WHERE company_id = ? AND user_id = ?`,
-            [company_id, user_id]
-          );
-
-          if (!employee || employee.length === 0) {
-            console.log(
-              `Employee ${user_id} not found in company ${company_id}`
-            );
-            results.failed.push({
-              user_id,
-              reason: "Employee not found in this company",
-            });
-            continue;
-          }
-
-          if (employee[0].is_active === 0) {
-            console.log(`Employee ${user_id} is already inactive`);
-            results.failed.push({
-              user_id,
-              reason: "Employee is already inactive",
-            });
-            continue;
-          }
-
-          // Update employee status to inactive
-          console.log(`Setting employee ${user_id} to inactive`);
-          const [result] = await db.query(
-            `UPDATE company_employees SET is_active = 0 WHERE company_id = ? AND user_id = ?`,
-            [company_id, user_id]
-          );
-
-          if (result.affectedRows === 0) {
-            console.log(`Failed to update employee ${user_id}`);
-            results.failed.push({
-              user_id,
-              reason: "Failed to update",
-            });
-            continue;
-          }
-
-          console.log(`Employee ${user_id} successfully deactivated`);
-          results.successful.push({
-            user_id,
-            removed_at: new Date(),
-          });
-        } catch (error) {
-          console.error(`Error processing employee ${user_id}:`, error);
-          results.failed.push({
-            user_id,
-            reason: "Internal error",
-          });
+        if (userIdArray.length === 0) {
+            return {
+                status: false,
+                code: 400,
+                message: "No employee IDs provided",
+                data: null,
+            };
         }
-      }
 
-      return {
-        status: results.successful.length > 0,
-        code: results.successful.length > 0 ? 200 : 400,
-        message: `Processed ${userIdArray.length} employees: ${results.successful.length} successful, ${results.failed.length} failed`,
-        data: {
-          company_id,
-          successful: results.successful,
-          failed: results.failed,
-        },
-      };
+        await connection.beginTransaction();
+
+        const results = {
+            successful: [],
+            failed: [],
+        };
+
+        for (const user_id of userIdArray) {
+            try {
+                // Check if the employee exists in the company
+                const [employee] = await connection.query(
+                    `SELECT ce.*, u.email 
+                     FROM company_employees ce
+                     JOIN users u ON ce.user_id = u.user_id
+                     WHERE ce.company_id = ? AND ce.user_id = ?`,
+                    [company_id, user_id]
+                );
+
+                if (!employee || employee.length === 0) {
+                    results.failed.push({
+                        user_id,
+                        reason: "Employee not found in this company",
+                    });
+                    continue;
+                }
+
+                // Delete from company_employees first (maintain referential integrity)
+                await connection.query(
+                    "DELETE FROM company_employees WHERE company_id = ? AND user_id = ?",
+                    [company_id, user_id]
+                );
+
+                // Delete from user_subscriptions
+                await connection.query(
+                    "DELETE FROM user_subscriptions WHERE user_id = ?",
+                    [user_id]
+                );
+
+                // Delete from user_departments
+                await connection.query(
+                    "DELETE FROM user_departments WHERE user_id = ?",
+                    [user_id]
+                );
+
+                // Finally delete from users table
+                await connection.query(
+                    "DELETE FROM users WHERE user_id = ?",
+                    [user_id]
+                );
+
+                results.successful.push({
+                    user_id,
+                    email: employee[0].email,
+                    deleted_at: new Date(),
+                });
+
+            } catch (error) {
+                console.error(`Error processing employee ${user_id}:`, error);
+                results.failed.push({
+                    user_id,
+                    reason: "Internal error: " + error.message,
+                });
+            }
+        }
+
+        await connection.commit();
+
+        return {
+            status: results.successful.length > 0,
+            code: results.successful.length > 0 ? 200 : 400,
+            message: `Processed ${userIdArray.length} employees: ${results.successful.length} deleted, ${results.failed.length} failed`,
+            data: {
+                company_id,
+                successful: results.successful,
+                failed: results.failed,
+            },
+        };
+
     } catch (error) {
-      console.error("Error in removeEmployee:", error);
-      throw new Error(`Error removing employees: ${error.message}`);
+        await connection.rollback();
+        console.error("Error in removeEmployee:", error);
+        throw new Error(`Error removing employees: ${error.message}`);
+    } finally {
+        connection.release();
     }
   }
 

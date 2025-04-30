@@ -40,37 +40,61 @@ class NotificationService {
     limit = 10
   }) {
     try {
-      const offset = (page - 1) * limit;
-      let query = `SELECT * FROM notifications WHERE 1=1`;
-      let countQuery = `SELECT COUNT(*) as total FROM notifications WHERE 1=1`;
-      const params = [];
-      const countParams = [];
 
+      const offset = (page - 1) * limit;
+      let query = `
+        SELECT DISTINCT n.* 
+        FROM notifications n
+        WHERE n.user_id = ?
+      `;
+      let countQuery = `
+        SELECT COUNT(DISTINCT n.id) as total 
+        FROM notifications n
+        WHERE n.user_id = ?
+      `;
+      
+      const params = [user_id];
+      const countParams = [user_id];
+
+      // Add company notifications if company_id is provided
       if (company_id) {
-        query += ` AND company_id = ?`;
-        countQuery += ` AND company_id = ?`;
+        query = `
+          SELECT DISTINCT n.* 
+          FROM notifications n
+          WHERE n.user_id = ?
+          OR (n.company_id = ? AND n.user_id IS NULL)
+        `;
+        countQuery = `
+          SELECT COUNT(DISTINCT n.id) as total 
+          FROM notifications n
+          WHERE n.user_id = ?
+          OR (n.company_id = ? AND n.user_id IS NULL)
+        `;
         params.push(company_id);
         countParams.push(company_id);
       }
 
-      if (user_id) {
-        query += ` AND user_id = ?`;
-        countQuery += ` AND user_id = ?`;
-        params.push(user_id);
-        countParams.push(user_id);
-      }
-
       if (type) {
-        query += ` AND type = ?`;
-        countQuery += ` AND type = ?`;
+        query += ` AND n.type = ?`;
+        countQuery += ` AND n.type = ?`;
         params.push(type);
         countParams.push(type);
       }
 
-      query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      query += ` ORDER BY 
+        CASE 
+          WHEN n.priority = 'HIGH' THEN 1
+          WHEN n.priority = 'MEDIUM' THEN 2
+          WHEN n.priority = 'LOW' THEN 3
+          ELSE 4
+        END,
+        n.created_at DESC 
+        LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
+
       const [notifications] = await db.query(query, params);
+
       const [countResult] = await db.query(countQuery, countParams);
 
       return {

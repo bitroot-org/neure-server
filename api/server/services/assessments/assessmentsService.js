@@ -1,4 +1,5 @@
 const db = require("../../../config/db");
+const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 class AssessmentsService {
   static async getAllAssessments(page = 1, limit = 10, user_id) {
@@ -108,6 +109,10 @@ class AssessmentsService {
   static async createAssessment(assessmentData) {
     const connection = await db.getConnection();
     try {
+      console.log("Starting assessment creation with data:", {
+        title: assessmentData.title
+      });
+
       await connection.beginTransaction();
 
       // Insert assessment
@@ -120,6 +125,7 @@ class AssessmentsService {
         ]
       );
       const assessmentId = assessmentResult.insertId;
+      console.log("Assessment created with ID:", assessmentId);
 
       // Insert questions
       for (const question of assessmentData.questions) {
@@ -137,10 +143,55 @@ class AssessmentsService {
           );
         }
       }
+      console.log("Questions and options inserted successfully");
+
+      // Get all active employees from all companies
+      const [employees] = await connection.query(`
+        SELECT 
+          ce.user_id,
+          ce.company_id,
+          u.first_name,
+          u.email
+        FROM company_employees ce
+        JOIN users u ON ce.user_id = u.user_id
+        WHERE ce.is_active = 1
+      `);
+
+      console.log("Found total employees:", employees.length);
+
+      // Create notifications for each employee
+      const notificationPromises = employees.map(employee => {
+        console.log("Creating notification for employee:", employee.user_id);
+        
+        return NotificationService.createNotification({
+          title: `New Assessment Available: ${assessmentData.title}`,
+          content: `A new assessment "${assessmentData.title}" has been assigned to you. ${
+            assessmentData.description ? `\n\nDescription: ${assessmentData.description}` : ''
+          }`,
+          type: "NEW_ASSESSMENT",
+          company_id: employee.company_id,
+          user_id: employee.user_id,
+          priority: "HIGH",
+          metadata: JSON.stringify({
+            assessment_id: assessmentId,
+            total_questions: assessmentData.questions.length,
+            frequency_days: assessmentData.frequency_days
+          })
+        });
+      });
+
+      console.log("Attempting to send notifications...");
+      
+      // Send all notifications
+      const notificationResults = await Promise.all(notificationPromises);
+      console.log("Notifications sent:", notificationResults.length);
 
       await connection.commit();
+      console.log("Transaction committed successfully");
+
       return await this.getAssessmentById(assessmentId);
     } catch (error) {
+      console.error("Error in createAssessment:", error);
       await connection.rollback();
       throw error;
     } finally {
@@ -248,7 +299,7 @@ class AssessmentsService {
 
       // Check if assessment exists and is active
       const [assessment] = await connection.query(
-        "SELECT id FROM assessments WHERE id = ? AND is_active = 1",
+        "SELECT id, title FROM assessments WHERE id = ? AND is_active = 1",
         [assessment_id]
       );
 
@@ -296,7 +347,6 @@ class AssessmentsService {
       }, {});
 
       const structuredQuestions = Object.values(questionMap);
-      console.log("Structured Questions:", JSON.stringify(structuredQuestions, null, 2));
 
       // Calculate score
       let totalQuestions = structuredQuestions.length;
@@ -327,13 +377,37 @@ class AssessmentsService {
         [user_id, company_id, assessment_id, JSON.stringify(responses), score]
       );
 
+      // Get user details for the notification
+      const [userDetails] = await connection.query(
+        "SELECT first_name, last_name FROM users WHERE user_id = ?",
+        [user_id]
+      );
+
+      // Create notification for the user
+      await NotificationService.createNotification({
+        title: `Assessment Submission Result: ${assessment[0].title}`,
+        content: `You have completed the assessment "${assessment[0].title}" with a score of ${score.toFixed(1)}%. 
+                 Correct answers: ${correctAnswers} out of ${totalQuestions} questions.`,
+        type: "ASSESSMENT_COMPLETED",
+        company_id: company_id,
+        user_id: user_id,
+        priority: "HIGH",
+        metadata: JSON.stringify({
+          assessment_id: assessment_id,
+          score: score,
+          total_questions: totalQuestions,
+          correct_answers: correctAnswers,
+          completion_date: new Date().toISOString()
+        })
+      });
+
       await connection.commit();
 
       return {
         score,
         total_questions: totalQuestions,
         correct_answers: correctAnswers,
-        questions: structuredQuestions // Optional: return for debugging
+        questions: structuredQuestions
       };
     } catch (error) {
       await connection.rollback();
