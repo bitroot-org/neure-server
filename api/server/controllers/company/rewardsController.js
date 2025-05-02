@@ -10,13 +10,48 @@ const { uploadImage, deleteImage } = require("../../controllers/upload/UploadCon
 class RewardsController {
   static async createReward(req, res) {
     try {
-      const { title, terms_and_conditions } = req.body;
+      let { title, terms_and_conditions, reward_type, company_ids } = req.body;
+      
+      // Parse company_ids if it's a string
+      if (company_ids && typeof company_ids === 'string') {
+        try {
+          company_ids = JSON.parse(company_ids);
+        } catch (e) {
+          console.error("Error parsing company_ids:", e);
+          return res.status(400).json({
+            status: false,
+            code: 400,
+            message: "Invalid company_ids format. Must be an array.",
+            data: null,
+          });
+        }
+      }
 
       if (!title || !terms_and_conditions) {
         return res.status(400).json({
           status: false,
           code: 400,
           message: "Title and terms are required.",
+          data: null,
+        });
+      }
+
+      // Validate reward_type if provided
+      if (reward_type && !['global', 'custom'].includes(reward_type)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Invalid reward type. Must be 'global' or 'custom'.",
+          data: null,
+        });
+      }
+
+      // Validate company_ids if reward_type is custom
+      if (reward_type === 'custom' && (!company_ids || !Array.isArray(company_ids) || company_ids.length === 0)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company IDs are required for custom rewards.",
           data: null,
         });
       }
@@ -38,7 +73,14 @@ class RewardsController {
         iconUrl = uploadResult.url;
       }
 
-      const result = await createReward(title, terms_and_conditions, iconUrl);
+      const result = await createReward(
+        title, 
+        terms_and_conditions, 
+        iconUrl, 
+        reward_type || 'global', 
+        company_ids || []
+      );
+      
       res.status(result.code).json(result);
     } catch (error) {
       console.error("Error creating reward:", error);
@@ -53,7 +95,8 @@ class RewardsController {
 
   static async getAllRewards(req, res) {
     try {
-      const rewards = await getAllRewards();
+      const { company_id } = req.query;
+      const rewards = await getAllRewards(company_id || null);
 
       res.status(200).json({
         status: true,
@@ -151,14 +194,49 @@ class RewardsController {
   static async updateReward(req, res) {
     try {
       const { id } = req.params;
-      const { title, terms_and_conditions } = req.body;
+      let { title, terms_and_conditions, reward_type, company_ids } = req.body;
+      
+      // Parse company_ids if it's a string
+      if (company_ids && typeof company_ids === 'string') {
+        try {
+          company_ids = JSON.parse(company_ids);
+        } catch (e) {
+          console.error("Error parsing company_ids:", e);
+          return res.status(400).json({
+            status: false,
+            code: 400,
+            message: "Invalid company_ids format. Must be an array.",
+            data: null,
+          });
+        }
+      }
 
       // Check if any update data is provided
-      if (!title && !terms_and_conditions && !req.file) {
+      if (!title && !terms_and_conditions && !req.file && reward_type === undefined && !company_ids) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: "At least one field (title, terms_and_conditions, or icon) is required for update",
+          message: "At least one field (title, terms_and_conditions, icon, reward_type, or company_ids) is required for update",
+          data: null,
+        });
+      }
+
+      // Validate reward_type if provided
+      if (reward_type && !['global', 'custom'].includes(reward_type)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Invalid reward type. Must be 'global' or 'custom'.",
+          data: null,
+        });
+      }
+
+      // Validate company_ids if reward_type is custom
+      if (reward_type === 'custom' && (!company_ids || !Array.isArray(company_ids) || company_ids.length === 0)) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company IDs are required for custom rewards.",
           data: null,
         });
       }
@@ -178,7 +256,9 @@ class RewardsController {
       const updateData = {
         title: title || existingReward.data.title,
         terms_and_conditions: terms_and_conditions || existingReward.data.terms_and_conditions,
-        icon_url: existingReward.data.icon_url
+        icon_url: existingReward.data.icon_url,
+        reward_type: reward_type,
+        company_ids: company_ids
       };
 
       // If new file is uploaded, handle old icon deletion and new upload

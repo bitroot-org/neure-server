@@ -4,6 +4,7 @@ const tokenValidator = require("../../../auth/tokenValidator.js");
 const { authorization } = tokenValidator;
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
+const { generateWellbeingReport } = require('../../controllers/company/reportController');
 
 const {
   registerCompany,
@@ -36,7 +37,7 @@ const {
   getCompanyStressTrends,
   getDeactivationRequests,
   getDeactivatedCompanies,
-  getFeedback
+  getFeedback,
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -101,5 +102,7 @@ router.get("/stress-trends/:company_id", authorization, getCompanyStressTrends);
 router.get("/deactivationRequests", authorization, getDeactivationRequests);
 
 router.get("/deactivatedCompanies", authorization, getDeactivatedCompanies);
+
+router.get('/reports/wellbeing/:company_id', authorization, generateWellbeingReport);
 
 module.exports = router;

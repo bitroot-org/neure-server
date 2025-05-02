@@ -13,7 +13,7 @@ const {
   rescheduleWorkshop,
   getWorkshopAttendance,
   getUserWorkshopTickets,
-
+  updateWorkshopScheduleStatus,
   markAttendance,
   getWorkshopStats
 } = require('../../services/company/workshopService');
@@ -107,9 +107,9 @@ class workshopController {
       const limit = parseInt(req.query.limit, 10) || 10;
       const start_date = req.query.start_date || null;
       const end_date = req.query.end_date || null;
+      const search_term = req.query.search_term || null;
 
-
-      const result = await getAllWorkshops(page, limit, start_date, end_date);
+      const result = await getAllWorkshops(page, limit, start_date, end_date, search_term);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -306,7 +306,7 @@ class workshopController {
 
   static async cancelWorkshopSchedule(req, res) {
     try {
-      const { schedule_id } = req.body;
+      const { schedule_id, reason } = req.body;
 
       if (!schedule_id) {
         return res.status(400).json({
@@ -317,7 +317,8 @@ class workshopController {
         });
       }
 
-      const result = await cancelWorkshopSchedule(schedule_id);
+      // Use the generalized method with 'canceled' status
+      const result = await updateWorkshopScheduleStatus(schedule_id, 'canceled', reason);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -333,17 +334,17 @@ class workshopController {
     try {
       const { schedule_id, new_start_time, new_end_time, duration_minutes } = req.body;
 
-      if (!schedule_id || !new_start_time || !new_end_time || !duration_minutes) {
+      if (!schedule_id || !new_start_time || !new_end_time) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: 'Schedule ID, new start time, new end time, and duration minutes are required',
+          message: 'Schedule ID, new start time, and new end time are required',
           data: null,
         });
       }
 
-      // Validate duration_minutes is a positive number
-      if (isNaN(duration_minutes) || duration_minutes <= 0) {
+      // Validate duration_minutes if provided
+      if (duration_minutes !== undefined && (isNaN(duration_minutes) || duration_minutes <= 0)) {
         return res.status(400).json({
           status: false,
           code: 400,
@@ -476,6 +477,31 @@ class workshopController {
         code: 500,
         message: error.message,
         data: null
+      });
+    }
+  }
+
+  static async updateWorkshopScheduleStatus(req, res) {
+    try {
+      const { schedule_id, status, reason } = req.body;
+
+      if (!schedule_id || !status) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Schedule ID and status are required",
+          data: null,
+        });
+      }
+
+      const result = await updateWorkshopScheduleStatus(schedule_id, status, reason);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
+        data: null,
       });
     }
   }

@@ -38,7 +38,7 @@ class GalleryController {
 
   static async getGalleryItems(req, res) {
     try {
-      const { companyId, type, showUnassigned } = req.query;
+      const { companyId, type, showUnassigned, search_term } = req.query;
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
 
@@ -56,7 +56,8 @@ class GalleryController {
         type,
         page,
         limit,
-        showUnassigned === 'true'
+        showUnassigned === 'true',
+        search_term || null
       );
 
       return res.status(result.code).json(result);

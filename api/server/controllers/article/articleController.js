@@ -15,12 +15,14 @@ class articleController {
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-      const result = await getArticles(page, limit);
+      const search_term = req.query.search_term || null;
+      
+      const result = await getArticles(page, limit, search_term);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
         status: false,
-        I500,
+        code: 500,
         message: error.message,
         data: null,
       });

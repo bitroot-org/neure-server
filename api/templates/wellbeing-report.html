@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neure's Well-being Report</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    :root {
+      --primary: #4361ee;
+      --secondary: #3f37c9;
+      --success: #4CAF50;
+      --info: #2196F3;
+      --warning: #FFC107;
+      --danger: #F44336;
+      --light: #f8f9fa;
+      --dark: #212529;
+      --gray: #6c757d;
+      --border-radius: 12px;
+      --box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      padding: 0;
+      color: var(--dark);
+      line-height: 1.6;
+      background-color: white;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+      padding: 30px;
+      border-radius: var(--border-radius);
+      margin-bottom: 10px;
+      box-shadow: var(--box-shadow);
+    }
+    
+    .logo {
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    
+    .logo img {
+      height: 40px;
+    }
+    
+    h1 {
+      text-align: center;
+      font-size: 24px;
+      margin-bottom: 5px;
+      font-weight: 700;
+    }
+    
+    .company-info {
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 16px;
+      color: rgba(255,255,255,0.9);
+    }
+    
+    .company-info p {
+      margin: 5px 0;
+    }
+    
+    .section {
+      background-color: white;
+      border-radius: var(--border-radius);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--box-shadow);
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--primary);
+      border-bottom: 2px solid var(--light);
+      padding-bottom: 10px;
+    }
+    
+    .introduction, .final-remarks {
+      font-size: 14px;
+    }
+    
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+    
+    .metric-card {
+      background-color: white;
+      border-radius: var(--border-radius);
+      padding: 10px;
+      box-shadow: var(--box-shadow);
+      transition: transform 0.2s;
+    }
+    
+    .metric-card:hover {
+      transform: translateY(-5px);
+    }
+    
+    .metric-title {
+      font-size: 12px;
+      color: var(--gray);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    
+    .metric-value {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    
+    .metric-trend {
+      font-size: 8px;
+      color: var(--gray);
+      display: flex;
+      align-items: center;
+    }
+    
+    .progress-bar {
+      height: 4px;
+      background-color: var(--light);
+      margin-top: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+    }
+    
+    .engagement .progress-bar-fill {
+      background-color: var(--success);
+    }
+    
+    .psi .progress-bar-fill {
+      background-color: var(--info);
+    }
+    
+    .retention .progress-bar-fill {
+      background-color: var(--warning);
+    }
+    
+    .stress .progress-bar-fill {
+      background-color: var(--danger);
+    }
+    
+    .charts-container {
+      display: grid;
+      grid-template-columns: 3fr 2fr;
+      gap: 20px;
+      margin-bottom: 20px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    
+    .chart-box {
+      background-color: white;
+      border-radius: var(--border-radius);
+      padding: 18px;
+      box-shadow: var(--box-shadow);
+    }
+    
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--primary);
+    }
+    
+    .chart-container {
+      height: 250px;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    
+    .stat-card {
+      background-color: rgba(67, 97, 238, 0.05);
+      padding: 10px;
+      text-align: center;
+      border-radius: 8px;
+    }
+    
+    .stat-title {
+      font-size: 12px;
+      color: var(--gray);
+      margin-bottom: 4px;
+    }
+    
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--dark);
+    }
+    
+    .positive-trend {
+      color: var(--success);
+    }
+    
+    .negative-trend {
+      color: var(--danger);
+    }
+    
+    @media print {
+      body {
+        padding: 0;
+      }
+      
+      .container {
+        padding: 20px;
+      }
+      
+      .header {
+        background: white;
+        color: var(--dark);
+        box-shadow: none;
+        padding: 20px;
+      }
+      
+      .company-info {
+        color: var(--dark);
+      }
+      
+      .section {
+        box-shadow: none;
+        border: 1px solid #eee;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      
+      .metric-card, .chart-box {
+        box-shadow: none;
+        border: 1px solid #eee;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      .chart-container {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      
+      .stats-grid {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      
+      .page-break {
+        page-break-after: always;
+      }
+    }
+    
+    @media (max-width: 768px) {
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      .charts-container {
+        grid-template-columns: 1fr;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section -->
+    <div class="header">
+      <!-- Logo -->
+      <div class="logo">
+        <img src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg" alt="Neure Logo">
+      </div>
+      
+      <!-- Report Title -->
+      <h1>Well-being Report</h1>
+      
+      <!-- Company Info -->
+      <div class="company-info">
+        <p>For: {{company.company_name}}</p>
+        <p>Reporting Period: {{startDate}} to {{endDate}}</p>
+      </div>
+    </div>
+    
+    <!-- Introduction Section -->
+    <div class="section">
+      <div class="section-title">Introduction</div>
+      <div class="introduction">
+        <p>This report presents a comprehensive overview of your organization's mental wellbeing performance, employee engagement, and emotional resilience trends during the specified period generated by Neure's data intelligence systems. Our goal is to offer clear visibility into the emotional pulse of your workforce, so we can take proactive, measurable steps to build a healthier, happier, and more productive workplace.</p>
+      </div>
+    </div>
+    
+    <!-- Report Overview Section -->
+    <div class="section">
+      <div class="section-title">Report Overview</div>
+      <div class="metrics-grid">
+        <!-- Engagement Score -->
+        <div class="metric-card engagement">
+          <div class="metric-title">Engagement Score</div>
+          <div class="metric-value">{{metrics.engagement_score}}%</div>
+          <div class="metric-trend">+10% from prev. month</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width: {{metrics.engagement_score}}%;"></div>
+          </div>
+        </div>
+        
+        <!-- PSI Score -->
+        <div class="metric-card psi">
+          <div class="metric-title">PSI Score</div>
+          <div class="metric-value">{{metrics.psychological_safety_index}}%</div>
+          <div class="metric-trend">+10% from prev. month</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width: {{metrics.psychological_safety_index}}%;"></div>
+          </div>
+        </div>
+        
+        <!-- Retention Rate -->
+        <div class="metric-card retention">
+          <div class="metric-title">Retention Rate</div>
+          <div class="metric-value">{{metrics.retention_rate}}%</div>
+          <div class="metric-trend">+10% from prev. month</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width: {{metrics.retention_rate}}%;"></div>
+          </div>
+        </div>
+        
+        <!-- Stress Level -->
+        <div class="metric-card stress">
+          <div class="metric-title">Stress Level</div>
+          <div class="metric-value">{{metrics.stress_level}}%</div>
+          <div class="metric-trend">+10% from prev. month</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width: {{metrics.stress_level}}%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Charts Section -->
+    <div class="section">
+      <div class="section-title">Engagement & Stress Level Trends</div>
+      <div class="chart-container" style="height: 300px; width: 100%;">
+        <canvas id="trendsChart"></canvas>
+      </div>
+    </div>
+    
+    <!-- Employee Statistics Section -->
+    <div class="section">
+      <div class="section-title">Employee Statistics</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-title">Total Employees</div>
+          <div class="stat-value">{{metrics.active_employees}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Active Employees</div>
+          <div class="stat-value">{{metrics.active_employees}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Inactive Employees</div>
+          <div class="stat-value">{{metrics.inactive_employees}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Total Departments</div>
+          <div class="stat-value">{{metrics.total_departments}}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">New Users</div>
+          <div class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Last Employee Joined</div>
+          <div class="stat-value">{{metrics.last_employee_joined}}</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Final Remarks Section -->
+    <div class="section">
+      <div class="section-title">Final Remarks</div>
+      <div class="final-remarks">
+        <p>This report has been developed with clinical precision and organizational insight, offering a detailed analysis of mental health trends, stress levels, engagement patterns, and psychological safety across your workforce.</p>
+        <p>The insights presented highlight key areas of concern that warrant timely and strategic action. As your mental health partner, Neure strongly advocates for a data-informed, evidence-based approach—one that prioritizes personalized, context-specific interventions aligned with the unique psychological and operational needs of your team.</p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Parse the chart data from the server
+    const chartData = JSON.parse('{{{chartData}}}');
+    
+    // Create the trends chart
+    const ctx = document.getElementById('trendsChart').getContext('2d');
+    new Chart(ctx, {
+      type: 'line',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: {
+              callback: function(value) {
+                return value + '%';
+              }
+            }
+          },
+          x: {
+            grid: {
+              display: false
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              usePointStyle: true,
+              padding: 20
+            }
+          }
+        },
+        elements: {
+          line: {
+            tension: 0.4
+          },
+          point: {
+            radius: 4,
+            hoverRadius: 6
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

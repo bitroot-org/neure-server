@@ -16,6 +16,7 @@ const assessmentsRoutes = require('./server/routes/assessments/assessmentsRoutes
 const dashboardRoutes = require("./server/routes/dashboard/dashboardRoutes");
 const analyticsRoutes = require("./server/routes/analytics/analyticsRoutes");
 const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackingRoutes');
+const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 
 const serverActive = require("./Cron/serverActive");
 const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
@@ -55,6 +56,7 @@ app.use('/api/assessments', assessmentsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use('/api/tracking', resourceTrackingRoutes);
+app.use("/api/qna", qnaRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;

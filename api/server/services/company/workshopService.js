@@ -263,16 +263,30 @@ class workshopService {
     page = 1,
     limit = 10,
     start_date = null,
-    end_date = null
+    end_date = null,
+    search_term = null
   ) {
     try {
       const offset = (page - 1) * limit;
       const queryParams = [];
       let query = "SELECT * FROM workshops WHERE is_active = 1";
 
+      // Add date range filter if provided
       if (start_date && end_date) {
         query += " AND created_at BETWEEN ? AND ?";
         queryParams.push(start_date, end_date);
+      }
+
+      // Add search term filter if provided
+      if (search_term) {
+        query += ` AND (
+          title LIKE ? OR 
+          description LIKE ? OR 
+          organizer LIKE ? OR
+          location LIKE ?
+        )`;
+        const searchPattern = `%${search_term}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
       }
 
       // Get total count of workshops
@@ -283,7 +297,7 @@ class workshopService {
       const total = totalRows[0].count;
 
       // Fetch paginated workshops
-      query += " LIMIT ? OFFSET ?";
+      query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
       queryParams.push(limit, offset);
       const [workshops] = await db.query(query, queryParams);
 
@@ -612,7 +626,7 @@ class workshopService {
     }
   }
 
-  static async cancelWorkshopSchedule(scheduleId) {
+  static async updateWorkshopScheduleStatus(scheduleId, status, reason = null) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
@@ -639,10 +653,21 @@ class workshopService {
 
       const workshop = scheduleDetails[0];
 
-      // Update workshop status to canceled
+      // Validate status
+      const validStatuses = ['scheduled', 'rescheduled', 'canceled', 'completed'];
+      if (!validStatuses.includes(status)) {
+        return {
+          status: false,
+          code: 400,
+          message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
+          data: null,
+        };
+      }
+
+      // Update workshop status
       await connection.query(
-        "UPDATE workshop_schedules SET status = ? WHERE id = ?",
-        ["canceled", scheduleId]
+        "UPDATE workshop_schedules SET status = ?, updated_at = NOW() WHERE id = ?",
+        [status, scheduleId]
       );
 
       // Get all active employees for the company
@@ -670,51 +695,77 @@ class workshopService {
         hour12: true
       });
 
-      // Create cancellation notifications for all employees
-      const notificationPromises = employees.map(employee => 
-        NotificationService.createNotification({
-          title: `Workshop Cancelled: ${workshop.workshop_title}`,
-          content: `The workshop "${workshop.workshop_title}" scheduled for ${formattedDate} at ${formattedTime} has been cancelled. ${
-            workshop.cancellation_reason ? `\nReason: ${workshop.cancellation_reason}` : ''
-          }`,
-          type: "WORKSHOP_CANCELLED",
-          company_id: workshop.company_id,
-          user_id: employee.user_id,
-          priority: "HIGH",
-          metadata: JSON.stringify({
-            workshop_id: workshop.workshop_id,
-            schedule_id: scheduleId,
-            original_start_time: workshop.start_time,
-            location: workshop.location
+      // Create notifications based on status
+      let notificationPromises = [];
+      
+      if (status === 'canceled') {
+        // Create cancellation notifications for all employees
+        notificationPromises = employees.map(employee => 
+          NotificationService.createNotification({
+            title: `Workshop Cancelled: ${workshop.workshop_title}`,
+            content: `The workshop "${workshop.workshop_title}" scheduled for ${formattedDate} at ${formattedTime} has been cancelled. ${
+              reason ? `\nReason: ${reason}` : ''
+            }`,
+            type: "WORKSHOP_CANCELLED",
+            company_id: workshop.company_id,
+            user_id: employee.user_id,
+            priority: "HIGH",
+            metadata: JSON.stringify({
+              workshop_id: workshop.workshop_id,
+              schedule_id: scheduleId,
+              original_start_time: workshop.start_time,
+              location: workshop.location
+            })
           })
-        })
-      );
+        );
+      } else if (status === 'completed') {
+        // Create completion notifications for all employees
+        notificationPromises = employees.map(employee => 
+          NotificationService.createNotification({
+            title: `Workshop Completed: ${workshop.workshop_title}`,
+            content: `The workshop "${workshop.workshop_title}" that was held on ${formattedDate} at ${formattedTime} has been marked as completed. Thank you for your participation.`,
+            type: "WORKSHOP_COMPLETED",
+            company_id: workshop.company_id,
+            user_id: employee.user_id,
+            priority: "MEDIUM",
+            metadata: JSON.stringify({
+              workshop_id: workshop.workshop_id,
+              schedule_id: scheduleId,
+              completion_date: new Date().toISOString(),
+              location: workshop.location
+            })
+          })
+        );
+      }
 
       // Send all notifications
-      await Promise.all(notificationPromises);
+      if (notificationPromises.length > 0) {
+        await Promise.all(notificationPromises);
+      }
 
       await connection.commit();
 
       return {
         status: true,
         code: 200,
-        message: "Workshop cancelled successfully and notifications sent",
+        message: `Workshop ${status === 'canceled' ? 'cancelled' : status} successfully${notificationPromises.length > 0 ? ' and notifications sent' : ''}`,
         data: {
           schedule_id: scheduleId,
-          notifications_sent: employees.length
+          status: status,
+          notifications_sent: notificationPromises.length
         },
       };
 
     } catch (error) {
       await connection.rollback();
-      console.error("Error cancelling workshop schedule:", error);
-      throw new Error("Error cancelling workshop schedule: " + error.message);
+      console.error(`Error updating workshop schedule status to ${status}:`, error);
+      throw new Error(`Error updating workshop schedule status: ${error.message}`);
     } finally {
       connection.release();
     }
   }
 
-  static async rescheduleWorkshop(scheduleId, newStartTime, newEndTime, durationMinutes) {
+  static async rescheduleWorkshop(scheduleId, newStartTime, newEndTime, durationMinutes = null) {
     try {
       const [schedule] = await db.query(
         "SELECT * FROM workshop_schedules WHERE id = ?",
@@ -730,6 +781,29 @@ class workshopService {
         };
       }
 
+      // Calculate duration if not provided
+      let calculatedDuration = durationMinutes;
+      if (!calculatedDuration) {
+        // Convert string dates to Date objects if they aren't already
+        const startDate = new Date(newStartTime);
+        const endDate = new Date(newEndTime);
+        
+        // Calculate difference in milliseconds
+        const diffMs = endDate - startDate;
+        
+        // Convert to minutes
+        calculatedDuration = Math.round(diffMs / 60000);
+        
+        if (calculatedDuration <= 0) {
+          return {
+            status: false,
+            code: 400,
+            message: "End time must be after start time",
+            data: null,
+          };
+        }
+      }
+
       await db.query(
         `UPDATE workshop_schedules 
          SET start_time = ?, 
@@ -738,7 +812,7 @@ class workshopService {
              status = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [newStartTime, newEndTime, durationMinutes, "rescheduled", scheduleId]
+        [newStartTime, newEndTime, calculatedDuration, "rescheduled", scheduleId]
       );
 
       return {
@@ -749,7 +823,7 @@ class workshopService {
           schedule_id: scheduleId,
           new_start_time: newStartTime,
           new_end_time: newEndTime,
-          duration_minutes: durationMinutes
+          duration_minutes: calculatedDuration
         },
       };
     } catch (error) {

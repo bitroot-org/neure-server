@@ -2,20 +2,35 @@ const db = require('../../../config/db');
 
 class articleService {
   // Fetch all articles
-  static async getArticles(page = 1, limit = 10) {
+  static async getArticles(page = 1, limit = 10, search_term = null) {
     try {
       // Calculate offset
       const offset = (page - 1) * limit;
-
-      // Get total count
-      const [totalRows] = await db.query('SELECT COUNT(*) as count FROM articles');
+      
+      // Build query and params
+      let query = 'SELECT * FROM articles';
+      const queryParams = [];
+      
+      // Add search condition if search_term is provided
+      if (search_term) {
+        query += ' WHERE title LIKE ? OR content LIKE ? OR category LIKE ? OR tags LIKE ?';
+        const searchPattern = `%${search_term}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      }
+      
+      // Get total count with search applied
+      const [totalRows] = await db.query(
+        `SELECT COUNT(*) as count FROM (${query}) as filtered_articles`, 
+        queryParams
+      );
       const total = totalRows[0].count;
 
+      // Add pagination
+      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+      queryParams.push(limit, offset);
+      
       // Get paginated articles
-      const [articles] = await db.query(
-        'SELECT * FROM articles LIMIT ? OFFSET ?',
-        [limit, offset]
-      );
+      const [articles] = await db.query(query, queryParams);
 
       return {
         status: true,

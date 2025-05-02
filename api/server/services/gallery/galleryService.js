@@ -6,7 +6,8 @@ class GalleryService {
     fileType,
     page = 1,
     limit = 10,
-    showUnassigned = false
+    showUnassigned = false,
+    search_term = null
   ) {
     try {
       const offset = (page - 1) * limit;
@@ -25,7 +26,7 @@ class GalleryService {
       let totalQuery = `
       SELECT COUNT(DISTINCT g.id) as count
       FROM gallery g
-    `;
+      `;
 
       let itemsQuery = `
       SELECT DISTINCT
@@ -38,7 +39,7 @@ class GalleryService {
         g.tags,
         g.created_at
       FROM gallery g
-    `;
+      `;
 
       const queryParams = [];
 
@@ -78,13 +79,22 @@ class GalleryService {
         itemsQuery += `WHERE g.file_type = ?`;
         queryParams.push(fileType);
       }
-
-      itemsQuery += " ORDER BY g.created_at DESC LIMIT ? OFFSET ?";
-      const paginationParams = [limit, offset];
+      
+      // Add search condition if search_term is provided
+      if (search_term) {
+        totalQuery += ` AND (g.title LIKE ? OR g.description LIKE ? OR g.tags LIKE ?)`;
+        itemsQuery += ` AND (g.title LIKE ? OR g.description LIKE ? OR g.tags LIKE ?)`;
+        const searchPattern = `%${search_term}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern);
+      }
 
       // Get total count
       const [totalRows] = await db.query(totalQuery, queryParams);
       const total = totalRows[0].count;
+
+      // Add pagination to items query
+      itemsQuery += " ORDER BY g.created_at DESC LIMIT ? OFFSET ?";
+      const paginationParams = [limit, offset];
 
       // Get paginated gallery items
       const [items] = await db.query(
