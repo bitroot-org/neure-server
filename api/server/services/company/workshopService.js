@@ -225,40 +225,6 @@ class workshopService {
     }
   }
 
-  // Fetch all workshops with pagination
-  // static async getAllWorkshops(page = 1, limit = 10) {
-  //   try {
-  //     const offset = (page - 1) * limit;
-
-  //     // Get total count of workshops
-  //     const [totalRows] = await db.query('SELECT COUNT(*) as count FROM workshops WHERE is_active = 1');
-  //     const total = totalRows[0].count;
-
-  //     // Fetch paginated workshops
-  //     const [workshops] = await db.query(
-  //       'SELECT * FROM workshops WHERE is_active = 1 LIMIT ? OFFSET ?',
-  //       [limit, offset]
-  //     );
-
-  //     return {
-  //       status: true,
-  //       code: 200,
-  //       message: 'Workshops fetched successfully',
-  //       data: {
-  //         workshops,
-  //         pagination: {
-  //           total,
-  //           currentPage: page,
-  //           totalPages: Math.ceil(total / limit),
-  //           limit,
-  //         },
-  //       },
-  //     };
-  //   } catch (error) {
-  //     throw new Error('Error fetching workshops: ' + error.message);
-  //   }
-  // }
-
   static async getAllWorkshops(
     page = 1,
     limit = 10,
@@ -654,7 +620,7 @@ class workshopService {
       const workshop = scheduleDetails[0];
 
       // Validate status
-      const validStatuses = ['scheduled', 'rescheduled', 'canceled', 'completed'];
+      const validStatuses = ['scheduled', 'rescheduled', 'cancelled', 'completed'];
       if (!validStatuses.includes(status)) {
         return {
           status: false,
@@ -698,7 +664,7 @@ class workshopService {
       // Create notifications based on status
       let notificationPromises = [];
       
-      if (status === 'canceled') {
+      if (status === 'cancelled') {
         // Create cancellation notifications for all employees
         notificationPromises = employees.map(employee => 
           NotificationService.createNotification({
@@ -767,8 +733,13 @@ class workshopService {
 
   static async rescheduleWorkshop(scheduleId, newStartTime, newEndTime, durationMinutes = null) {
     try {
+      // Make sure we're using the db object correctly
       const [schedule] = await db.query(
-        "SELECT * FROM workshop_schedules WHERE id = ?",
+        `SELECT ws.*, w.title as workshop_title, c.company_name 
+         FROM workshop_schedules ws
+         JOIN workshops w ON ws.workshop_id = w.id
+         JOIN companies c ON ws.company_id = c.id
+         WHERE ws.id = ?`,
         [scheduleId]
       );
 
@@ -804,6 +775,7 @@ class workshopService {
         }
       }
 
+      // Use the db object directly
       await db.query(
         `UPDATE workshop_schedules 
          SET start_time = ?, 
@@ -827,6 +799,7 @@ class workshopService {
         },
       };
     } catch (error) {
+      console.error("Error in rescheduleWorkshop:", error);
       throw new Error("Error rescheduling workshop: " + error.message);
     }
   }

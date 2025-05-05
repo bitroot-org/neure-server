@@ -1,5 +1,6 @@
 const db = require("../../../config/db");
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+const ActivityLogService = require('../logs/ActivityLogService');
 
 class AssessmentsService {
   static async getAllAssessments(page = 1, limit = 10, user_id) {
@@ -185,6 +186,15 @@ class AssessmentsService {
       // Send all notifications
       const notificationResults = await Promise.all(notificationPromises);
       console.log("Notifications sent:", notificationResults.length);
+
+      // Log the assessment creation
+      await ActivityLogService.createLog({
+        user_id: assessmentData.user_id || null,
+        performed_by: 'admin',
+        module_name: 'assessments',
+        action: 'create',
+        description: `Assessment "${assessmentData.title}" created with ${assessmentData.questions.length} questions.`
+      });
 
       await connection.commit();
       console.log("Transaction committed successfully");
@@ -422,6 +432,28 @@ class AssessmentsService {
     if (a.size !== b.size) return false;
     for (const item of a) if (!b.has(item)) return false;
     return true;
+  }
+
+  static async getAssessmentsList() {
+    try {
+      // Query to fetch only id and title of active assessments
+      const query = `
+        SELECT id, title 
+        FROM assessments 
+        WHERE is_active = 1 
+        ORDER BY created_at DESC`;
+
+      const [results] = await db.query(query);
+      
+      return {
+        status: true,
+        code: 200,
+        message: "Assessment list retrieved successfully",
+        data: results
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 }
 

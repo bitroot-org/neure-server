@@ -160,6 +160,15 @@ class AssessmentsController {
       return errorResponse(res, 'Error submitting assessment', error);
     }
   }
+
+  static async getAssessmentsList(req, res) {
+    try {
+      const result = await AssessmentsService.getAssessmentsList();
+      return res.status(result.code).json(result);
+    } catch (error) {
+      return errorResponse(res, 'Error retrieving assessment list', error);
+    }
+  }
 }
 
 module.exports = AssessmentsController;

@@ -13,9 +13,9 @@ class SoundscapeService {
       );
       const total = totalRows[0].count;
 
-      // Get paginated soundscapes
+      // Get paginated soundscapes in descending order (newest first)
       const [soundscapes] = await db.query(
-        "SELECT * FROM soundscapes WHERE is_active = 1 LIMIT ? OFFSET ?",
+        "SELECT * FROM soundscapes WHERE is_active = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?",
         [limit, offset]
       );
 

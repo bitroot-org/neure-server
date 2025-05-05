@@ -1,6 +1,6 @@
 const XLSX = require("xlsx");
 const db = require("../../../config/db");
-
+const ActivityLogService = require("../../services/logs/ActivityLogService");
 
 const {
   registerCompany,
@@ -135,34 +135,6 @@ class CompanyController {
       });
     }
   }
-
-  // static async getTopPerformingEmployee(req, res) {
-  //   try {
-  //     const company_id = req.query.company_id;
-  //     const page = parseInt(req.query.page) || 1;
-  //     const limit = parseInt(req.query.limit) || 10;
-
-  //     if (!company_id) {
-  //       return res.status(400).json({
-  //         status: false,
-  //         code: 400,
-  //         message: "Company ID is required",
-  //         data: null,
-  //       });
-  //     }
-
-  //     const result = await getTopPerformingEmployee(company_id, page, limit);
-  //     res.status(200).json(result);
-  //   } catch (error) {
-  //     console.error(error);
-  //     res.status(500).json({
-  //       status: false,
-  //       code: 500,
-  //       message: "An error occurred while fetching company employees",
-  //       data: null,
-  //     });
-  //   }
-  // }
 
   static async getTopPerformingEmployee(req, res) {
     try {
@@ -534,6 +506,7 @@ class CompanyController {
   static async requestDeactivation(req, res) {
     try {
       const { company_id, deactivation_reason, detailed_reason } = req.body;
+      const user = req.user;
       
       console.log("Received deactivation request:", { 
         company_id,  
@@ -549,19 +522,36 @@ class CompanyController {
         });
       }
       
+      // Get company name for logging
+      const [companyDetails] = await db.query(
+        "SELECT company_name FROM companies WHERE id = ?",
+        [company_id]
+      );
+      
       const result = await requestDeactivation({
         company_id,
         deactivation_reason,
         detailed_reason,
       });
       
+      // Log the deactivation request with user-friendly description
+      if (result.status && companyDetails.length > 0) {
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'companies',
+          action: 'deactivation_request',
+          description: `Deactivation requested for company "${companyDetails[0].company_name}". Reason: ${deactivation_reason}`
+        });
+      }
+      
       return res.status(result.code).json(result);
     } catch (error) {
-      console.error("Error in requestDeactivation controller:", error);
+      console.error("Error in requestDeactivation:", error);
       return res.status(500).json({
         status: false,
         code: 500,
-        message: "Error submitting deactivation request.",
+        message: "Error submitting deactivation request: " + error.message,
         data: null,
       });
     }
@@ -570,6 +560,7 @@ class CompanyController {
   static async processDeactivationRequest(req, res) {
     try {
       const { request_id, status } = req.body;
+      const user = req.user;
       
       console.log("Received request to process deactivation:", { request_id, status });
       
@@ -591,19 +582,39 @@ class CompanyController {
         });
       }
       
+      // Get request details for logging
+      const [requestDetails] = await db.query(`
+        SELECT dr.*, c.company_name 
+        FROM company_deactivation_requests dr
+        JOIN companies c ON dr.company_id = c.id
+        WHERE dr.id = ?
+      `, [request_id]);
+      
       const result = await processDeactivationRequest({
         request_id,
         status,
         user: req.user // Pass the user object from the request
       });
-
+      
+      // Log the deactivation request processing with user-friendly description
+      if (result.status && requestDetails.length > 0) {
+        const action = status === 'approved' ? 'deactivation_approved' : 'deactivation_rejected';
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'companies',
+          action: action,
+          description: `Deactivation request for company "${requestDetails[0].company_name}" was ${status}${status === 'approved' ? '. Company has been deactivated.' : ''}`
+        });
+      }
+      
       return res.status(result.code).json(result);
     } catch (error) {
-      console.error("Error in processDeactivationRequest controller:", error);
+      console.error("Error in processDeactivationRequest:", error);
       return res.status(500).json({
         status: false,
         code: 500,
-        message: error.message,
+        message: "Error processing deactivation request: " + error.message,
         data: null,
       });
     }
@@ -816,15 +827,14 @@ class CompanyController {
         [user_id, 1] 
       );
 
-
       if (!user || user.length === 0 || user[0].role_id !== 1) {
-      return res.status(403).json({
-        status: false,
-        code: 403,
-        message: "Access denied. Only admins (role_id = 1) can create companies.",
-        data: null,
-      });
-    }
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only admins (role_id = 1) can create companies.",
+          data: null,
+        });
+      }
   
       // Validate the required fields
       if (!company_name || !company_size || !contact_person_info) {
@@ -854,6 +864,17 @@ class CompanyController {
         contact_person_info
       });
   
+      // Log the company creation with user-friendly description
+      if (result.status) {
+        await ActivityLogService.createLog({
+          user_id: user_id,
+          performed_by: 'admin',
+          module_name: 'companies',
+          action: 'create',
+          description: `Company "${company_name}" created. Contact person: ${contact_person_info.first_name} ${contact_person_info.last_name} (${contact_person_info.email})`
+        });
+      }
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Error creating company:", error);

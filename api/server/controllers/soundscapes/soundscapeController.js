@@ -4,6 +4,7 @@ const {
   deleteSound,
 } = require("../upload/UploadController");
 const SoundscapeService = require("../../services/soundscapes/soundscapeService");
+const ActivityLogService = require('../../services/logs/ActivityLogService');
 
 class SoundscapeController {
   // Get all soundscapes
@@ -46,6 +47,7 @@ class SoundscapeController {
   static async createSoundscape(req, res) {
     try {
       const { title, artistName, tags, category } = req.body;
+      const user = req.user;
 
       // Validate required fields
       if (!title || !artistName || !category) {
@@ -77,11 +79,6 @@ class SoundscapeController {
       const { soundFileUrl, coverImageUrl, duration, fileSize } =
         uploadResult.data;
 
-      // console.log("Sound file URL:", soundFileUrl);
-      // console.log("Cover image URL:", coverImageUrl);
-      // console.log("Duration:", duration);
-      // console.log("fileSize: ", uploadResult.data.fileSize);
-
       // Save soundscscape to the database
       const result = await SoundscapeService.createSoundscape({
         title,
@@ -93,6 +90,17 @@ class SoundscapeController {
         duration,
         fileSize,
       });
+
+      // Log the soundscape creation
+      if (result.status) {
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'soundscapes',
+          action: 'create',
+          description: `Soundscape "${title}" created by artist "${artistName}" in category "${category}".`
+        });
+      }
 
       return res.status(result.code).json(result);
     } catch (error) {
@@ -107,11 +115,14 @@ class SoundscapeController {
   }
 
   // Delete a soundscape by ID
-  // In your SoundscapeController.js
   static async deleteSoundscape(req, res) {
     try {
       const { soundscapeId } = req.query;
+      const user = req.user;
 
+      // Get soundscape details before deletion for logging
+      const soundscapeDetails = await SoundscapeController.getSoundscapeDetails(soundscapeId);
+      
       const result = await deleteSound(soundscapeId);
 
       if (!result.success) {
@@ -120,6 +131,26 @@ class SoundscapeController {
           code: 400,
           message: result.message,
           data: null,
+        });
+      }
+
+      // Log the soundscape deletion
+      if (soundscapeDetails) {
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'soundscapes',
+          action: 'delete',
+          description: `Soundscape "${soundscapeDetails.title}" by artist "${soundscapeDetails.artist_name}" was deleted`
+        });
+      } else {
+        // Fallback if we couldn't get the details
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'soundscapes',
+          action: 'delete',
+          description: `Soundscape was deleted`
         });
       }
 
@@ -139,6 +170,23 @@ class SoundscapeController {
       });
     }
   }
+
+  // Helper function to get soundscape details for logging
+  static async getSoundscapeDetails(soundscapeId) {
+    try {
+      const db = require("../../../config/db");
+      const [soundscape] = await db.query(
+        "SELECT title, artist_name, categories, duration FROM soundscapes WHERE id = ?",
+        [soundscapeId]
+      );
+      
+      return soundscape.length > 0 ? soundscape[0] : null;
+    } catch (error) {
+      console.error("Error fetching soundscape details:", error);
+      return null;
+    }
+  }
+
 
   static async likeSoundscape(req, res) {
     try {
@@ -213,5 +261,6 @@ class SoundscapeController {
     }
   }
 }
+
 
 module.exports = SoundscapeController;

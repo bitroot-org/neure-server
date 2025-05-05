@@ -6,11 +6,13 @@ const {
   updateReward,
 } = require("../../services/company/rewardsService");
 const { uploadImage, deleteImage } = require("../../controllers/upload/UploadController");
+const ActivityLogService = require('../../services/logs/ActivityLogService');
 
 class RewardsController {
   static async createReward(req, res) {
     try {
       let { title, terms_and_conditions, reward_type, company_ids } = req.body;
+      const user = req.user;
       
       // Parse company_ids if it's a string
       if (company_ids && typeof company_ids === 'string') {
@@ -81,6 +83,33 @@ class RewardsController {
         company_ids || []
       );
       
+      // Log the reward creation
+      if (result.status) {
+        let description = `Reward "${title}" created`;
+        
+        // Add company information if it's a custom reward
+        if (reward_type === 'custom' && company_ids && company_ids.length > 0) {
+          // Get company names if available
+          try {
+            const companyNames = await RewardsController.getCompanyNames(company_ids);
+            const readableCompanyNames = companyNames.map(name => name.split(' (ID:')[0]).join(', ');
+            description += `. Assigned to companies: ${readableCompanyNames}`;
+          } catch (error) {
+            description += `. Assigned to specific companies`;
+          }
+        } else {
+          description += ` (Global reward)`;
+        }
+        
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'rewards',
+          action: 'create',
+          description: description
+        });
+      }
+      
       res.status(result.code).json(result);
     } catch (error) {
       console.error("Error creating reward:", error);
@@ -149,6 +178,7 @@ class RewardsController {
   static async deleteReward(req, res) {
     try {
       const { id } = req.params;
+      const user = req.user;
 
       const reward = await getRewardById(id);
       
@@ -174,6 +204,15 @@ class RewardsController {
 
       const deletedRows = await deleteReward(id);
 
+      // Log the reward deletion with more user-friendly description
+      await ActivityLogService.createLog({
+        user_id: user?.user_id,
+        performed_by: 'admin',
+        module_name: 'rewards',
+        action: 'delete',
+        description: `Reward "${reward.data.title}" was deleted`
+      });
+
       res.status(200).json({
         status: true,
         code: 200,
@@ -195,6 +234,7 @@ class RewardsController {
     try {
       const { id } = req.params;
       let { title, terms_and_conditions, reward_type, company_ids } = req.body;
+      const user = req.user;
       
       // Parse company_ids if it's a string
       if (company_ids && typeof company_ids === 'string') {
@@ -294,6 +334,41 @@ class RewardsController {
 
       const result = await updateReward(id, updateData);
 
+      // Log the reward update
+      if (result.status) {
+        // Determine which fields were updated
+        const updatedFields = [];
+        if (title) updatedFields.push('title');
+        if (terms_and_conditions) updatedFields.push('terms and conditions');
+        if (req.file) updatedFields.push('icon');
+        if (reward_type) updatedFields.push('reward type');
+        if (company_ids) updatedFields.push('assigned companies');
+        
+        let description = `Reward "${existingReward.data.title}" updated. Changes made to: ${updatedFields.join(', ')}`;
+        
+        // Add company information if it's a custom reward
+        if ((reward_type === 'custom' || (!reward_type && existingReward.data.reward_type === 'custom')) && company_ids && company_ids.length > 0) {
+          // Get company names if available
+          try {
+            const companyNames = await RewardsController.getCompanyNames(company_ids);
+            const readableCompanyNames = companyNames.map(name => name.split(' (ID:')[0]).join(', ');
+            description += `. Now assigned to companies: ${readableCompanyNames}`;
+          } catch (error) {
+            description += `. Now assigned to different companies`;
+          }
+        } else if (reward_type === 'global') {
+          description += `. Changed to a Global reward (available to all companies)`;
+        }
+        
+        await ActivityLogService.createLog({
+          user_id: user?.user_id,
+          performed_by: 'admin',
+          module_name: 'rewards',
+          action: 'update',
+          description: description
+        });
+      }
+
       return res.status(result.code).json(result);
     } catch (error) {
       console.error("Error updating reward:", error);
@@ -305,6 +380,40 @@ class RewardsController {
       });
     }
   }
+
+  // Helper function to get company names from IDs
+  static async getCompanyNames(companyIds) {
+    try {
+      const db = require("../../../config/db");
+      const placeholders = companyIds.map(() => '?').join(',');
+      const [companies] = await db.query(
+        `SELECT id, company_name FROM companies WHERE id IN (${placeholders})`,
+        companyIds
+      );
+      
+      return companies.map(company => `${company.company_name} (ID: ${company.id})`);
+    } catch (error) {
+      console.error("Error fetching company names:", error);
+      throw error;
+    }
+  }
 }
+
+// Add the helper function to the class
+RewardsController.getCompanyNames = async function(companyIds) {
+  try {
+    const db = require("../../../config/db");
+    const placeholders = companyIds.map(() => '?').join(',');
+    const [companies] = await db.query(
+      `SELECT id, company_name FROM companies WHERE id IN (${placeholders})`,
+      companyIds
+    );
+    
+    return companies.map(company => `${company.company_name} (ID: ${company.id})`);
+  } catch (error) {
+    console.error("Error fetching company names:", error);
+    throw error;
+  }
+};
 
 module.exports = RewardsController;

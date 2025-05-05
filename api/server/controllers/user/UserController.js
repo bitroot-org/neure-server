@@ -1,4 +1,5 @@
 const UserServices = require("../../services/user/UserServices");
+const { uploadImage } = require("../upload/UploadController");
 const {
   register,
   login,
@@ -284,6 +285,7 @@ class UserController {
     try {
       const user_id = req.body.user_id;
       const userDetails = req.body;
+      let imageUrl = null;
 
       console.log("Received request to update user details:", userDetails);
 
@@ -294,6 +296,22 @@ class UserController {
           message: "user_id is required.",
           data: null,
         });
+      }
+
+      // Handle image upload if file is present
+      if (req.file) {
+        req.body.type = 'profile'; // Set type for profile image
+        const uploadResult = await uploadImage(req);
+        if (!uploadResult.success) {
+          return res.status(500).json({
+            status: false,
+            code: 500,
+            message: "Error uploading profile image",
+            data: null,
+          });
+        }
+        imageUrl = uploadResult.url;
+        userDetails.profile_url = imageUrl; // Add profile URL to user details
       }
 
       const result = await updateUserDetails(user_id, userDetails);
