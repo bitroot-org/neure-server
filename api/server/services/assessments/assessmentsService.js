@@ -362,29 +362,54 @@ class AssessmentsService {
       let totalQuestions = structuredQuestions.length;
       let correctAnswers = 0;
 
+      // Insert submission to get the user_assessment_id
+      const [userAssessmentResult] = await connection.query(
+        `INSERT INTO user_assessments 
+         (user_id, company_id, assessment_id, responses, score, completed_at) 
+         VALUES (?, ?, ?, ?, ?, NOW())`,
+        [user_id, company_id, assessment_id, JSON.stringify(responses), 0] // Temporary score of 0
+      );
+      
+      const userAssessmentId = userAssessmentResult.insertId;
+      
+      // Store individual responses and calculate score
       for (const question of structuredQuestions) {
         const userResponse = responses.find(r => r.question_id === question.question_id);
         if (!userResponse) continue;
         
+        let isCorrect = 0;
+        
         if (question.question_type === 'single_choice') {
           const selectedOption = userResponse.selected_options[0];
           const correctOption = question.options.find(o => o.is_correct)?.id;
-          if (selectedOption === correctOption) correctAnswers++;
+          if (selectedOption === correctOption) {
+            correctAnswers++;
+            isCorrect = 1;
+          }
         } else if (question.question_type === 'multiple_choice') {
           const correctOptions = new Set(question.options.filter(o => o.is_correct).map(o => o.id));
           const selectedOptions = new Set(userResponse.selected_options);
-          if (this.setsAreEqual(correctOptions, selectedOptions)) correctAnswers++;
+          if (this.setsAreEqual(correctOptions, selectedOptions)) {
+            correctAnswers++;
+            isCorrect = 1;
+          }
         }
+        
+        // Store individual response
+        await connection.query(
+          `INSERT INTO user_assessment_responses 
+           (user_assessment_id, question_id, selected_options, is_correct) 
+           VALUES (?, ?, ?, ?)`,
+          [userAssessmentId, question.question_id, JSON.stringify(userResponse.selected_options), isCorrect]
+        );
       }
 
       const score = (correctAnswers / totalQuestions) * 100;
 
-      // Insert submission
+      // Update the score in user_assessments
       await connection.query(
-        `INSERT INTO user_assessments 
-         (user_id, company_id, assessment_id, responses, score, completed_at) 
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [user_id, company_id, assessment_id, JSON.stringify(responses), score]
+        `UPDATE user_assessments SET score = ? WHERE id = ?`,
+        [score, userAssessmentId]
       );
 
       // Get user details for the notification
@@ -452,6 +477,187 @@ class AssessmentsService {
         data: results
       };
     } catch (error) {
+      throw error;
+    }
+  }
+
+  // New method to get user assessment responses with questions and correct answers
+  static async getUserAssessmentResponses(user_id, assessment_id) {
+    try {
+
+      // First check if the user has submitted this assessment
+      const [userAssessment] = await db.query(
+        `SELECT id, score, completed_at 
+         FROM user_assessments 
+         WHERE user_id = ? AND assessment_id = ?`,
+        [user_id, assessment_id]
+      );
+
+
+      if (!userAssessment || userAssessment.length === 0) {
+        throw new Error("Assessment not submitted by this user");
+      }
+
+      const userAssessmentId = userAssessment[0].id;
+
+      // Get assessment details
+      const [assessment] = await db.query(
+        `SELECT title, description FROM assessments WHERE id = ?`,
+        [assessment_id]
+      );
+
+      // Get questions with options and user responses
+      const [results] = await db.query(`
+        SELECT 
+          q.id as question_id,
+          q.question_text,
+          q.question_type,
+          uar.selected_options as user_selected_options,
+          uar.is_correct as user_is_correct,
+          (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', o.id,
+                'option_text', o.option_text,
+                'is_correct', o.is_correct
+              )
+            )
+            FROM options o
+            WHERE o.question_id = q.id
+          ) as options
+        FROM questions q
+        JOIN user_assessment_responses uar ON q.id = uar.question_id
+        WHERE uar.user_assessment_id = ?
+        ORDER BY q.id
+      `, [userAssessmentId]);
+
+      return {
+        status: true,
+        code: 200,
+        message: "User assessment responses retrieved successfully",
+        data: {
+          assessment: assessment[0],
+          user_assessment: {
+            id: userAssessment[0].id,
+            score: userAssessment[0].score,
+            completed_at: userAssessment[0].completed_at
+          },
+          responses: results
+        }
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Get assessment completion list with filtering options
+   * @param {Object} options - Filter and pagination options
+   * @param {number} options.page - Page number
+   * @param {number} options.limit - Items per page
+   * @param {number} options.company_id - Filter by company ID
+   * @param {number} options.assessment_id - Filter by assessment ID
+   * @returns {Object} Assessment completion data with pagination
+   */
+  static async getAssessmentCompletionList({ 
+    page = 1, 
+    limit = 10, 
+    company_id = null, 
+    assessment_id = null 
+  }) {
+    try {
+      const offset = (page - 1) * limit;
+      
+      // Build the query with joins to get all required data
+      let query = `
+        SELECT 
+          u.first_name,
+          u.last_name,
+          u.email,
+          u.user_id,
+          c.company_name,
+          c.id as company_id,
+          a.title as assessment_name,
+          a.id as assessment_id,
+          ua.score,
+          ua.completed_at,
+          ua.id as user_assessment_id
+        FROM user_assessments ua
+        JOIN users u ON ua.user_id = u.user_id
+        JOIN companies c ON ua.company_id = c.id
+        JOIN assessments a ON ua.assessment_id = a.id
+        WHERE 1=1
+      `;
+      
+      const queryParams = [];
+      
+      // Add filters if provided
+      if (company_id) {
+        query += ` AND ua.company_id = ?`;
+        queryParams.push(company_id);
+      }
+      
+      if (assessment_id) {
+        query += ` AND ua.assessment_id = ?`;
+        queryParams.push(assessment_id);
+      }
+      
+      // Get total count for pagination
+      const countQuery = `
+        SELECT COUNT(*) as total
+        FROM user_assessments ua
+        JOIN users u ON ua.user_id = u.user_id
+        JOIN companies c ON ua.company_id = c.id
+        JOIN assessments a ON ua.assessment_id = a.id
+        WHERE 1=1
+        ${company_id ? ' AND ua.company_id = ?' : ''}
+        ${assessment_id ? ' AND ua.assessment_id = ?' : ''}
+      `;
+
+      const countParams = [];
+      if (company_id) countParams.push(company_id);
+      if (assessment_id) countParams.push(assessment_id);
+      
+      const [countResult] = await db.query(countQuery, countParams);
+      const total = countResult && countResult[0] ? countResult[0].total : 0;
+      
+      // Add sorting and pagination to the main query
+      query += ` ORDER BY ua.completed_at DESC LIMIT ? OFFSET ?`;
+      queryParams.push(parseInt(limit), offset);
+      
+      // Execute the main query
+      const [results] = await db.query(query, queryParams);
+      
+      // Format the results
+      const formattedResults = results.map(row => ({
+        employee: `${row.first_name} ${row.last_name}`,
+        email: row.email,
+        user_id: row.user_id,
+        company: row.company_name,
+        company_id: row.company_id,
+        assessment: row.assessment_name,
+        assessment_id: row.assessment_id,
+        user_assessment_id: row.user_assessment_id,
+        completion_date: row.completed_at,
+        score: `${Math.round(row.score)}%`,
+        score_raw: row.score
+      }));
+      
+      // Return a properly structured response
+      return {
+        status: true,
+        code: 200,
+        message: "Assessment completion list retrieved successfully",
+        data: formattedResults,
+        pagination: {
+          total,
+          current_page: parseInt(page),
+          total_pages: Math.ceil(total / limit),
+          per_page: parseInt(limit)
+        }
+      };
+    } catch (error) {
+      console.error("Error in getAssessmentCompletionList:", error);
       throw error;
     }
   }

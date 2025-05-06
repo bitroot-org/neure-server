@@ -169,6 +169,81 @@ class AssessmentsController {
       return errorResponse(res, 'Error retrieving assessment list', error);
     }
   }
+
+  static async getUserAssessmentResponses(req, res) {
+    try {
+      const { assessment_id } = req.params;
+      const { user_id } = req.query; 
+
+      console.log("user_id", user_id);
+      console.log("assessment_id", assessment_id);
+      
+      // Check if assessment_id is provided
+      if (!assessment_id) {
+        return errorResponse(res, 'Assessment ID is required', null, 400);
+      }
+      
+      // Check if user_id is provided
+      if (!user_id) {
+        return errorResponse(res, 'User ID is required', null, 400);
+      }
+      
+      // Verify the requester is authorized to access this data
+      // Option 1: Check if requester is the same user (accessing their own data)
+      // Option 2: Check if requester is a superadmin (role_id = 1)
+      const requesterId = req.user.user_id;
+      const requesterRole = req.user.role_id;
+      
+      // Only allow access if the requester is the same user or a superadmin
+      if (requesterId !== parseInt(user_id) && requesterRole !== 1) {
+        return errorResponse(res, 'Unauthorized access', null, 403);
+      }
+      
+      const result = await AssessmentsService.getUserAssessmentResponses(user_id, assessment_id);
+      return successResponse(res, 'User assessment responses retrieved successfully', result.data);
+    } catch (error) {
+      if (error.message === 'Assessment not submitted by this user') {
+        return errorResponse(res, error.message, null, 404);
+      }
+      return errorResponse(res, 'Error retrieving user assessment responses', error);
+    }
+  }
+
+  static async getAssessmentCompletionList(req, res) {
+    try {
+      const { 
+        page = 1, 
+        limit = 10, 
+        company_id = null, 
+        assessment_id = null 
+      } = req.query;
+      
+      // Parse IDs to integers if provided
+      const parsedCompanyId = company_id ? parseInt(company_id) : null;
+      const parsedAssessmentId = assessment_id ? parseInt(assessment_id) : null;
+      
+      const result = await AssessmentsService.getAssessmentCompletionList({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        company_id: parsedCompanyId,
+        assessment_id: parsedAssessmentId
+      });
+      
+      // Use successResponse helper instead of direct res.status().json()
+      return successResponse(res, 'Assessment completion list retrieved successfully', {
+        completions: result.data || [],
+        pagination: result.pagination || {
+          total: 0,
+          current_page: parseInt(page),
+          total_pages: 0,
+          per_page: parseInt(limit)
+        }
+      });
+    } catch (error) {
+      console.error("Error in getAssessmentCompletionList controller:", error);
+      return errorResponse(res, 'Error retrieving assessment completion list', error);
+    }
+  }
 }
 
 module.exports = AssessmentsController;

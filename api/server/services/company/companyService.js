@@ -277,6 +277,7 @@ class CompanyService {
         FROM company_employees ce 
         JOIN users u ON ce.user_id = u.user_id
         WHERE ce.company_id = ? AND ce.is_active = 1
+        AND u.role_id NOT IN (1, 2)
       `;
 
       // Base data query
@@ -306,6 +307,7 @@ class CompanyService {
         LEFT JOIN user_departments ud ON u.user_id = ud.user_id
         LEFT JOIN departments d ON ud.department_id = d.id
         WHERE ce.company_id = ? AND ce.is_active = 1
+        AND u.role_id NOT IN (1, 2)
       `;
 
       const queryParams = [company_id];
@@ -368,7 +370,9 @@ class CompanyService {
       const [totalRows] = await db.query(
         `SELECT COUNT(*) as count 
          FROM company_employees ce 
-         WHERE ce.company_id = ? AND ce.is_active = 1`,
+         JOIN users u ON ce.user_id = u.user_id
+         WHERE ce.company_id = ? AND ce.is_active = 1
+         AND u.role_id NOT IN (1, 2)`,
         [company_id]
       );
 
@@ -398,6 +402,7 @@ class CompanyService {
          LEFT JOIN user_departments ud ON u.user_id = ud.user_id
          LEFT JOIN departments d ON ud.department_id = d.id
          WHERE ce.company_id = ? AND ce.is_active = 1
+         AND u.role_id NOT IN (1, 2)
          ORDER BY ce.joined_date DESC
          LIMIT ? OFFSET ?`,
         [company_id, limit, offset]
@@ -671,10 +676,10 @@ class CompanyService {
           c.retention_rate,
           c.stress_level,
           c.engagement_score,
-          COUNT(*) as total_employees,
-          SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
-          SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
-          MAX(ce.joined_date) as last_employee_joined,
+          COUNT(CASE WHEN u.role_id NOT IN (1, 2) THEN ce.user_id END) as total_employees,
+          SUM(CASE WHEN ce.is_active = 1 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as active_employees,
+          SUM(CASE WHEN ce.is_active = 0 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as inactive_employees,
+          MAX(CASE WHEN u.role_id NOT IN (1, 2) THEN ce.joined_date END) as last_employee_joined,
           (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
         FROM companies c
         LEFT JOIN company_employees ce ON c.id = ce.company_id
@@ -684,37 +689,39 @@ class CompanyService {
         [company_id]
       );
 
-      if (metrics.length === 0) {
+      if (!metrics || metrics.length === 0) {
         return {
           status: false,
           code: 404,
           message: "Company not found",
+          data: null,
         };
       }
 
-      const c = metrics[0];
-
-      // Fetch most recent historical metrics
-      const [history] = await db.query(
+      // Get historical metrics for trend calculation
+      const [historicalMetrics] = await db.query(
         `SELECT 
-           stress_level,
-           retention_rate,
-           engagement_score,
-           psychological_safety_index
-         FROM company_metrics_history
-         WHERE company_id = ?
-         ORDER BY month_year DESC
-         LIMIT 1`,
+          psychological_safety_index,
+          retention_rate,
+          stress_level,
+          engagement_score
+        FROM company_metrics_history
+        WHERE company_id = ?
+        ORDER BY month_year DESC
+        LIMIT 1`,
         [company_id]
       );
 
-      const h = history[0] || {};
+      const c = metrics[0];
+      const h = historicalMetrics.length > 0 ? historicalMetrics[0] : null;
 
+      // Helper function to calculate trend
       const getTrend = (current, previous) => {
-        if (previous == null) return "no_data";
-        if (current > previous) return "up";
-        if (current < previous) return "down";
-        return "no_change";
+        if (!previous || previous === 0) return "stable";
+        const percentChange = ((current - previous) / previous) * 100;
+        if (percentChange > 5) return "up";
+        if (percentChange < -5) return "down";
+        return "stable";
       };
 
       return {
@@ -739,11 +746,20 @@ class CompanyService {
             // Trend indicators
             psi_trend: getTrend(
               c.psychological_safety_index,
-              h.psychological_safety_index
+              h?.psychological_safety_index
             ),
-            retention_trend: getTrend(c.retention_rate, h.retention_rate),
-            stress_trend: getTrend(c.stress_level, h.stress_level),
-            engagement_trend: getTrend(c.engagement_score, h.engagement_score),
+            retention_trend: getTrend(
+              c.retention_rate,
+              h?.retention_rate
+            ),
+            stress_trend: getTrend(
+              c.stress_level,
+              h?.stress_level
+            ),
+            engagement_trend: getTrend(
+              c.engagement_score,
+              h?.engagement_score
+            ),
           },
         },
       };
@@ -1033,29 +1049,6 @@ class CompanyService {
       throw error;
     }
   }
-
-  // static async assignReward(company_id, user_id, reward_id) {
-  //   try {
-  //     const query =
-  //       "INSERT INTO employee_rewards (company_id, user_id, reward_id) VALUES (?, ?, ?)";
-  //     const [result] = await db.execute(query, [
-  //       company_id,
-  //       user_id,
-  //       reward_id,
-  //     ]);
-
-  //     return {
-  //       status: true,
-  //       code: 201,
-  //       message: "Reward assigned successfully",
-  //       data: {
-  //         id: result.insertId,
-  //       },
-  //     };
-  //   } catch (error) {
-  //     throw error;
-  //   }
-  // }
 
   static async assignReward(company_id, user_id, reward_id, admin_id) {
     const connection = await db.getConnection();
@@ -1858,69 +1851,6 @@ class CompanyService {
       throw new Error("Error adding department: " + error.message);
     }
   }
-
-  // static async createCompany({
-  //   company_name,
-  //   email,
-  //   company_size,
-  //   department_ids,
-  // }) {
-  //   const connection = await db.getConnection();
-  //   try {
-  //     await connection.beginTransaction();
-
-  //     // Insert the company into the `companies` table
-  //     const [companyResult] = await connection.query(
-  //       `INSERT INTO companies (company_name, email_domain, company_size) VALUES (?, ?, ?)`,
-  //       [company_name, email, company_size]
-  //     );
-
-  //     const companyId = companyResult.insertId;
-
-  //     // Validate and assign departments
-  //     if (department_ids && department_ids.length > 0) {
-  //       // Ensure the provided department IDs exist in the `departments` table
-  //       const [validDepartments] = await connection.query(
-  //         `SELECT id FROM departments WHERE id IN (?)`,
-  //         [department_ids]
-  //       );
-
-  //       if (validDepartments.length === 0) {
-  //         throw new Error("Invalid department IDs provided.");
-  //       }
-
-  //       // Insert valid department IDs into `company_departments`
-  //       const departmentValues = validDepartments.map((dept) => [
-  //         companyId,
-  //         dept.id,
-  //       ]);
-  //       await connection.query(
-  //         `INSERT INTO company_departments (company_id, department_id) VALUES ?`,
-  //         [departmentValues]
-  //       );
-  //     }
-
-  //     await connection.commit();
-
-  //     return {
-  //       status: true,
-  //       code: 201,
-  //       message: "Company created successfully with assigned departments",
-  //       data: {
-  //         id: companyId,
-  //         company_name,
-  //         email,
-  //         company_size,
-  //         assigned_departments: department_ids || [],
-  //       },
-  //     };
-  //   } catch (error) {
-  //     await connection.rollback();
-  //     throw new Error("Error creating company: " + error.message);
-  //   } finally {
-  //     connection.release();
-  //   }
-  // }
 
   static async createCompany({
     company_name,

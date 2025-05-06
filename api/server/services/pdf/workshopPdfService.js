@@ -39,11 +39,12 @@ class WorkshopPdfService {
       const company = companies[0];
       console.log('Company details:', company);
 
-      // 3. Get all employees from the company
+      // 3. Get all employees from the company, excluding admins (role_id 1 and 2)
       const [employees] = await db.query(
         `SELECT u.* FROM users u 
          JOIN company_employees ce ON u.user_id = ce.user_id 
-         WHERE ce.company_id = ? AND ce.is_active = 1`,
+         WHERE ce.company_id = ? AND ce.is_active = 1
+         AND u.role_id NOT IN (1, 2)`,
         [companyId]
       );
 

@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const db = require('../config/db');
 
-const checkAssessmentCompletion = async (forceRun = false) => {
+const checkAssessmentCompletion = async () => {
   // Check if it's the last day of the month (skip this check if forceRun is true)
   if (!forceRun) {
     const now = new Date();

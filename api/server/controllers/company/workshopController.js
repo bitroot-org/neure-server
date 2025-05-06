@@ -23,7 +23,7 @@ const ActivityLogService = require('../../services/logs/ActivityLogService');
 class workshopController {
   static async getWorkshopDetails(req, res) {
     try {
-      const { workshop_id, company_id } = req.query;
+      const { workshop_id, company_id, schedule_id } = req.query;
       
       if (!workshop_id || !company_id) {
         return res.status(400).json({
@@ -34,7 +34,7 @@ class workshopController {
         });
       }
 
-      const result = await getWorkshopDetails(workshop_id, company_id);
+      const result = await getWorkshopDetails(workshop_id, company_id, schedule_id);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
