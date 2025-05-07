@@ -94,7 +94,8 @@ const updateContentEngagementPercentage = async () => {
 };
 
 
-cron.schedule('0 0 * * *', async () => {
+// Update content engagement - daily at 00:05 AM
+cron.schedule('5 0 * * *', async () => {
   console.log(`[${new Date().toISOString()}] Starting content engagement percentage update...`);
   try {
     const result = await updateContentEngagementPercentage();
@@ -103,7 +104,8 @@ cron.schedule('0 0 * * *', async () => {
     console.error(`[${new Date().toISOString()}] Error in content engagement cron job:`, error);
   }
 }, {
-  scheduled: true
+  scheduled: true,
+  timezone: "Asia/Kolkata"
 });
 
 // Export the function for manual testing if needed

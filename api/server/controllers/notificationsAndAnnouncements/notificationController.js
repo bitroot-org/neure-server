@@ -5,6 +5,16 @@ class NotificationController {
     try {
       const { title, content, type, company_id, user_id } = req.body;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!title || !content || !type) {
         return res.status(400).json({
           status: false,
@@ -69,6 +79,16 @@ class NotificationController {
     try {
       const { id, title, content, type } = req.body;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!id) {
         return res.status(400).json({
           status: false,
@@ -103,6 +123,16 @@ class NotificationController {
   static async deleteNotification(req, res) {
     try {
       const { id } = req.params;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       if (!id) {
         return res.status(400).json({

@@ -5,6 +5,16 @@ class AnnouncementController {
   static async createAnnouncement(req, res) {
     try {
       const { title, content, link, audience_type, company_ids, is_global = 0 } = req.body;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
   
       if (!title || !content) {
         return res.status(400).json({
@@ -72,6 +82,16 @@ class AnnouncementController {
     try {
       const { id, title, content, link, audience_type, is_active } = req.body;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!id) {
         return res.status(400).json({
           status: false,
@@ -109,7 +129,16 @@ class AnnouncementController {
   static async deleteAnnouncement(req, res) {
     try {
       const { id } = req.params;
-      console.log(id);
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       if (!id) {
         return res.status(400).json({

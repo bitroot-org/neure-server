@@ -169,9 +169,6 @@ class articleService {
   }
 
   // Delete an article
-  // ...existing code...
-
-  // Delete an article
   static async deleteArticle(articleId) {
     try {
       const [result] = await db.query('DELETE FROM articles WHERE id = ?', [articleId]);
@@ -195,8 +192,6 @@ class articleService {
       throw new Error('Error deleting article: ' + error.message);
     }
   }
-
-// ...existing code...
 }
 
 module.exports = articleService;

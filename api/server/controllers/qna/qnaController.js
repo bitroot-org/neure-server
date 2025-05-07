@@ -11,6 +11,16 @@ class QnaController {
   static async createQna(req, res) {
     try {
       const { question, answer } = req.body;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
       
       if (!question || !answer) {
         return res.status(400).json({
@@ -82,6 +92,16 @@ class QnaController {
   static async updateQna(req, res) {
     try {
       const { id, question, answer } = req.body;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
       
       if (!id) {
         return res.status(400).json({
@@ -108,6 +128,16 @@ class QnaController {
   static async deleteQna(req, res) {
     try {
       const { id } = req.params;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
       
       if (!id) {
         return res.status(400).json({

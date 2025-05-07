@@ -11,6 +11,16 @@ const ActivityLogService = require('../../services/logs/ActivityLogService');
 class RewardsController {
   static async createReward(req, res) {
     try {
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       let { title, terms_and_conditions, reward_type, company_ids } = req.body;
       const user = req.user;
       
@@ -177,6 +187,16 @@ class RewardsController {
 
   static async deleteReward(req, res) {
     try {
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       const { id } = req.params;
       const user = req.user;
 
@@ -235,6 +255,16 @@ class RewardsController {
       const { id } = req.params;
       let { title, terms_and_conditions, reward_type, company_ids } = req.body;
       const user = req.user;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
       
       // Parse company_ids if it's a string
       if (company_ids && typeof company_ids === 'string') {

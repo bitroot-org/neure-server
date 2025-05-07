@@ -100,8 +100,8 @@ const monthlyMetricsReset = async () => {
   }
 };
 
-// Schedule the cron job to run at 00:01 on the first day of each month
-cron.schedule('1 0 1 * *', monthlyMetricsReset, {
+// Monthly metrics reset - 1st day at 00:15 AM
+cron.schedule('15 0 1 * *', monthlyMetricsReset, {
   scheduled: true,
   timezone: "Asia/Kolkata"
 });

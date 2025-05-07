@@ -48,9 +48,19 @@ class articleController {
   // Create a new article
   static async createArticle(req, res) {
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       const articleData = req.body;
       const user = req.user;
-      console.log("Article data:", articleData);
       let imageUrl = null;
   
       // If an image file is uploaded, handle the upload
@@ -100,6 +110,17 @@ class articleController {
   // Update an article
   static async updateArticle(req, res) {
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can update articles",
+          data: null,
+        });
+      }
+
       const articleData = req.body;
       const user = req.user;
       let imageUrl = null;
@@ -174,6 +195,17 @@ class articleController {
   // Delete an article
   static async deleteArticle(req, res) {
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete articles",
+          data: null,
+        });
+      }
+
       const { articleId } = req.params;
       const user = req.user;
       

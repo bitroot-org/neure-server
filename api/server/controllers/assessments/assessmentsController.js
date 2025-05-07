@@ -33,6 +33,17 @@ class AssessmentsController {
   static async createAssessment(req, res) {
     console.log(req.body);
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete articles",
+          data: null,
+        });
+      }
+      
       const assessmentData = req.body;
 
       // Validate required fields
@@ -71,6 +82,17 @@ class AssessmentsController {
 
   static async updateAssessment(req, res) {
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete articles",
+          data: null,
+        });
+      }
+
       const { id } = req.body;
       const assessmentData = req.body;
 
@@ -110,6 +132,17 @@ class AssessmentsController {
 
   static async deleteAssessment(req, res) {
     try {
+      // Check if user is superadmin (role_id = 1)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete articles",
+          data: null,
+        });
+      }
+
       const { id } = req.params;
       console.log("id", id);
       if (!id) {

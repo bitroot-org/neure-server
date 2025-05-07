@@ -220,58 +220,44 @@ const recordEmployeeDailyHistory = async () => {
 };
 
 // Schedule the cron job to run every start of the day seconds for debugging
-cron.schedule(
-  "1 0 * * *",
-  () => {
-    calculateCompanyStressLevel();
-  },
-  {
-    scheduled: true,
-    timezone: "Asia/Kolkata",
-  }
-);
+cron.schedule("30 0 * * *", () => {
+  calculateCompanyStressLevel();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
 
-// Schedule the cron job to run at 00:01 on the first day of each month
-cron.schedule(
-  "1 0 1 * *",
-  async () => {
-    try {
-      console.log("Starting monthly retention rate calculation...");
-      const result = await calculateMonthlyRetention();
-      console.log("Retention rate calculation completed:", result);
-    } catch (error) {
-      console.error("Error in retention rate cron job:", error);
-    }
-  },
-  {
-    scheduled: true,
-    timezone: "Asia/Kolkata",
+// Monthly retention rate - 1st day at 00:45 AM
+cron.schedule("45 0 1 * *", async () => {
+  try {
+    const result = await calculateMonthlyRetention();
+    console.log(`[${new Date().toISOString()}] Retention rate calculation completed:`, result);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error in retention calculation:`, error);
   }
-);
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
 
-cron.schedule(
-  "0 0 1 * *",
-  () => {
-    calculatePSI();
-  },
-  {
-    scheduled: true,
-    timezone: "Asia/Kolkata",
-  }
-);
+// PSI calculation - 1st day at 01:15 AM
+cron.schedule("15 1 1 * *", () => {
+  calculatePSI();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
 
-cron.schedule(
-  " 0 0 * * *",
-  () => {
-    calculateEngagementScore();
-  },
-  {
-    scheduled: true,
-    timezone: "Asia/Kolkata",
-  }
-);
+// Engagement score - 1st day at 01:45 AM
+cron.schedule("45 1 1 * *", () => {
+  calculateEngagementScore();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
 
-cron.schedule("0 0 * * *", recordEmployeeDailyHistory, {
+// Employee daily history - daily at 02:00 AM
+cron.schedule("0 2 * * *", recordEmployeeDailyHistory, {
   scheduled: true,
   timezone: "Asia/Kolkata"
 });

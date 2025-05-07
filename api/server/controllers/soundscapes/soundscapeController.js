@@ -49,6 +49,16 @@ class SoundscapeController {
       const { title, artistName, tags, category } = req.body;
       const user = req.user;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       // Validate required fields
       if (!title || !artistName || !category) {
         return res.status(400).json({
@@ -119,6 +129,16 @@ class SoundscapeController {
     try {
       const { soundscapeId } = req.query;
       const user = req.user;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       // Get soundscape details before deletion for logging
       const soundscapeDetails = await SoundscapeController.getSoundscapeDetails(soundscapeId);

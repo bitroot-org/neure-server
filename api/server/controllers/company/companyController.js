@@ -559,6 +559,16 @@ class CompanyController {
 
   static async processDeactivationRequest(req, res) {
     try {
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+      
       const { request_id, status } = req.body;
       const user = req.user;
       

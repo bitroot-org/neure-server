@@ -111,6 +111,16 @@ class workshopController {
       const workshopData = req.body;
       const user = req.user;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!id || !workshopData) {
         return res.status(400).json({
           status: false,
@@ -159,6 +169,16 @@ class workshopController {
       const { id } = req.params;
       const user = req.user;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!id) {
         return res.status(400).json({
           success: false,
@@ -203,7 +223,17 @@ class workshopController {
   static async createWorkshop(req, res) {
     try {
       const { title, description, host_name, agenda } = req.body;
-      const user = req.user; // Assuming user info is attached to req by authorization middleware
+      const user = req.user; 
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       // Validate required fields
       if (!title || !description || !host_name) {
@@ -260,6 +290,16 @@ class workshopController {
     try {
       const { company_id, date, time, workshop_id, duration_minutes } = req.body;
       const user = req.user;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       // Validate required fields
       if (!company_id || !date || !time || !workshop_id || !duration_minutes) {
@@ -329,6 +369,16 @@ class workshopController {
       const { schedule_id, reason } = req.body;
       const user = req.user;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       if (!schedule_id) {
         return res.status(400).json({
           status: false,
@@ -383,6 +433,16 @@ class workshopController {
     try {
       const { schedule_id, new_start_time, new_end_time, duration_minutes } = req.body;
       const user = req.user;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       if (!schedule_id || !new_start_time || !new_end_time) {
         return res.status(400).json({
@@ -571,6 +631,16 @@ class workshopController {
     try {
       const { schedule_id, status, reason } = req.body;
       const user = req.user;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       if (!schedule_id || !status) {
         return res.status(400).json({

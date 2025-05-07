@@ -2,16 +2,6 @@ const cron = require('node-cron');
 const db = require('../config/db');
 
 const checkAssessmentCompletion = async () => {
-  // Check if it's the last day of the month (skip this check if forceRun is true)
-  if (!forceRun) {
-    const now = new Date();
-    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    if (now.getDate() !== lastDayOfMonth) {
-      console.log('Not the last day of the month, skipping assessment completion check');
-      return;
-    }
-  }
-
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -88,14 +78,21 @@ const checkAssessmentCompletion = async () => {
   }
 };
 
-// Schedule to run at 23:59 every day (will check if it's last day of month)
-cron.schedule('59 23 * * *', async () => {
+// Assessment completion check - 11:00 PM on last day of month
+cron.schedule('0 23 * * *', async () => {
+  // Check if today is the last day of the month
+  const now = new Date();
+  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  
+  if (now.getDate() !== lastDayOfMonth) {
+    console.log(`[${new Date().toISOString()}] Not the last day of the month, skipping assessment completion check`);
+    return;
+  }
+  
   console.log(`[${new Date().toISOString()}] Starting assessment completion check...`);
   try {
     const result = await checkAssessmentCompletion();
-    if (result) {
-      console.log(`[${new Date().toISOString()}] Assessment completion check completed:`, result);
-    }
+    console.log(`[${new Date().toISOString()}] Assessment completion check completed:`, result);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in assessment completion cron job:`, error);
   }
@@ -103,19 +100,6 @@ cron.schedule('59 23 * * *', async () => {
   scheduled: true,
   timezone: "Asia/Kolkata"
 });
-
-// For testing purposes - runs every 10 seconds and forces the check
-// cron.schedule('*/10 * * * * *', async () => {
-//   console.log(`[${new Date().toISOString()}] Starting assessment completion check (TEST)...`);
-//   try {
-//     const result = await checkAssessmentCompletion(true); // Pass true to force run
-//     if (result) {
-//       console.log(`[${new Date().toISOString()}] Assessment completion check completed (TEST):`, result);
-//     }
-//   } catch (error) {
-//     console.error(`[${new Date().toISOString()}] Error in assessment completion check (TEST):`, error);
-//   }
-// });
 
 module.exports = {
   checkAssessmentCompletion

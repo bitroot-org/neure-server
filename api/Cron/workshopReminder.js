@@ -91,14 +91,14 @@ const sendWorkshopReminders = async () => {
   }
 };
 
-// Schedule the cron job to run at 8:00 AM every day
+// Workshop reminders - daily at 01:00 AM
 cron.schedule('0 1 * * *', async () => {
-  console.log('Running workshop reminder cron job...');
+  console.log(`[${new Date().toISOString()}] Running workshop reminder cron job...`);
   try {
     const result = await sendWorkshopReminders();
-    console.log('Workshop reminder cron job result:', result);
+    console.log(`[${new Date().toISOString()}] Workshop reminder cron job result:`, result);
   } catch (error) {
-    console.error('Error in workshop reminder cron job:', error);
+    console.error(`[${new Date().toISOString()}] Error in workshop reminder cron job:`, error);
   }
 }, {
   scheduled: true,

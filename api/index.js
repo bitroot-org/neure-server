@@ -19,7 +19,6 @@ const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackin
 const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 const activityLogRoutes = require('./server/routes/logs/ActivityLogRoutes');
 
-const serverActive = require("./Cron/serverActive");
 const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
 const workshopReminder = require("./Cron/workshopReminder");
 const {
@@ -76,8 +75,8 @@ app.listen(PORT, () => {
 // calculateRetentionRate();
 // calculatePSI();
 // calculateEngagementScore();
-// updateContentEngagementPercentage();
-// checkAssessmentCompletion();
+updateContentEngagementPercentage();
+checkAssessmentCompletion();
 
 app.get("*", (req, res) =>
   res.status(200).send({

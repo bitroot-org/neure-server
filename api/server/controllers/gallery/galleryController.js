@@ -108,6 +108,16 @@ class GalleryController {
     try {
       const { type, title, description, tags, url } = req.body;
 
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
+
       // Validate required fields
       if (!type || !title) {
         return res.status(400).json({
@@ -158,6 +168,16 @@ class GalleryController {
   static async updateGalleryItem(req, res) {
     try {
       const { id, type, title, description, tags, url } = req.body;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       // Validate required fields
       if (!id) {
@@ -210,6 +230,16 @@ class GalleryController {
   static async deleteGalleryItem(req, res) {
     try {
       const { itemId } = req.params;
+
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create articles",
+          data: null,
+        });
+      }
 
       if (!itemId) {
         return res.status(400).json({
