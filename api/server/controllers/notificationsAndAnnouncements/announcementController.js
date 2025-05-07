@@ -53,12 +53,15 @@ class AnnouncementController {
   static async getAnnouncements(req, res) {
     try {
       const { company_id, page = 1, limit = 10, audience_type } = req.query;
+      const user_id = req.user.user_id;
+      console.log("user_id: ", user_id);
   
       const result = await AnnouncementService.getAnnouncements({
         company_id: company_id ? parseInt(company_id) : null,
         page: parseInt(page),
         limit: parseInt(limit),
-        audience_type
+        audience_type,
+        user_id // Pass user_id to get read status
       });
   
       return res.status(200).json({
@@ -162,6 +165,82 @@ class AnnouncementController {
         status: false,
         code: 500,
         message: "Failed to delete announcement",
+      });
+    }
+  }
+
+  static async markAsRead(req, res) {
+    try {
+      const { announcement_id, company_id } = req.body;
+      console.log("announcement_id: ", announcement_id);
+      console.log("company_id: ", company_id);
+      const user_id = req.user.user_id;
+
+      if (!announcement_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Announcement ID is required",
+        });
+      }
+
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+        });
+      }
+
+      await AnnouncementService.markAnnouncementAsRead(announcement_id, user_id, company_id);
+
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Announcement marked as read",
+      });
+    } catch (error) {
+      console.error("Error marking announcement as read:", error.message);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message || "Failed to mark announcement as read",
+      });
+    }
+  }
+
+  static async markAllAsRead(req, res) {
+    try {
+      const { announcement_ids, company_id } = req.body;
+      const user_id = req.user.user_id;
+
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+        });
+      }
+
+      const result = await AnnouncementService.markMultipleAnnouncementsAsRead(
+        user_id,
+        company_id,
+        announcement_ids
+      );
+
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: announcement_ids && announcement_ids.length > 0 ? 
+          "Selected announcements marked as read" : 
+          `${result.count} announcements marked as read`,
+      });
+    } catch (error) {
+      console.error("Error marking announcements as read:", error.message);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message || "Failed to mark announcements as read",
       });
     }
   }

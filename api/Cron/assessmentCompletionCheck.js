@@ -13,7 +13,7 @@ const checkAssessmentCompletion = async () => {
       WHERE is_active = 1
     `);
 
-    console.log(`Total active assessments: ${totalAssessments[0].total}`);
+    // console.log(`Total active assessments: ${totalAssessments[0].total}`);
 
     if (totalAssessments[0].total === 0) {
       console.log('No active assessments found');
@@ -57,7 +57,7 @@ const checkAssessmentCompletion = async () => {
 
     await connection.commit();
 
-    console.log(`[${new Date().toISOString()}] Assessment completion check stats:`, stats[0]);
+    // console.log(`[${new Date().toISOString()}] Assessment completion check stats:`, stats[0]);
 
     return {
       status: true,

@@ -18,7 +18,7 @@ const updateContentEngagementPercentage = async () => {
       WHERE file_type IN ('image', 'video', 'document')
     `);
 
-    console.log(`Total gallery items: ${totalGalleryItems[0].total}`);
+    // console.log(`Total gallery items: ${totalGalleryItems[0].total}`);
 
     // If there are no gallery items, set engagement to 0
     if (totalGalleryItems[0].total === 0) {
@@ -74,7 +74,7 @@ const updateContentEngagementPercentage = async () => {
     await connection.commit();
 
     // Add timestamp to logging for better tracking
-    console.log(`[${new Date().toISOString()}] Updated engagement metrics:`, stats[0]);
+    // console.log(`[${new Date().toISOString()}] Updated engagement metrics:`, stats[0]);
 
     return {
       status: true,

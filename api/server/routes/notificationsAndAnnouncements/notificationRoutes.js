@@ -8,4 +8,8 @@ router.get('/list', authorization, NotificationController.getNotifications);
 router.put('/update', authorization, NotificationController.updateNotification);
 router.delete('/delete/:id', authorization, NotificationController.deleteNotification);
 
+// Add new routes for read status
+router.post('/mark-read', authorization, NotificationController.markAsRead);
+router.post('/mark-all-read', authorization, NotificationController.markAllAsRead);
+
 module.exports = router;

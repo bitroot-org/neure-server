@@ -36,11 +36,13 @@ class NotificationService {
     company_id = null,
     user_id = null,
     type = null,
+    is_read = null,
     page = 1,
     limit = 10
   }) {
+    console.log("user_id: ", user_id);
+    console.log("company_id: ", company_id);
     try {
-
       const offset = (page - 1) * limit;
       let query = `
         SELECT DISTINCT n.* 
@@ -81,6 +83,14 @@ class NotificationService {
         countParams.push(type);
       }
 
+      // Add read status filter if provided
+      if (is_read !== null) {
+        query += ` AND n.is_read = ?`;
+        countQuery += ` AND n.is_read = ?`;
+        params.push(is_read);
+        countParams.push(is_read);
+      }
+
       query += ` ORDER BY 
         CASE 
           WHEN n.priority = 'HIGH' THEN 1
@@ -92,9 +102,10 @@ class NotificationService {
         LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
+      console.log("query: ", query);
+      console.log("params: ", params);
 
       const [notifications] = await db.query(query, params);
-
       const [countResult] = await db.query(countQuery, countParams);
 
       return {
@@ -159,6 +170,83 @@ class NotificationService {
     } catch (error) {
       console.error("Error in deleteNotification:", error.message);
       throw new Error("Failed to delete notification");
+    }
+  }
+
+  // Mark notification as read
+  static async markNotificationAsRead(notification_id, user_id) {
+    try {
+      console.log("notification_id: ", notification_id);
+      console.log("user_id: ", user_id);
+      const [notification] = await db.query(
+        `SELECT * FROM notifications 
+         WHERE id = ? AND (user_id = ? OR user_id IS NULL)`,
+        [notification_id, user_id]
+      );
+      console.log("notification: ", notification);
+
+      if (notification.length === 0) {
+        throw new Error("Notification not found or not accessible");
+      }
+
+      // Update the is_read status
+      const [result] = await db.query(
+        `UPDATE notifications 
+         SET is_read = 1
+         WHERE id = ?`,
+        [notification_id]
+      );
+
+      if (result.affectedRows === 0) {
+        throw new Error("Failed to mark notification as read");
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error in markNotificationAsRead:", error.message);
+      throw new Error("Failed to mark notification as read");
+    }
+  }
+
+  // Mark multiple notifications as read
+  static async markMultipleNotificationsAsRead(user_id, notification_ids = []) {
+    try {
+      // If specific IDs are provided, mark only those
+      if (notification_ids && notification_ids.length > 0) {
+        const placeholders = notification_ids.map(() => '?').join(',');
+        const params = [...notification_ids, user_id];
+        
+        const [result] = await db.query(
+          `UPDATE notifications 
+           SET is_read = 1
+           WHERE id IN (${placeholders}) 
+           AND (user_id = ? OR user_id IS NULL)`,
+          params
+        );
+
+        return { 
+          success: true,
+          count: result.affectedRows
+        };
+      } 
+      // Otherwise mark all unread notifications for this user
+      else {
+        const [result] = await db.query(
+          `UPDATE notifications 
+           SET is_read = 1
+           WHERE is_read = 0 
+           AND (user_id = ? OR user_id IS NULL)`,
+          [user_id]
+        );
+
+        return { 
+          success: true,
+          count: result.affectedRows
+        };
+      }
+    } catch (error) {
+      console.error("Error in markMultipleNotificationsAsRead:", error.message);
+      throw new Error("Failed to mark notifications as read");
     }
   }
 }
