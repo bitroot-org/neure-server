@@ -1399,6 +1399,9 @@ class UserServices {
   static async submitPSI(user_id, company_id, psi_score) {
     const connection = await db.getConnection();
     try {
+      console.log("Submitting PSI score for user:", user_id);
+      console.log("PSI score:", psi_score);
+      console.log("Company ID:", company_id);
       await connection.beginTransaction();
 
       // Check if employee exists and is active
@@ -1428,10 +1431,11 @@ class UserServices {
         [psi_score, user_id, company_id]
       );
 
+
       await connection.commit();
 
       // Update company's overall PSI
-      const psiUpdateResult = await updateCompanyPSI(company_id);
+      // const psiUpdateResult = await updateCompanyPSI(company_id);
 
       return {
         status: true,
@@ -1441,7 +1445,7 @@ class UserServices {
           user_id,
           company_id,
           psi_score,
-          company_psi: psiUpdateResult.psi
+          // company_psi: psiUpdateResult.psi
         },
       };
     } catch (error) {

@@ -153,6 +153,8 @@ UNLOCK TABLES;
 DROP TABLE IF EXISTS `assessments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+-- neure.assessments definition
+
 CREATE TABLE `assessments` (
   `id` int NOT NULL AUTO_INCREMENT,
   `title` varchar(150) NOT NULL,
@@ -160,6 +162,7 @@ CREATE TABLE `assessments` (
   `frequency_days` int NOT NULL,
   `is_active` tinyint(1) DEFAULT '1',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `is_psi_assessment` tinyint(1) DEFAULT '0',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

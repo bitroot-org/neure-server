@@ -1,6 +1,8 @@
 const db = require("../../../config/db");
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const ActivityLogService = require('../logs/ActivityLogService');
+const UserServices = require('../user/UserServices');
+
 
 class AssessmentsService {
   static async getAllAssessments(page = 1, limit = 10, user_id) {
@@ -23,6 +25,7 @@ class AssessmentsService {
       const total = totalRows[0].count;
 
       // Fetch paginated unsubmitted assessments with questions and options
+      // Added ORDER BY a.created_at DESC to sort by newest first
       const query = `
         SELECT 
           a.*,
@@ -54,6 +57,7 @@ class AssessmentsService {
           AND ua.user_id = ?
         )
         GROUP BY a.id
+        ORDER BY a.created_at DESC
         LIMIT ? OFFSET ?`;
 
       const [results] = await db.query(query, [user_id, limit, offset]);
@@ -111,18 +115,19 @@ class AssessmentsService {
     const connection = await db.getConnection();
     try {
       console.log("Starting assessment creation with data:", {
-        title: assessmentData.title
+        title: assessmentData.title,
+        isPsiAssessment: assessmentData.is_psi_assessment || false
       });
 
       await connection.beginTransaction();
 
-      // Insert assessment
+      // Insert assessment without frequency_days
       const [assessmentResult] = await connection.query(
-        "INSERT INTO assessments (title, description, frequency_days) VALUES (?, ?, ?)",
+        "INSERT INTO assessments (title, description, is_psi_assessment) VALUES (?, ?, ?)",
         [
           assessmentData.title,
           assessmentData.description,
-          assessmentData.frequency_days,
+          assessmentData.is_psi_assessment || 0, 
         ]
       );
       const assessmentId = assessmentResult.insertId;
@@ -175,8 +180,7 @@ class AssessmentsService {
           priority: "HIGH",
           metadata: JSON.stringify({
             assessment_id: assessmentId,
-            total_questions: assessmentData.questions.length,
-            frequency_days: assessmentData.frequency_days
+            total_questions: assessmentData.questions.length
           })
         });
       });
@@ -187,13 +191,14 @@ class AssessmentsService {
       const notificationResults = await Promise.all(notificationPromises);
       console.log("Notifications sent:", notificationResults.length);
 
-      // Log the assessment creation
+      // If this is a PSI assessment, add a note in the log
+      const assessmentType = assessmentData.is_psi_assessment ? "PSI assessment" : "assessment";
       await ActivityLogService.createLog({
         user_id: assessmentData.user_id || null,
         performed_by: 'admin',
         module_name: 'assessments',
         action: 'create',
-        description: `Assessment "${assessmentData.title}" created with ${assessmentData.questions.length} questions.`
+        description: `${assessmentType} "${assessmentData.title}" created with ${assessmentData.questions.length} questions.`
       });
 
       await connection.commit();
@@ -214,13 +219,13 @@ class AssessmentsService {
     try {
       await connection.beginTransaction();
 
-      // Update assessment details
+      // Update assessment details without frequency_days
       await connection.query(
-        "UPDATE assessments SET title = ?, description = ?, frequency_days = ? WHERE id = ?",
+        "UPDATE assessments SET title = ?, description = ?, is_psi_assessment = ? WHERE id = ?",
         [
           assessmentData.title,
           assessmentData.description,
-          assessmentData.frequency_days,
+          assessmentData.is_psi_assessment || 0,
           assessmentId,
         ]
       );
@@ -309,7 +314,7 @@ class AssessmentsService {
 
       // Check if assessment exists and is active
       const [assessment] = await connection.query(
-        "SELECT id, title FROM assessments WHERE id = ? AND is_active = 1",
+        "SELECT id, title, is_psi_assessment FROM assessments WHERE id = ? AND is_active = 1",
         [assessment_id]
       );
 
@@ -357,41 +362,74 @@ class AssessmentsService {
       }, {});
 
       const structuredQuestions = Object.values(questionMap);
-
-      // Calculate score
-      let totalQuestions = structuredQuestions.length;
-      let correctAnswers = 0;
-
-      // Insert submission to get the user_assessment_id
+      
+      // Check if this is a PSI assessment
+      const isPsiAssessment = assessment[0].is_psi_assessment === 1;
+      
+      // For PSI assessment, we'll calculate the PSI score differently
+      let psiScore = 0;
+      let totalPsiQuestions = 0;
+      
+      // Insert submission to get the user_assessment_id with score 100 for PSI assessments
+      const score = isPsiAssessment ? 100 : 0; // Set score to 100 for PSI assessments
+      
       const [userAssessmentResult] = await connection.query(
         `INSERT INTO user_assessments 
          (user_id, company_id, assessment_id, responses, score, completed_at) 
          VALUES (?, ?, ?, ?, ?, NOW())`,
-        [user_id, company_id, assessment_id, JSON.stringify(responses), 0] // Temporary score of 0
+        [user_id, company_id, assessment_id, JSON.stringify(responses), score]
       );
       
       const userAssessmentId = userAssessmentResult.insertId;
       
-      // Store individual responses and calculate score
+      // For regular assessments, calculate score as before
+      let totalQuestions = structuredQuestions.length;
+      let correctAnswers = 0;
+      
+      // Process responses
       for (const question of structuredQuestions) {
         const userResponse = responses.find(r => r.question_id === question.question_id);
         if (!userResponse) continue;
         
         let isCorrect = 0;
         
-        if (question.question_type === 'single_choice') {
-          const selectedOption = userResponse.selected_options[0];
-          const correctOption = question.options.find(o => o.is_correct)?.id;
-          if (selectedOption === correctOption) {
-            correctAnswers++;
-            isCorrect = 1;
+        if (isPsiAssessment) {
+          // For PSI assessment, we don't calculate correctness
+          // Instead, we get the option number (1-5) and use it as points
+          if (userResponse.selected_options && userResponse.selected_options.length > 0) {
+            // Get all options for this question to find the index of selected option
+            const [optionsOrdered] = await connection.query(
+              `SELECT id FROM options WHERE question_id = ? ORDER BY id ASC`,
+              [question.question_id]
+            );
+            
+            const selectedOptionId = userResponse.selected_options[0];
+            // Find the index (0-based) of the selected option
+            const optionIndex = optionsOrdered.findIndex(opt => opt.id === selectedOptionId);
+            
+            if (optionIndex !== -1) {
+              // Add points based on option index (1-5)
+              const optionPoints = optionIndex + 1;
+              psiScore += optionPoints;
+              totalPsiQuestions++;
+            }
           }
-        } else if (question.question_type === 'multiple_choice') {
-          const correctOptions = new Set(question.options.filter(o => o.is_correct).map(o => o.id));
-          const selectedOptions = new Set(userResponse.selected_options);
-          if (this.setsAreEqual(correctOptions, selectedOptions)) {
-            correctAnswers++;
-            isCorrect = 1;
+        } else {
+          // Regular assessment scoring logic
+          if (question.question_type === 'single_choice') {
+            const selectedOption = userResponse.selected_options[0];
+            const correctOption = question.options.find(o => o.is_correct)?.id;
+            if (selectedOption === correctOption) {
+              correctAnswers++;
+              isCorrect = 1;
+            }
+          } else if (question.question_type === 'multiple_choice') {
+            const correctOptions = new Set(question.options.filter(o => o.is_correct).map(o => o.id));
+            const selectedOptions = new Set(userResponse.selected_options);
+            if (this.setsAreEqual(correctOptions, selectedOptions)) {
+              correctAnswers++;
+              isCorrect = 1;
+            }
           }
         }
         
@@ -404,34 +442,52 @@ class AssessmentsService {
         );
       }
 
-      const score = (correctAnswers / totalQuestions) * 100;
+      // Calculate final score for regular assessments
+      if (!isPsiAssessment) {
+        const calculatedScore = (correctAnswers / totalQuestions) * 100;
+        
+        // Update the score in user_assessments
+        await connection.query(
+          `UPDATE user_assessments SET score = ? WHERE id = ?`,
+          [calculatedScore, userAssessmentId]
+        );
+      }
+      
+      // If this is a PSI assessment, update the user's PSI score
+      if (isPsiAssessment && totalPsiQuestions > 0) {
+        // Calculate average PSI score (1-5) with one decimal point
+        const avgPsiScore = parseFloat((psiScore / totalPsiQuestions).toFixed(1));
+        const finalPsiScore = Math.max(1, Math.min(5, avgPsiScore));
+        
+        // Update user's PSI score
+        await UserServices.submitPSI(user_id, company_id, finalPsiScore);
 
-      // Update the score in user_assessments
-      await connection.query(
-        `UPDATE user_assessments SET score = ? WHERE id = ?`,
-        [score, userAssessmentId]
-      );
+        
+        console.log(`Updated PSI score for user ${user_id} to ${finalPsiScore} based on assessment`);
+      }
 
-      // Get user details for the notification
-      const [userDetails] = await connection.query(
-        "SELECT first_name, last_name FROM users WHERE user_id = ?",
-        [user_id]
-      );
+      // // Get user details for the notification
+      // const [userDetails] = await connection.query(
+      //   "SELECT first_name, last_name FROM users WHERE user_id = ?",
+      //   [user_id]
+      // );
 
       // Create notification for the user
       await NotificationService.createNotification({
         title: `Assessment Submission Result: ${assessment[0].title}`,
-        content: `You have completed the assessment "${assessment[0].title}" with a score of ${score.toFixed(1)}%. 
-                 Correct answers: ${correctAnswers} out of ${totalQuestions} questions.`,
+        content: isPsiAssessment 
+          ? `You have completed the PSI assessment "${assessment[0].title}".`
+          : `You have completed the assessment "${assessment[0].title}" with a score of ${score.toFixed(1)}%. 
+             Correct answers: ${correctAnswers} out of ${totalQuestions} questions.`,
         type: "ASSESSMENT_COMPLETED",
         company_id: company_id,
         user_id: user_id,
         priority: "HIGH",
         metadata: JSON.stringify({
           assessment_id: assessment_id,
-          score: score,
+          score: isPsiAssessment ? 100 : score,
           total_questions: totalQuestions,
-          correct_answers: correctAnswers,
+          correct_answers: isPsiAssessment ? totalQuestions : correctAnswers,
           completion_date: new Date().toISOString()
         })
       });
@@ -439,10 +495,11 @@ class AssessmentsService {
       await connection.commit();
 
       return {
-        score,
+        score: isPsiAssessment ? 100 : (correctAnswers / totalQuestions) * 100,
         total_questions: totalQuestions,
-        correct_answers: correctAnswers,
-        questions: structuredQuestions
+        correct_answers: isPsiAssessment ? totalQuestions : correctAnswers,
+        questions: structuredQuestions,
+        is_psi_assessment: isPsiAssessment
       };
     } catch (error) {
       await connection.rollback();
@@ -550,15 +607,6 @@ class AssessmentsService {
     }
   }
 
-  /**
-   * Get assessment completion list with filtering options
-   * @param {Object} options - Filter and pagination options
-   * @param {number} options.page - Page number
-   * @param {number} options.limit - Items per page
-   * @param {number} options.company_id - Filter by company ID
-   * @param {number} options.assessment_id - Filter by assessment ID
-   * @returns {Object} Assessment completion data with pagination
-   */
   static async getAssessmentCompletionList({ 
     page = 1, 
     limit = 10, 
@@ -659,6 +707,22 @@ class AssessmentsService {
     } catch (error) {
       console.error("Error in getAssessmentCompletionList:", error);
       throw error;
+    }
+  }
+
+  // Add a method to identify if an assessment is a PSI assessment
+  static async isPsiAssessment(assessmentId) {
+    try {
+      const [result] = await db.query(
+        "SELECT is_psi_assessment FROM assessments WHERE id = ? AND is_active = 1",
+        [assessmentId]
+      );
+      
+      // Return true if the assessment exists and is_psi_assessment is 1
+      return result.length > 0 && result[0].is_psi_assessment === 1;
+    } catch (error) {
+      console.error("Error checking if assessment is PSI:", error);
+      return false;
     }
   }
 }

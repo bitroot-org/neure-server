@@ -39,15 +39,15 @@ class AssessmentsController {
         return res.status(403).json({
           status: false,
           code: 403,
-          message: "Access denied. Only superadmins can delete articles",
+          message: "Access denied. Only superadmins can create assessments",
           data: null,
         });
       }
       
       const assessmentData = req.body;
 
-      // Validate required fields
-      if (!assessmentData.title || !assessmentData.frequency_days || !assessmentData.questions) {
+      // Validate required fields - removed frequency_days
+      if (!assessmentData.title || !assessmentData.questions) {
         return errorResponse(res, 'Missing required fields', null, 400);
       }
 
@@ -88,7 +88,7 @@ class AssessmentsController {
         return res.status(403).json({
           status: false,
           code: 403,
-          message: "Access denied. Only superadmins can delete articles",
+          message: "Access denied. Only superadmins can update assessments",
           data: null,
         });
       }
@@ -96,8 +96,8 @@ class AssessmentsController {
       const { id } = req.body;
       const assessmentData = req.body;
 
-      // Validate required fields
-      if (!assessmentData.title || !assessmentData.frequency_days || !assessmentData.questions) {
+      // Validate required fields - removed frequency_days
+      if (!assessmentData.title || !assessmentData.questions) {
         return errorResponse(res, 'Missing required fields', null, 400);
       }
 

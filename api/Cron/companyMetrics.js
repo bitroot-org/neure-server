@@ -58,24 +58,24 @@ const calculateRetentionRate = async () => {
 
 const calculatePSI = async () => {
   try {
-    // Query to calculate the total score and maximum possible score for each company
+    // Query to calculate the average PSI for each company
     const [results] = await db.query(`
       SELECT 
         ce.company_id,
-        SUM(ce.psi) as total_score,
-        COUNT(ce.psi) * 5 as max_possible_score
+        AVG(ce.psi) as average_psi
       FROM 
         company_employees ce
+      WHERE
+        ce.psi IS NOT NULL
       GROUP BY 
         ce.company_id
     `);
 
     // Update the PSI in the companies table
     for (const result of results) {
-      const psi = (result.total_score / result.max_possible_score) * 100;
       await db.query(
         `UPDATE companies SET psychological_safety_index = ? WHERE id = ?`,
-        [psi, result.company_id]
+        [result.average_psi, result.company_id]
       );
     }
   } catch (error) {
