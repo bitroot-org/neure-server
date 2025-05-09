@@ -1,6 +1,6 @@
 {
   "name": "neure-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "scripts": {
     "start": "./node_modules/pm2/bin/pm2-runtime api/index.js",
@@ -35,6 +35,7 @@
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.0",
     "pdfkit": "^0.17.0",
+    "pm2": "^6.0.5",
     "puppeteer": "^24.8.0",
     "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
