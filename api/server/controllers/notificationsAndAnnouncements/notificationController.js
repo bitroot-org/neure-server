@@ -217,6 +217,33 @@ class NotificationController {
       });
     }
   }
+
+  static async getUnreadCount(req, res) {
+    try {
+      console.log("Received request to get unread notification count:", req.query);
+      const { company_id } = req.query;
+      const user_id = req.user.user_id;
+      
+      const count = await NotificationService.getUnreadNotificationCount(
+        user_id,
+        company_id ? parseInt(company_id) : null
+      );
+      
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: 'Unread notification count retrieved successfully',
+        data: { count }
+      });
+    } catch (error) {
+      console.error('Error fetching notification count:', error.message);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: 'Failed to fetch notification count'
+      });
+    }
+  }
 }
 
 module.exports = NotificationController;

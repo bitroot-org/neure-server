@@ -12,4 +12,7 @@ router.delete('/delete/:id', authorization, NotificationController.deleteNotific
 router.post('/mark-read', authorization, NotificationController.markAsRead);
 router.post('/mark-all-read', authorization, NotificationController.markAllAsRead);
 
+// Add this new route
+router.get('/unread-count', authorization, NotificationController.getUnreadCount);
+
 module.exports = router;

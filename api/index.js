@@ -18,6 +18,7 @@ const analyticsRoutes = require("./server/routes/analytics/analyticsRoutes");
 const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackingRoutes');
 const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 const activityLogRoutes = require('./server/routes/logs/ActivityLogRoutes');
+const serverActive = require("./Cron/serverActive");
 
 const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
 const workshopReminder = require("./Cron/workshopReminder");
@@ -68,7 +69,7 @@ app.listen(PORT, () => {
 });
 
 // Keep the server active
-// serverActive();
+serverActive();
 
 // Initialize all cron jobs
 // calculateCompanyStressLevel();

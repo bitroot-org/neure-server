@@ -249,6 +249,36 @@ class NotificationService {
       throw new Error("Failed to mark notifications as read");
     }
   }
+
+  // Add this new method to NotificationService class
+  static async getUnreadNotificationCount(user_id, company_id = null) {
+    try {
+      let query = `
+        SELECT COUNT(*) as count 
+        FROM notifications n
+        WHERE n.user_id = ? AND n.is_read = 0
+      `;
+      
+      const params = [user_id];
+      
+      // Add company notifications if company_id is provided
+      if (company_id) {
+        query = `
+          SELECT COUNT(*) as count 
+          FROM notifications n
+          WHERE (n.user_id = ? OR (n.company_id = ? AND n.user_id IS NULL))
+          AND n.is_read = 0
+        `;
+        params.push(company_id);
+      }
+      
+      const [result] = await db.query(query, params);
+      return result[0].count;
+    } catch (error) {
+      console.error("Error in getUnreadNotificationCount:", error.message);
+      throw new Error("Failed to fetch notification count");
+    }
+  }
 }
 
 module.exports = NotificationService;
