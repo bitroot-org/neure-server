@@ -222,7 +222,7 @@ class workshopController {
 
   static async createWorkshop(req, res) {
     try {
-      const { title, description, host_name, agenda } = req.body;
+      const { title, description, agenda } = req.body;
       const user = req.user; 
 
       const { role_id } = req.user;
@@ -236,17 +236,17 @@ class workshopController {
       }
 
       // Validate required fields
-      if (!title || !description || !host_name) {
+      if (!title || !description) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: 'Title, description, and host name are required',
+          message: 'Title and description are required',
           data: null,
         });
       }
 
       // Call the service to create the workshop
-      const result = await createWorkshop({ title, description, host_name, agenda });
+      const result = await createWorkshop({ title, description, agenda });
 
       // Log the workshop creation
       if (result.status) {
@@ -288,7 +288,7 @@ class workshopController {
 
   static async scheduleWorkshop(req, res) {
     try {
-      const { company_id, date, time, workshop_id, duration_minutes } = req.body;
+      const { company_id, date, time, workshop_id, duration_minutes, host_name } = req.body;
       const user = req.user;
 
       const { role_id } = req.user;
@@ -338,7 +338,8 @@ class workshopController {
         date, 
         time, 
         workshop_id,
-        duration_minutes 
+        duration_minutes,
+        host_name 
       });
 
       // Log the workshop scheduling

@@ -54,7 +54,6 @@ class AnnouncementController {
     try {
       const { company_id, page = 1, limit = 10, audience_type } = req.query;
       const user_id = req.user.user_id;
-      console.log("user_id: ", user_id);
   
       const result = await AnnouncementService.getAnnouncements({
         company_id: company_id ? parseInt(company_id) : null,

@@ -40,8 +40,6 @@ class NotificationService {
     page = 1,
     limit = 10
   }) {
-    console.log("user_id: ", user_id);
-    console.log("company_id: ", company_id);
     try {
       const offset = (page - 1) * limit;
       let query = `
@@ -102,8 +100,6 @@ class NotificationService {
         LIMIT ? OFFSET ?`;
       params.push(limit, offset);
 
-      console.log("query: ", query);
-      console.log("params: ", params);
 
       const [notifications] = await db.query(query, params);
       const [countResult] = await db.query(countQuery, countParams);

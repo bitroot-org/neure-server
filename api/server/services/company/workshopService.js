@@ -51,6 +51,7 @@ class workshopService {
           ws.end_time,
           ws.status,
           ws.max_participants,
+          ws.host_name,
           COALESCE(
             (SELECT COUNT(*) 
              FROM workshop_tickets wt 
@@ -420,19 +421,18 @@ class workshopService {
 
   static async createWorkshop(workshopData) {
     try {
-      const { title, description, host_name, agenda, poster_image } =
+      const { title, description, agenda, poster_image } =
         workshopData;
 
       // Insert the workshop into the database
       const query = `
-        INSERT INTO workshops (title, description, organizer, agenda, poster_image, is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO workshops (title, description, agenda, poster_image, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `;
 
       const [result] = await db.query(query, [
         title,
         description,
-        host_name,
         agenda,
         poster_image,
       ]);
@@ -469,7 +469,7 @@ class workshopService {
           DATE_FORMAT(ws.start_time, '%Y-%m-%d') AS schedule_date,
           w.pdf_url,
           ws.status,
-          w.location,
+          ws.host_name,
           w.description
         FROM workshop_schedules ws
         INNER JOIN workshops w ON ws.workshop_id = w.id
@@ -529,11 +529,9 @@ class workshopService {
 
   static async scheduleWorkshop(scheduleData) {
     try {
-      const { company_id, date, time, workshop_id, duration_minutes } =
+      const { company_id, date, time, workshop_id, duration_minutes, host_name } =
         scheduleData;
       console.log("Starting workshop scheduling with data:", scheduleData);
-
-      console.log("Scheduling workshop with data:", scheduleData);
 
       // Validate workshop exists
       const [workshop] = await db.query(
@@ -570,9 +568,10 @@ class workshopService {
           start_time, 
           end_time,
           duration_minutes,
+          host_name,
           status
         )
-        VALUES (?, ?, ?, ?, ?, 'scheduled')
+        VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
       `;
 
       const [result] = await db.query(query, [
@@ -581,6 +580,7 @@ class workshopService {
         start_time,
         end_time,
         duration_minutes,
+        host_name
       ]);
 
       // Generate PDFs for all employees in the company

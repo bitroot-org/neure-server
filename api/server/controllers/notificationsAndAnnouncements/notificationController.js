@@ -51,7 +51,6 @@ class NotificationController {
     try {
       const { company_id, type, page = 1, limit = 10 } = req.query;
       const user_id = req.user.user_id;
-      console.log("user_id: ", user_id);
 
       const result = await NotificationService.getNotifications({
         company_id: company_id ? parseInt(company_id) : null,
@@ -220,7 +219,6 @@ class NotificationController {
 
   static async getUnreadCount(req, res) {
     try {
-      console.log("Received request to get unread notification count:", req.query);
       const { company_id } = req.query;
       const user_id = req.user.user_id;
       

@@ -131,6 +131,9 @@ class AnnouncementService {
       `;
       queryParams.push(limit, offset);
 
+      console.log("Query: ", query);
+      console.log("Params: ", queryParams);
+
       // Fetch total count of announcements
       const [countResult] = await db.query(countQuery, countParams);
       const totalAnnouncements = countResult[0].count;
