@@ -1,6 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const io = require("@pm2/io");
 const packageJson = require("../package.json");
 const companyRoutes = require("./server/routes/company/companyRoutes");
 const userRoutes = require("../api/server/routes/user/UserRoutes");
@@ -84,3 +85,34 @@ app.get("*", (req, res) =>
     message: `Welcome to Neure API up and running and version : ${packageJson.version}`,
   })
 );
+
+
+
+// PM2 metrics 
+
+const environment = process.env.NODE_ENV;
+const version = packageJson.version;
+const serverApp = process.env.PM2_SERVER_APP;
+
+const appVersion = io.metric({
+	name: 'appVersion',
+	id: 'app:appVersion',
+});
+
+appVersion.set(`${version}`);
+
+
+const appENV = io.metric({
+	name: 'appENV',
+	id: 'app:ENV',
+});
+
+appENV.set(`${environment}`);
+
+
+const serverAppName = io.metric({
+	name: 'serverAppName',
+	id: 'app:serverAppName',
+});
+
+serverAppName.set(`${serverApp}`);
