@@ -6,86 +6,105 @@ const db = require("../../../config/db");
 
 
 class WorkshopPdfService {
-  static async generateEmployeeWorkshopPdfs(workshopId, companyId) {
+  static async generateEmployeeWorkshopPdfs(workshop_id, company_id, schedule_id) {
     try {
-      console.log('Starting PDF generation with workshopId:', workshopId, 'companyId:', companyId);
+      console.log('Generating PDFs for workshop:', workshop_id, 'company:', company_id, 'schedule:', schedule_id);
       
-      // 1. Get workshop details
-      const [workshops] = await db.query(
-        `SELECT w.*, ws.start_time, ws.end_time
-         FROM workshops w 
-         JOIN workshop_schedules ws ON w.id = ws.workshop_id 
-         WHERE w.id = ?`,
-        [workshopId]
+      // Get workshop details
+      const [workshopResults] = await db.query(
+        'SELECT * FROM workshops WHERE id = ?',
+        [workshop_id]
       );
-
-      if (!workshops || workshops.length === 0) {
-        throw new Error(`Workshop not found with ID: ${workshopId}`);
+      
+      if (workshopResults.length === 0) {
+        throw new Error(`Workshop not found with ID: ${workshop_id}`);
       }
-
-      const workshop = workshops[0];
-      console.log('Workshop details:', workshop);
-
-      // 2. Get company details
-      const [companies] = await db.query(
+      
+      // Get company details
+      const [companyResults] = await db.query(
         'SELECT * FROM companies WHERE id = ?',
-        [companyId]
+        [company_id]
       );
-
-      if (!companies || companies.length === 0) {
-        throw new Error(`Company not found with ID: ${companyId}`);
+      
+      if (companyResults.length === 0) {
+        throw new Error(`Company not found with ID: ${company_id}`);
       }
 
-      const company = companies[0];
-      console.log('Company details:', company);
-
-      // 3. Get all employees from the company, excluding admins (role_id 1 and 2)
+      // Get schedule details
+      const [scheduleResults] = await db.query(
+        'SELECT * FROM workshop_schedules WHERE id = ?',
+        [schedule_id]
+      );
+      
+      if (scheduleResults.length === 0) {
+        throw new Error(`Schedule not found with ID: ${schedule_id}`);
+      }
+      
+      // Add schedule_id to workshop object for use in PDF generation
+      const workshop = {
+        ...workshopResults[0],
+        schedule_id: schedule_id
+      };
+      
+      const company = companyResults[0];
+      
+      // Get all active employees in the company
       const [employees] = await db.query(
-        `SELECT u.* FROM users u 
-         JOIN company_employees ce ON u.user_id = ce.user_id 
+        `SELECT ce.user_id, u.first_name, u.last_name, u.email 
+         FROM company_employees ce
+         JOIN users u ON ce.user_id = u.user_id
          WHERE ce.company_id = ? AND ce.is_active = 1
          AND u.role_id NOT IN (1, 2)`,
-        [companyId]
+        [company_id]
       );
-
-      if (!employees || employees.length === 0) {
-        throw new Error(`No active employees found for company ID: ${companyId}`);
+      
+      if (employees.length === 0) {
+        return {
+          status: true,
+          code: 200,
+          message: 'No active employees found for this company',
+          data: []
+        };
       }
-
-      console.log(`Found ${employees.length} employees`);
-
-      // 4. Generate PDF for each employee
-      const results = await Promise.all(
-        employees.map(employee => this.generateSinglePdf(workshop, company, employee))
+      
+      console.log(`Found ${employees.length} employees to generate PDFs for`);
+      
+      // Generate PDFs for each employee
+      const pdfPromises = employees.map(employee => 
+        this.generateSinglePdf(workshop, company, employee, schedule_id)
       );
-
+      
+      const pdfResults = await Promise.all(pdfPromises);
+      
       return {
         status: true,
-        message: 'PDFs generated successfully',
-        data: results
+        code: 200,
+        message: `Generated ${pdfResults.length} PDFs successfully`,
+        data: pdfResults
       };
     } catch (error) {
       console.error('Error in generateEmployeeWorkshopPdfs:', error);
-      throw new Error(`Error generating PDFs: ${error.message}`);
+      throw error;
     }
   }
 
-  static generateTicketCode(workshopId, userId) {
-    // Convert workshopId and userId to base36 (alphanumeric) and take last 3 characters
-    const workshopPart = workshopId.toString(36).slice(-3).toUpperCase();
-    const userPart = userId.toString(36).slice(-3).toUpperCase();
+  static generateTicketCode(workshopId, userId, scheduleId) {
+    // Convert workshopId, userId and scheduleId to base36 (alphanumeric) and take last characters
+    const workshopPart = workshopId.toString(36).slice(-2).toUpperCase();
+    const userPart = userId.toString(36).slice(-2).toUpperCase();
+    const schedulePart = scheduleId.toString(36).slice(-2).toUpperCase();
     
     // Generate 4 random alphanumeric characters
     const randomPart = nanoid(4).toUpperCase();
     
     // Combine all parts with a separator
-    return `NEU${workshopPart}${userPart}${randomPart}`;
+    return `NEU${workshopPart}${userPart}${schedulePart}${randomPart}`;
   }
 
-  static async generateSinglePdf(workshop, company, employee) {
+  static async generateSinglePdf(workshop, company, employee, schedule_id) {
     try {
-      console.log('Starting PDF generation for employee:', employee.first_name);
-      
+      console.log('Generating PDF for employee:', employee.user_id, 'for workshop:', workshop.id, 'schedule:', schedule_id);
+
       if (!workshop?.id) {
         throw new Error('Invalid workshop data: missing workshop ID');
       }
@@ -107,7 +126,7 @@ class WorkshopPdfService {
       });
 
       // Generate structured ticket ID
-      const ticketId = this.generateTicketCode(workshop.id, employee.user_id);
+      const ticketId = this.generateTicketCode(workshop.id, employee.user_id, schedule_id);
       console.log('Generated ticket ID:', ticketId);
 
       // Generate QR code with structured data
@@ -116,6 +135,7 @@ class WorkshopPdfService {
         workshop: workshop.id,
         employee: employee.user_id,
         company: company.id,
+        schedule: schedule_id,
         timestamp: new Date().toISOString()
       });
       
@@ -162,22 +182,24 @@ class WorkshopPdfService {
       const pdfUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfPath}`;
       console.log('Generated PDF URL:', pdfUrl);
 
-      // Store ticket information in database
+      // Store ticket information in database with schedule_id
       const ticketData = {
         workshop_id: workshop.id,
         user_id: employee.user_id,
         ticket_code: ticketId,
         pdf_url: pdfUrl,
-        company_id: company.id
+        company_id: company.id,
+        schedule_id: schedule_id
       };
 
       console.log('Inserting ticket data:', ticketData);
 
       await db.query(
         `INSERT INTO workshop_tickets 
-          (workshop_id, user_id, company_id, ticket_code, pdf_url) 
-         VALUES (?, ?, ?, ?, ?)`,
-        [ticketData.workshop_id, ticketData.user_id, ticketData.company_id, ticketData.ticket_code, ticketData.pdf_url]
+          (workshop_id, user_id, company_id, ticket_code, pdf_url, schedule_id) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [ticketData.workshop_id, ticketData.user_id, ticketData.company_id, 
+         ticketData.ticket_code, ticketData.pdf_url, ticketData.schedule_id]
       );
 
       return {

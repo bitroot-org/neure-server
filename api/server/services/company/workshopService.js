@@ -15,7 +15,7 @@ class workshopService {
     try {
       // Fetch workshop details
       const [workshops] = await db.query(
-        "SELECT * FROM workshops WHERE id = ? AND is_active = 1",
+        "SELECT *, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at, DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') as updated_at FROM workshops WHERE id = ? AND is_active = 1",
         [workshop_id]
       );
 
@@ -47,8 +47,8 @@ class workshopService {
       let scheduleQuery = `
         SELECT 
           ws.id AS schedule_id,
-          ws.start_time,
-          ws.end_time,
+          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
+          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time,
           ws.status,
           ws.max_participants,
           ws.host_name,
@@ -56,7 +56,8 @@ class workshopService {
             (SELECT COUNT(*) 
              FROM workshop_tickets wt 
              WHERE wt.workshop_id = ws.workshop_id 
-             AND wt.company_id = ws.company_id),
+             AND wt.company_id = ws.company_id
+             AND wt.schedule_id = ws.id),
             0
           ) as current_participants
         FROM workshop_schedules ws
@@ -133,7 +134,10 @@ class workshopService {
       if (user_id) {
         baseQuery = `
           SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
-                 ws.id AS schedule_id,DATE_FORMAT(ws.start_time), DATE_FORMAT(ws.end_time), ws.status, ws.max_participants, 
+                 ws.id AS schedule_id, 
+                 DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time, 
+                 DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time, 
+                 ws.status, ws.max_participants, 
                  w.location, w.poster_image 
           FROM workshops w
           INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
@@ -147,7 +151,10 @@ class workshopService {
       } else if (company_id) {
         baseQuery = `
           SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
-                 ws.id AS schedule_id, ws.start_time, ws.end_time, ws.status, ws.max_participants, 
+                 ws.id AS schedule_id, 
+                 DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time, 
+                 DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time, 
+                 ws.status, ws.max_participants, 
                  w.location, w.poster_image 
           FROM workshops w
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
@@ -213,7 +220,7 @@ class workshopService {
 
       if (user_id) {
         query = `
-          SELECT DISTINCT ws.start_time as date
+          SELECT DISTINCT DATE_FORMAT(ws.start_time, '%Y-%m-%d') as date
           FROM workshop_schedules ws
           INNER JOIN workshops w ON w.id = ws.workshop_id
           INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
@@ -225,7 +232,7 @@ class workshopService {
         queryParams.push(user_id, today);
       } else if (company_id) {
         query = `
-          SELECT DISTINCT ws.start_time as date
+          SELECT DISTINCT DATE_FORMAT(ws.start_time, '%Y-%m-%d') as date
           FROM workshop_schedules ws
           INNER JOIN workshops w ON w.id = ws.workshop_id
           WHERE ws.company_id = ? 
@@ -249,10 +256,7 @@ class workshopService {
         status: true,
         code: 200,
         message: "Workshop dates fetched successfully",
-        data: dates.map((row) => {
-          const date = new Date(row.date);
-          return date.toISOString().split("T")[0];
-        }),
+        data: dates.map((row) => row.date),
       };
     } catch (error) {
       throw new Error("Error fetching workshop dates: " + error.message);
@@ -264,7 +268,8 @@ class workshopService {
     limit = 10,
     start_date = null,
     end_date = null,
-    search_term = null
+    search_term = null,
+    all = false
   ) {
     try {
       const offset = (page - 1) * limit;
@@ -301,25 +306,38 @@ class workshopService {
       );
       const total = totalRows[0].count;
 
-      // Fetch paginated workshops
-      query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-      queryParams.push(limit, offset);
+      // Add ordering
+      query += " ORDER BY created_at DESC";
+      
+      // Add pagination only if all=false
+      if (!all) {
+        query += " LIMIT ? OFFSET ?";
+        queryParams.push(limit, offset);
+      }
+      
+      // Fetch workshops
       const [workshops] = await db.query(query, queryParams);
 
-      return {
+      const response = {
         status: true,
         code: 200,
         message: "Workshops fetched successfully",
         data: {
-          workshops,
-          pagination: {
-            total,
-            currentPage: page,
-            totalPages: Math.ceil(total / limit),
-            limit,
-          },
-        },
+          workshops
+        }
       };
+      
+      // Add pagination info only if not returning all records
+      if (!all) {
+        response.data.pagination = {
+          total,
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          limit,
+        };
+      }
+
+      return response;
     } catch (error) {
       throw new Error("Error fetching workshops: " + error.message);
     }
@@ -441,7 +459,7 @@ class workshopService {
         status: true,
         code: 201,
         message: "Workshop created successfully",
-        data: { id: result.insertId, title, description, host_name, agenda },
+        data: { id: result.insertId, title, description, agenda },
       };
     } catch (error) {
       throw new Error("Error creating workshop: " + error.message);
@@ -453,11 +471,6 @@ class workshopService {
     end_date = null,
     search_term = null
   ) {
-    console.log("Received request to get all workshop schedules:", {
-      start_date,
-      end_date,
-      search_term,
-    });
     try {
       let query = `
         SELECT 
@@ -504,8 +517,6 @@ class workshopService {
       query += " ORDER BY ws.start_time ASC";
 
       const [schedules] = await db.query(query, queryParams);
-
-      console.log("Found schedules:", schedules);
 
       if (schedules.length === 0) {
         return {
@@ -583,10 +594,14 @@ class workshopService {
         host_name
       ]);
 
-      // Generate PDFs for all employees in the company
+      const scheduleId = result.insertId;
+      console.log("Created schedule with ID:", scheduleId);
+
+      // Generate PDFs for all employees in the company - pass schedule_id
       const pdfResult = await WorkshopPdfService.generateEmployeeWorkshopPdfs(
         workshop_id,
-        company_id
+        company_id,
+        scheduleId
       );
 
       // Get all active employees in the company
@@ -594,7 +609,8 @@ class workshopService {
         `SELECT ce.user_id, u.first_name, u.email 
          FROM company_employees ce
          JOIN users u ON ce.user_id = u.user_id
-         WHERE ce.company_id = ? AND ce.is_active = 1`,
+         WHERE ce.company_id = ? AND ce.is_active = 1
+         AND u.role_id NOT IN (1, 2)`,
         [company_id]
       );
 
@@ -617,7 +633,7 @@ class workshopService {
           priority: "HIGH",
           metadata: JSON.stringify({
             workshop_id: workshop_id,
-            schedule_id: result.insertId,
+            schedule_id: scheduleId,
             start_time: start_time,
             end_time: end_time,
             duration_minutes: duration_minutes,
@@ -634,7 +650,7 @@ class workshopService {
         code: 201,
         message: "Workshop scheduled successfully and PDFs generated",
         data: {
-          schedule_id: result.insertId,
+          schedule_id: scheduleId,
           company_id,
           workshop_id,
           start_time,
@@ -970,10 +986,14 @@ class workshopService {
   static async getWorkshopAttendance(
     workshop_id,
     company_id = null,
+    schedule_id = null,
+    page = 1,
+    limit = 10,
     format = "json"
   ) {
     try {
-      let query = `
+      // Base query to get total count
+      let countQuery = `
         WITH LatestTickets AS (
           SELECT 
             wt.*,
@@ -983,55 +1003,122 @@ class workshopService {
             ) as rn
           FROM workshop_tickets wt
           WHERE wt.workshop_id = ?
+          ${schedule_id ? "AND wt.schedule_id = ?" : ""}
+        )
+        SELECT COUNT(*) as total
+        FROM LatestTickets lt
+        JOIN workshops w ON lt.workshop_id = w.id
+        JOIN companies c ON lt.company_id = c.id
+        JOIN users u ON lt.user_id = u.user_id
+        JOIN workshop_schedules ws ON lt.schedule_id = ws.id
+        WHERE lt.rn = 1
+        AND u.role_id NOT IN (1, 2)
+      `;
+
+      // Main data query
+      let dataQuery = `
+        WITH LatestTickets AS (
+          SELECT 
+            wt.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY wt.workshop_id, wt.user_id 
+              ORDER BY wt.created_at DESC
+            ) as rn
+          FROM workshop_tickets wt
+          WHERE wt.workshop_id = ?
+          ${schedule_id ? "AND wt.schedule_id = ?" : ""}
         )
         SELECT 
           w.title AS workshop_title,
           w.id AS workshop_id,
           lt.company_id,
           c.company_name,
-          lt.created_at AS ticket_generated_at,
+          lt.schedule_id,
+          ws.host_name,
+          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') AS start_time,
+          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') AS end_time,
+          u.user_id,
           u.first_name,
           u.last_name,
           u.email,
           lt.ticket_code,
-          lt.is_attended,
-          lt.updated_at
+          lt.is_attended
         FROM LatestTickets lt
         JOIN workshops w ON lt.workshop_id = w.id
         JOIN companies c ON lt.company_id = c.id
         JOIN users u ON lt.user_id = u.user_id
+        JOIN workshop_schedules ws ON lt.schedule_id = ws.id
         WHERE lt.rn = 1
-        AND u.role_id != 1 AND u.role_id != 2
+        AND u.role_id NOT IN (1, 2)
       `;
 
+      const countParams = [workshop_id];
       const queryParams = [workshop_id];
+      
+      if (schedule_id) {
+        countParams.push(schedule_id);
+        queryParams.push(schedule_id);
+      }
 
       if (company_id) {
-        query += " AND lt.company_id = ?";
+        countQuery += " AND lt.company_id = ?";
+        dataQuery += " AND lt.company_id = ?";
+        countParams.push(company_id);
         queryParams.push(company_id);
       }
 
-      query += " ORDER BY u.first_name, u.last_name";
+      // Get total count
+      const [totalRows] = await db.query(countQuery, countParams);
 
-      const [results] = await db.query(query, queryParams);
-
-      if (results.length === 0) {
+      // If no records found
+      if (totalRows[0].total === 0) {
+        let message = `No attendance data found for workshop ID ${workshop_id}`;
+        if (company_id) {
+          message += ` and company ID ${company_id}`;
+        }
+        if (schedule_id) {
+          message += ` and schedule ID ${schedule_id}`;
+        }
+        
         return {
           status: false,
           code: 404,
-          message: company_id
-            ? `No attendance data found for workshop ID ${workshop_id} and company ID ${company_id}`
-            : `No attendance data found for workshop ID ${workshop_id}`,
+          message,
           data: null,
         };
       }
 
-      return {
+      // Add ordering
+      dataQuery += " ORDER BY u.first_name, u.last_name";
+
+      // Add pagination if limit is not -1 (special value to return all)
+      if (limit !== -1) {
+        const offset = (page - 1) * limit;
+        dataQuery += " LIMIT ? OFFSET ?";
+        queryParams.push(parseInt(limit), offset);
+      }
+
+      // Get attendance data
+      const [results] = await db.query(dataQuery, queryParams);
+
+      const response = {
         status: true,
         code: 200,
         message: "Workshop attendance retrieved successfully",
-        data: results,
+        data: results
       };
+
+      // Add pagination info if not returning all records
+      if (limit !== -1) {
+        response.pagination = {
+          total: totalRows[0].total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalRows[0].total / parseInt(limit)),
+          limit: parseInt(limit)
+        };
+      }
+
+      return response;
     } catch (error) {
       throw new Error("Error fetching workshop attendance: " + error.message);
     }
@@ -1042,7 +1129,7 @@ class workshopService {
     const query = `
       SELECT 
         w.title AS workshop_title,
-        wt.created_at AS ticket_generated_at,
+        DATE_FORMAT(wt.created_at, '%Y-%m-%d %H:%i:%s') AS ticket_generated_at,
         u.first_name,
         u.last_name,
         u.email,
@@ -1062,7 +1149,7 @@ class workshopService {
   }
 
   // Mark attendance using ticket code
-  static async markAttendance(ticket_code, company_id = null) {
+  static async markAttendance(ticket_code, company_id = null, schedule_id = null) {
     try {
       // First check if the ticket exists and get related information
       let query = `
@@ -1071,10 +1158,15 @@ class workshopService {
           wt.user_id,
           wt.workshop_id,
           wt.company_id,
+          wt.schedule_id,
           wt.is_attended,
-          w.title as workshop_title
+          w.title as workshop_title,
+          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
+          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time,
+          ws.status
         FROM workshop_tickets wt
         JOIN workshops w ON wt.workshop_id = w.id
+        JOIN workshop_schedules ws ON wt.schedule_id = ws.id
         WHERE wt.ticket_code = ?
       `;
 
@@ -1085,6 +1177,11 @@ class workshopService {
         queryParams.push(company_id);
       }
 
+      if (schedule_id) {
+        query += " AND wt.schedule_id = ?";
+        queryParams.push(schedule_id);
+      }
+
       const [ticketInfo] = await db.query(query, queryParams);
 
       // If ticket not found
@@ -1092,14 +1189,23 @@ class workshopService {
         return {
           status: false,
           code: 404,
-          message: company_id
-            ? `Invalid ticket code or ticket not associated with company ID ${company_id}`
+          message: schedule_id
+            ? `Invalid ticket code or ticket not associated with schedule ID ${schedule_id}`
             : "Invalid ticket code",
           data: null,
         };
       }
 
+      // Check if schedule is valid for attendance marking
       const ticket = ticketInfo[0];
+      if (ticket.status === 'cancelled') {
+        return {
+          status: false,
+          code: 400,
+          message: "Cannot mark attendance for a cancelled workshop",
+          data: null,
+        };
+      }
 
       // Check if already attended
       if (ticket.is_attended) {

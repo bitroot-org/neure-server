@@ -218,8 +218,9 @@ class CompanyController {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 100;
       const search = req.query.search || "";
+      const all = req.query.all === 'true';
 
-      const result = await getAllCompanies({ page, limit, search });
+      const result = await getAllCompanies({ page, limit, search, all });
 
       return res.status(200).json({
         status: true,

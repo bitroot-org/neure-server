@@ -2,7 +2,7 @@ const db = require("../../../config/db");
 
 class SoundscapeService {
   // Fetch all soundscapes
-  static async getSoundscapes(page = 1, limit = 10) {
+  static async getSoundscapes(page = 1, limit = 10, all = false) {
     try {
       // Calculate offset
       const offset = (page - 1) * limit;
@@ -13,26 +13,40 @@ class SoundscapeService {
       );
       const total = totalRows[0].count;
 
-      // Get paginated soundscapes in descending order (newest first)
+      // Build query
+      let query = "SELECT * FROM soundscapes WHERE is_active = 1 ORDER BY created_at DESC";
+      
+      // Add pagination only if all=false
+      if (!all) {
+        query += " LIMIT ? OFFSET ?";
+      }
+      
+      // Get soundscapes
       const [soundscapes] = await db.query(
-        "SELECT * FROM soundscapes WHERE is_active = 1 ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        [limit, offset]
+        query,
+        all ? [] : [limit, offset]
       );
 
-      return {
+      const response = {
         status: true,
         code: 200,
         message: "Soundscapes fetched successfully",
         data: {
-          soundscapes,
-          pagination: {
-            total,
-            currentPage: page,
-            totalPages: Math.ceil(total / limit),
-            limit,
-          },
-        },
+          soundscapes
+        }
       };
+      
+      // Add pagination info only if not returning all records
+      if (!all) {
+        response.data.pagination = {
+          total,
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          limit,
+        };
+      }
+      
+      return response;
     } catch (error) {
       throw new Error("Error fetching soundscapes: " + error.message);
     }

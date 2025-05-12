@@ -5,7 +5,7 @@ const UserServices = require('../user/UserServices');
 
 
 class AssessmentsService {
-  static async getAllAssessments(page = 1, limit = 10, user_id) {
+  static async getAllAssessments(page = 1, limit = 10, user_id, all = false) {
     try {
       const offset = (page - 1) * limit;
 
@@ -22,57 +22,53 @@ class AssessmentsService {
          )`,
         [user_id]
       );
-      const total = totalRows[0].count;
-
-      // Fetch paginated unsubmitted assessments with questions and options
-      // Added ORDER BY a.created_at DESC to sort by newest first
-      const query = `
+      
+      // Build query
+      let query = `
         SELECT 
-          a.*,
-          JSON_ARRAYAGG(
-            JSON_OBJECT(
-              'id', q.id,
-              'question_text', q.question_text,
-              'question_type', q.question_type,
-              'options', (
-                SELECT JSON_ARRAYAGG(
-                  JSON_OBJECT(
-                    'id', o.id,
-                    'option_text', o.option_text,
-                    'is_correct', o.is_correct
-                  )
-                )
-                FROM options o
-                WHERE o.question_id = q.id
-              )
-            )
-          ) as questions
+          a.id, 
+          a.title, 
+          a.description, 
+          a.assessment_type,
+          a.created_at
         FROM assessments a
-        LEFT JOIN questions q ON a.id = q.assessment_id
-        WHERE a.is_active = 1 
+        WHERE a.is_active = 1
         AND NOT EXISTS (
           SELECT 1 
           FROM user_assessments ua 
           WHERE ua.assessment_id = a.id 
           AND ua.user_id = ?
         )
-        GROUP BY a.id
-        ORDER BY a.created_at DESC
-        LIMIT ? OFFSET ?`;
-
-      const [results] = await db.query(query, [user_id, limit, offset]);
-
-      return {
-        assessments: results,
-        pagination: {
-          total,
-          currentPage: page,
-          totalPages: Math.ceil(total / limit),
-          limit,
-        },
+        ORDER BY a.created_at DESC`;
+      
+      // Add pagination only if all=false
+      if (!all) {
+        query += " LIMIT ? OFFSET ?";
+      }
+      
+      // Get assessments
+      const [assessments] = await db.query(
+        query,
+        all ? [user_id] : [user_id, limit, offset]
+      );
+      
+      const response = {
+        assessments
       };
+      
+      // Add pagination info only if not returning all records
+      if (!all) {
+        response.pagination = {
+          total: totalRows[0].count,
+          current_page: page,
+          total_pages: Math.ceil(totalRows[0].count / limit),
+          per_page: limit
+        };
+      }
+      
+      return response;
     } catch (error) {
-      throw error;
+      throw new Error("Error fetching assessments: " + error.message);
     }
   }
 

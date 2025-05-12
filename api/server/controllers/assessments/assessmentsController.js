@@ -6,9 +6,10 @@ class AssessmentsController {
     try {
       const page = parseInt(req.query.page, 10) || 1;
       const limit = parseInt(req.query.limit, 10) || 10;
+      const all = req.query.all === 'true';
       const { user_id } = req.user; // Get user_id from JWT token
 
-      const { assessments, pagination } = await AssessmentsService.getAllAssessments(page, limit, user_id);
+      const { assessments, pagination } = await AssessmentsService.getAllAssessments(page, limit, user_id, all);
 
       return successResponse(res, 'Assessments retrieved successfully', { assessments, pagination });
     } catch (error) {

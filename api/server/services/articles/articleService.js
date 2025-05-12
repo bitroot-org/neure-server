@@ -2,7 +2,7 @@ const db = require('../../../config/db');
 
 class articleService {
   // Fetch all articles
-  static async getArticles(page = 1, limit = 10, search_term = null) {
+  static async getArticles(page = 1, limit = 10, search_term = null, all = false) {
     try {
       // Calculate offset
       const offset = (page - 1) * limit;
@@ -25,27 +25,38 @@ class articleService {
       );
       const total = totalRows[0].count;
 
-      // Add pagination
-      query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-      queryParams.push(limit, offset);
+      // Add ordering
+      query += ' ORDER BY created_at DESC';
       
-      // Get paginated articles
+      // Add pagination only if all=false
+      if (!all) {
+        query += ' LIMIT ? OFFSET ?';
+        queryParams.push(limit, offset);
+      }
+      
+      // Get articles
       const [articles] = await db.query(query, queryParams);
 
-      return {
+      const response = {
         status: true,
         code: 200,
         message: 'Articles fetched successfully',
         data: {
-          articles,
-          pagination: {
-            total,
-            currentPage: page,
-            totalPages: Math.ceil(total / limit),
-            limit
-          }
+          articles
         }
       };
+      
+      // Add pagination info only if not returning all records
+      if (!all) {
+        response.data.pagination = {
+          total,
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          limit
+        };
+      }
+      
+      return response;
     } catch (error) {
       throw new Error('Error fetching articles: ' + error.message);
     }

@@ -92,8 +92,9 @@ class workshopController {
       const start_date = req.query.start_date || null;
       const end_date = req.query.end_date || null;
       const search_term = req.query.search_term || null;
+      const all = req.query.all === 'true';
 
-      const result = await getAllWorkshops(page, limit, start_date, end_date, search_term);
+      const result = await getAllWorkshops(page, limit, start_date, end_date, search_term, all);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -521,7 +522,12 @@ class workshopController {
   static async getWorkshopAttendance(req, res) {
     try {
       const { workshopId } = req.params;
-      const { company_id } = req.query;
+      const { company_id, schedule_id, all } = req.query;
+      
+      // If 'all' parameter is present, set limit to -1 to return all records
+      // Otherwise use normal pagination
+      const limit = all === 'true' ? -1 : parseInt(req.query.limit) || 10;
+      const page = parseInt(req.query.page) || 1;
       
       if (!workshopId) {
         return res.status(400).json({
@@ -532,7 +538,14 @@ class workshopController {
         });
       }
 
-      const result = await getWorkshopAttendance(workshopId, company_id);
+      const result = await getWorkshopAttendance(
+        workshopId, 
+        company_id, 
+        schedule_id,
+        page,
+        limit
+      );
+      
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
@@ -578,8 +591,7 @@ class workshopController {
 
   static async markAttendance(req, res) {
     try {
-      const { ticketCode } = req.body;
-      const { company_id } = req.body;
+      const { ticketCode, company_id, schedule_id } = req.body;
       
       if (!ticketCode) {
         return res.status(400).json({
@@ -590,7 +602,7 @@ class workshopController {
         });
       }
 
-      const result = await markAttendance(ticketCode, company_id);
+      const result = await markAttendance(ticketCode, company_id, schedule_id);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

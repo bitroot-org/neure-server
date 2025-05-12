@@ -16,8 +16,9 @@ class articleController {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
       const search_term = req.query.search_term || null;
+      const all = req.query.all === 'true';
       
-      const result = await getArticles(page, limit, search_term);
+      const result = await getArticles(page, limit, search_term, all);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({

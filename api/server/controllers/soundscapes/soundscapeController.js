@@ -12,7 +12,9 @@ class SoundscapeController {
     try {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-      const result = await SoundscapeService.getSoundscapes(page, limit);
+      const all = req.query.all === 'true';
+      
+      const result = await SoundscapeService.getSoundscapes(page, limit, all);
       return res.status(result.code).json(result);
     } catch (error) {
       return res.status(500).json({
