@@ -1919,17 +1919,11 @@ class CompanyService {
         );
       }
 
+      // Commit the transaction first
       await connection.commit();
 
-      const dashboardLink = process.env.DASHBOARD_URL;
-      await EmailService.sendAdminWelcomeEmail(
-        contact_person_info.first_name,
-        contact_person_info.email,
-        tempPassword,
-        dashboardLink
-      );
-
-      return {
+      // Prepare response data
+      const responseData = {
         status: true,
         code: 201,
         message: "Company created successfully",
@@ -1952,6 +1946,22 @@ class CompanyService {
           },
         },
       };
+
+      // Send email asynchronously after successful DB transaction
+      // This won't block the response
+      const dashboardLink = process.env.DASHBOARD_URL;
+      setTimeout(() => {
+        EmailService.sendAdminWelcomeEmail(
+          contact_person_info.first_name,
+          contact_person_info.email,
+          tempPassword,
+          dashboardLink
+        ).catch(error => {
+          console.error("Error sending welcome email:", error);
+        });
+      }, 0);
+
+      return responseData;
     } catch (error) {
       await connection.rollback();
       console.error("Error in createCompany:", error);

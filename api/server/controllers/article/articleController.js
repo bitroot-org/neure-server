@@ -86,15 +86,15 @@ class articleController {
       const result = await createArticle(articleData);
       
       // Log the article creation with user-friendly description
-      if (result.status) {
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'articles',
-          action: 'create',
-          description: `Article "${articleData.title}" created`
-        });
-      }
+      // if (result.status) {
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'articles',
+      //     action: 'create',
+      //     description: `Article "${articleData.title}" created`
+      //   });
+      // }
   
       return res.status(result.code).json(result);
     } catch (error) {
@@ -155,31 +155,31 @@ class articleController {
       const result = await updateArticle(articleData);
       
       // Log the article update with user-friendly description
-      if (result.status) {
-        // Determine which fields were updated
-        const updatedFields = Object.keys(articleData)
-          .filter(key => key !== 'id')
-          .map(key => {
-            // Make field names more readable
-            switch(key) {
-              case 'title': return 'title';
-              case 'content': return 'content';
-              case 'image_url': return 'image';
-              case 'status': return 'status';
-              case 'category': return 'category';
-              default: return key.replace(/_/g, ' ');
-            }
-          })
-          .join(', ');
+      // if (result.status) {
+      //   // Determine which fields were updated
+      //   const updatedFields = Object.keys(articleData)
+      //     .filter(key => key !== 'id')
+      //     .map(key => {
+      //       // Make field names more readable
+      //       switch(key) {
+      //         case 'title': return 'title';
+      //         case 'content': return 'content';
+      //         case 'image_url': return 'image';
+      //         case 'status': return 'status';
+      //         case 'category': return 'category';
+      //         default: return key.replace(/_/g, ' ');
+      //       }
+      //     })
+      //     .join(', ');
           
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'articles',
-          action: 'update',
-          description: `Article "${articleTitle}" updated. Changes made to: ${updatedFields}`
-        });
-      }
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'articles',
+      //     action: 'update',
+      //     description: `Article "${articleTitle}" updated. Changes made to: ${updatedFields}`
+      //   });
+      // }
   
       return res.status(result.code).json(result);
     } catch (error) {
@@ -219,15 +219,15 @@ class articleController {
       const result = await deleteArticle(articleId);
       
       // Log the article deletion with user-friendly description
-      if (result.status) {
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'articles',
-          action: 'delete',
-          description: `Article "${articleTitle}" was deleted`
-        });
-      }
+      // if (result.status) {
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'articles',
+      //     action: 'delete',
+      //     description: `Article "${articleTitle}" was deleted`
+      //   });
+      // }
       
       return res.status(result.code).json(result);
     } catch (error) {

@@ -19,7 +19,8 @@ const {
   deleteTherapist,
   updateDashboardTourStatus,
   submitPSI,
-  updateTermsAcceptance
+  updateTermsAcceptance,
+  getSuperadmins
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -62,5 +63,6 @@ router.delete("/deleteTherapist/:therapistId", authorization, deleteTherapist);
 router.put("/updateDashboardTourStatus", authorization, updateDashboardTourStatus);
 router.post("/submitPSI", authorization, submitPSI);
 router.put("/updateTermsAcceptance", authorization, updateTermsAcceptance);
+router.get("/getSuperadmins", authorization, getSuperadmins);
 
 module.exports = router;

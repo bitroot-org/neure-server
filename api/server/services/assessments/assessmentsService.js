@@ -23,8 +23,8 @@ class AssessmentsService {
         [user_id]
       );
       
-      // Build query
-      let query = `
+      // First get all assessment IDs
+      let assessmentQuery = `
         SELECT 
           a.id, 
           a.title, 
@@ -42,17 +42,56 @@ class AssessmentsService {
       
       // Add pagination only if all=false
       if (!all) {
-        query += " LIMIT ? OFFSET ?";
+        assessmentQuery += " LIMIT ? OFFSET ?";
       }
       
       // Get assessments
       const [assessments] = await db.query(
-        query,
+        assessmentQuery,
         all ? [user_id] : [user_id, limit, offset]
       );
       
+      // For each assessment, get its questions and options
+      const assessmentsWithQuestions = await Promise.all(
+        assessments.map(async (assessment) => {
+          const [questions] = await db.query(
+            `SELECT 
+              q.id, 
+              q.question_text
+            FROM questions q
+            WHERE q.assessment_id = ?`,
+            [assessment.id]
+          );
+          
+          // For each question, get its options
+          const questionsWithOptions = await Promise.all(
+            questions.map(async (question) => {
+              const [options] = await db.query(
+                `SELECT 
+                  o.id, 
+                  o.option_text, 
+                  o.points
+                FROM options o
+                WHERE o.question_id = ?`,
+                [question.id]
+              );
+              
+              return {
+                ...question,
+                options
+              };
+            })
+          );
+          
+          return {
+            ...assessment,
+            questions: questionsWithOptions
+          };
+        })
+      );
+      
       const response = {
-        assessments
+        assessments: assessmentsWithQuestions
       };
       
       // Add pagination info only if not returning all records
@@ -86,7 +125,7 @@ class AssessmentsService {
                   JSON_OBJECT(
                     'id', o.id,
                     'option_text', o.option_text,
-                    'is_correct', o.is_correct
+                    'points', o.points
                   )
                 )
                 FROM options o
@@ -110,19 +149,17 @@ class AssessmentsService {
     const connection = await db.getConnection();
     try {
       console.log("Starting assessment creation with data:", {
-        title: assessmentData.title,
-        isPsiAssessment: assessmentData.is_psi_assessment || false
+        title: assessmentData.title
       });
 
       await connection.beginTransaction();
 
-      // Insert assessment without frequency_days
+      // Insert assessment
       const [assessmentResult] = await connection.query(
-        "INSERT INTO assessments (title, description, is_psi_assessment) VALUES (?, ?, ?)",
+        "INSERT INTO assessments (title, description) VALUES (?, ?)",
         [
           assessmentData.title,
-          assessmentData.description,
-          assessmentData.is_psi_assessment || 0, 
+          assessmentData.description
         ]
       );
       const assessmentId = assessmentResult.insertId;
@@ -131,16 +168,16 @@ class AssessmentsService {
       // Insert questions
       for (const question of assessmentData.questions) {
         const [questionResult] = await connection.query(
-          "INSERT INTO questions (assessment_id, question_text, question_type) VALUES (?, ?, ?)",
-          [assessmentId, question.question_text, question.question_type]
+          "INSERT INTO questions (assessment_id, question_text) VALUES (?, ?)",
+          [assessmentId, question.question_text]
         );
         const questionId = questionResult.insertId;
 
-        // Insert options
+        // Insert options with points
         for (const option of question.options) {
           await connection.query(
-            "INSERT INTO options (question_id, option_text, is_correct) VALUES (?, ?, ?)",
-            [questionId, option.option_text, option.is_correct]
+            "INSERT INTO options (question_id, option_text, points) VALUES (?, ?, ?)",
+            [questionId, option.option_text, option.points]
           );
         }
       }
@@ -188,13 +225,13 @@ class AssessmentsService {
 
       // If this is a PSI assessment, add a note in the log
       const assessmentType = assessmentData.is_psi_assessment ? "PSI assessment" : "assessment";
-      await ActivityLogService.createLog({
-        user_id: assessmentData.user_id || null,
-        performed_by: 'admin',
-        module_name: 'assessments',
-        action: 'create',
-        description: `${assessmentType} "${assessmentData.title}" created with ${assessmentData.questions.length} questions.`
-      });
+      // await ActivityLogService.createLog({
+      //   user_id: assessmentData.user_id || null,
+      //   performed_by: 'admin',
+      //   module_name: 'assessments',
+      //   action: 'create',
+      //   description: `${assessmentType} "${assessmentData.title}" created with ${assessmentData.questions.length} questions.`
+      // });
 
       await connection.commit();
       console.log("Transaction committed successfully");
@@ -214,14 +251,13 @@ class AssessmentsService {
     try {
       await connection.beginTransaction();
 
-      // Update assessment details without frequency_days
+      // Update assessment details
       await connection.query(
-        "UPDATE assessments SET title = ?, description = ?, is_psi_assessment = ? WHERE id = ?",
+        "UPDATE assessments SET title = ?, description = ? WHERE id = ?",
         [
           assessmentData.title,
           assessmentData.description,
-          assessmentData.is_psi_assessment || 0,
-          assessmentId,
+          assessmentId
         ]
       );
 
@@ -231,21 +267,22 @@ class AssessmentsService {
         [assessmentId]
       );
       await connection.query("DELETE FROM questions WHERE assessment_id = ?", [
-        assessmentId,
+        assessmentId
       ]);
 
       // Insert updated questions and options
       for (const question of assessmentData.questions) {
         const [questionResult] = await connection.query(
-          "INSERT INTO questions (assessment_id, question_text, question_type) VALUES (?, ?, ?)",
-          [assessmentId, question.question_text, question.question_type]
+          "INSERT INTO questions (assessment_id, question_text) VALUES (?, ?)",
+          [assessmentId, question.question_text]
         );
         const questionId = questionResult.insertId;
 
+        // Insert options with points
         for (const option of question.options) {
           await connection.query(
-            "INSERT INTO options (question_id, option_text, is_correct) VALUES (?, ?, ?)",
-            [questionId, option.option_text, option.is_correct]
+            "INSERT INTO options (question_id, option_text, points) VALUES (?, ?, ?)",
+            [questionId, option.option_text, option.points]
           );
         }
       }
@@ -307,9 +344,19 @@ class AssessmentsService {
     try {
       await connection.beginTransaction();
 
+      // Ensure all IDs are valid integers
+      user_id = parseInt(user_id, 10);
+      company_id = parseInt(company_id, 10);
+      assessment_id = parseInt(assessment_id, 10);
+
+      // Validate IDs
+      if (isNaN(user_id) || isNaN(company_id) || isNaN(assessment_id)) {
+        throw new Error("Invalid user_id, company_id, or assessment_id");
+      }
+
       // Check if assessment exists and is active
       const [assessment] = await connection.query(
-        "SELECT id, title, is_psi_assessment FROM assessments WHERE id = ? AND is_active = 1",
+        "SELECT id, title FROM assessments WHERE id = ? AND is_active = 1",
         [assessment_id]
       );
 
@@ -327,13 +374,12 @@ class AssessmentsService {
         throw new Error("Assessment already submitted");
       }
 
-      // Modified query to return options directly without JSON_ARRAYAGG
+      // Get all questions and their options with points
       const [questions] = await connection.query(`
         SELECT 
           q.id as question_id,
-          q.question_type,
           o.id as option_id,
-          o.is_correct
+          o.points
         FROM questions q
         JOIN options o ON q.id = o.question_id
         WHERE q.assessment_id = ?
@@ -345,144 +391,92 @@ class AssessmentsService {
         if (!acc[curr.question_id]) {
           acc[curr.question_id] = {
             question_id: curr.question_id,
-            question_type: curr.question_type,
             options: []
           };
         }
         acc[curr.question_id].options.push({
           id: curr.option_id,
-          is_correct: curr.is_correct
+          points: curr.points
         });
         return acc;
       }, {});
 
       const structuredQuestions = Object.values(questionMap);
       
-      // Check if this is a PSI assessment
-      const isPsiAssessment = assessment[0].is_psi_assessment === 1;
-      
-      // For PSI assessment, we'll calculate the PSI score differently
-      let psiScore = 0;
-      let totalPsiQuestions = 0;
-      
-      // Insert submission to get the user_assessment_id with score 100 for PSI assessments
-      const score = isPsiAssessment ? 100 : 0; // Set score to 100 for PSI assessments
-      
-      const [userAssessmentResult] = await connection.query(
-        `INSERT INTO user_assessments 
-         (user_id, company_id, assessment_id, responses, score, completed_at) 
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [user_id, company_id, assessment_id, JSON.stringify(responses), score]
-      );
-      
-      const userAssessmentId = userAssessmentResult.insertId;
-      
-      // For regular assessments, calculate score as before
-      let totalQuestions = structuredQuestions.length;
-      let correctAnswers = 0;
+      // Calculate total score based on points
+      let totalPoints = 0;
+      let maxPossiblePoints = 0;
       
       // Process responses
       for (const question of structuredQuestions) {
         const userResponse = responses.find(r => r.question_id === question.question_id);
         if (!userResponse) continue;
         
-        let isCorrect = 0;
-        
-        if (isPsiAssessment) {
-          // For PSI assessment, we don't calculate correctness
-          // Instead, we get the option number (1-5) and use it as points
-          if (userResponse.selected_options && userResponse.selected_options.length > 0) {
-            // Get all options for this question to find the index of selected option
-            const [optionsOrdered] = await connection.query(
-              `SELECT id FROM options WHERE question_id = ? ORDER BY id ASC`,
-              [question.question_id]
-            );
-            
-            const selectedOptionId = userResponse.selected_options[0];
-            // Find the index (0-based) of the selected option
-            const optionIndex = optionsOrdered.findIndex(opt => opt.id === selectedOptionId);
-            
-            if (optionIndex !== -1) {
-              // Add points based on option index (1-5)
-              const optionPoints = optionIndex + 1;
-              psiScore += optionPoints;
-              totalPsiQuestions++;
-            }
+        // Get points for selected options
+        if (userResponse.selected_options && userResponse.selected_options.length > 0) {
+          const selectedOptionId = parseInt(userResponse.selected_options[0], 10); // Take first selected option
+          const selectedOption = question.options.find(o => o.id === selectedOptionId);
+          if (selectedOption) {
+            totalPoints += parseFloat(selectedOption.points) || 0;
           }
-        } else {
-          // Regular assessment scoring logic
-          if (question.question_type === 'single_choice') {
-            const selectedOption = userResponse.selected_options[0];
-            const correctOption = question.options.find(o => o.is_correct)?.id;
-            if (selectedOption === correctOption) {
-              correctAnswers++;
-              isCorrect = 1;
-            }
-          } else if (question.question_type === 'multiple_choice') {
-            const correctOptions = new Set(question.options.filter(o => o.is_correct).map(o => o.id));
-            const selectedOptions = new Set(userResponse.selected_options);
-            if (this.setsAreEqual(correctOptions, selectedOptions)) {
-              correctAnswers++;
-              isCorrect = 1;
+        }
+        
+        // Calculate max possible points for this question
+        const optionPoints = question.options.map(o => parseFloat(o.points) || 0);
+        const maxPoints = optionPoints.length > 0 ? Math.max(...optionPoints) : 0;
+        maxPossiblePoints += maxPoints;
+      }
+      
+      // Calculate percentage score (0-100)
+      const percentageScore = maxPossiblePoints > 0 ? (totalPoints / maxPossiblePoints) * 100 : 0;
+      
+      // Insert submission
+      const [userAssessmentResult] = await connection.query(
+        `INSERT INTO user_assessments 
+         (user_id, company_id, assessment_id, responses, score, completed_at) 
+         VALUES (?, ?, ?, ?, ?, NOW())`,
+        [user_id, company_id, assessment_id, JSON.stringify(responses), percentageScore]
+      );
+      
+      const userAssessmentId = userAssessmentResult.insertId;
+      
+      // Store individual responses
+      for (const response of responses) {
+        const questionId = parseInt(response.question_id, 10);
+        if (isNaN(questionId)) continue;
+        
+        // Get points for this response
+        let responsePoints = 0;
+        if (response.selected_options && response.selected_options.length > 0) {
+          const selectedOptionId = parseInt(response.selected_options[0], 10);
+          const question = structuredQuestions.find(q => q.question_id === questionId);
+          if (question) {
+            const selectedOption = question.options.find(o => o.id === selectedOptionId);
+            if (selectedOption) {
+              responsePoints = parseFloat(selectedOption.points) || 0;
             }
           }
         }
         
-        // Store individual response
         await connection.query(
           `INSERT INTO user_assessment_responses 
-           (user_assessment_id, question_id, selected_options, is_correct) 
+           (user_assessment_id, question_id, selected_options, points) 
            VALUES (?, ?, ?, ?)`,
-          [userAssessmentId, question.question_id, JSON.stringify(userResponse.selected_options), isCorrect]
+          [userAssessmentId, questionId, JSON.stringify(response.selected_options), responsePoints]
         );
       }
-
-      // Calculate final score for regular assessments
-      if (!isPsiAssessment) {
-        const calculatedScore = (correctAnswers / totalQuestions) * 100;
-        
-        // Update the score in user_assessments
-        await connection.query(
-          `UPDATE user_assessments SET score = ? WHERE id = ?`,
-          [calculatedScore, userAssessmentId]
-        );
-      }
-      
-      // If this is a PSI assessment, update the user's PSI score
-      if (isPsiAssessment && totalPsiQuestions > 0) {
-        // Calculate average PSI score (1-5) with one decimal point
-        const avgPsiScore = parseFloat((psiScore / totalPsiQuestions).toFixed(1));
-        const finalPsiScore = Math.max(1, Math.min(5, avgPsiScore));
-        
-        // Update user's PSI score
-        await UserServices.submitPSI(user_id, company_id, finalPsiScore);
-
-        
-        console.log(`Updated PSI score for user ${user_id} to ${finalPsiScore} based on assessment`);
-      }
-
-      // // Get user details for the notification
-      // const [userDetails] = await connection.query(
-      //   "SELECT first_name, last_name FROM users WHERE user_id = ?",
-      //   [user_id]
-      // );
 
       // Create notification for the user
       await NotificationService.createNotification({
         title: `Assessment Submission Result: ${assessment[0].title}`,
-        content: isPsiAssessment 
-          ? `You have completed the PSI assessment "${assessment[0].title}".`
-          : `You have completed the assessment "${assessment[0].title}" with a score of ${score.toFixed(1)}%. 
-             Correct answers: ${correctAnswers} out of ${totalQuestions} questions.`,
+        content: `You have completed the assessment "${assessment[0].title}" with a score of ${percentageScore.toFixed(1)}%.`,
         type: "ASSESSMENT_COMPLETED",
         company_id: company_id,
         user_id: user_id,
         priority: "HIGH",
         metadata: JSON.stringify({
           assessment_id: assessment_id,
-          score: isPsiAssessment ? 100 : score,
-          total_questions: totalQuestions,
-          correct_answers: isPsiAssessment ? totalQuestions : correctAnswers,
+          score: percentageScore,
           completion_date: new Date().toISOString()
         })
       });
@@ -490,11 +484,10 @@ class AssessmentsService {
       await connection.commit();
 
       return {
-        score: isPsiAssessment ? 100 : (correctAnswers / totalQuestions) * 100,
-        total_questions: totalQuestions,
-        correct_answers: isPsiAssessment ? totalQuestions : correctAnswers,
-        questions: structuredQuestions,
-        is_psi_assessment: isPsiAssessment
+        score: percentageScore,
+        total_points: totalPoints,
+        max_possible_points: maxPossiblePoints,
+        questions: structuredQuestions
       };
     } catch (error) {
       await connection.rollback();
@@ -536,7 +529,6 @@ class AssessmentsService {
   // New method to get user assessment responses with questions and correct answers
   static async getUserAssessmentResponses(user_id, assessment_id) {
     try {
-
       // First check if the user has submitted this assessment
       const [userAssessment] = await db.query(
         `SELECT id, score, completed_at 
@@ -544,7 +536,6 @@ class AssessmentsService {
          WHERE user_id = ? AND assessment_id = ?`,
         [user_id, assessment_id]
       );
-
 
       if (!userAssessment || userAssessment.length === 0) {
         throw new Error("Assessment not submitted by this user");
@@ -558,30 +549,46 @@ class AssessmentsService {
         [assessment_id]
       );
 
-      // Get questions with options and user responses
-      const [results] = await db.query(`
+      // Get questions with user responses
+      const [questions] = await db.query(`
         SELECT 
           q.id as question_id,
           q.question_text,
-          q.question_type,
           uar.selected_options as user_selected_options,
-          uar.is_correct as user_is_correct,
-          (
-            SELECT JSON_ARRAYAGG(
-              JSON_OBJECT(
-                'id', o.id,
-                'option_text', o.option_text,
-                'is_correct', o.is_correct
-              )
-            )
-            FROM options o
-            WHERE o.question_id = q.id
-          ) as options
+          uar.points as user_points
         FROM questions q
         JOIN user_assessment_responses uar ON q.id = uar.question_id
         WHERE uar.user_assessment_id = ?
         ORDER BY q.id
       `, [userAssessmentId]);
+
+      // Process each question to get its options and parse JSON
+      const processedQuestions = await Promise.all(questions.map(async (question) => {
+        // Get options for this question
+        const [options] = await db.query(`
+          SELECT 
+            id,
+            option_text,
+            points
+          FROM options
+          WHERE question_id = ?
+        `, [question.question_id]);
+
+        // Parse the selected_options JSON string
+        let userSelectedOptions;
+        try {
+          userSelectedOptions = JSON.parse(question.user_selected_options);
+        } catch (e) {
+          console.error(`Error parsing selected_options for question ${question.question_id}:`, e);
+          userSelectedOptions = [];
+        }
+
+        return {
+          ...question,
+          user_selected_options: userSelectedOptions,
+          options: options
+        };
+      }));
 
       return {
         status: true,
@@ -594,7 +601,7 @@ class AssessmentsService {
             score: userAssessment[0].score,
             completed_at: userAssessment[0].completed_at
           },
-          responses: results
+          responses: processedQuestions
         }
       };
     } catch (error) {

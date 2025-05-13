@@ -2,13 +2,13 @@ const db = require("../../../config/db");
 
 class ActivityLogService {
 
-  static async createLog({ user_id = null, performed_by, module_name, action, description }) {
+  static async createLog({ user_id = null, company_id = null, performed_by, module_name, action, description }) {
     try {
       const [result] = await db.query(
         `INSERT INTO activity_logs 
-         (user_id, performed_by, module_name, action, description) 
-         VALUES (?, ?, ?, ?, ?)`,
-        [user_id, performed_by, module_name, action, description]
+         (user_id, company_id, performed_by, module_name, action, description) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [user_id, company_id, performed_by, module_name, action, description]
       );
 
       return {
@@ -23,7 +23,7 @@ class ActivityLogService {
     }
   }
 
-  static async getLogs({ page = 1, limit = 10, module_name, action, performed_by, start_date, end_date, user_id }) {
+  static async getLogs({ page = 1, limit = 10, module_name, action, performed_by, start_date, end_date, user_id, company_id }) {
     try {
       const offset = (page - 1) * limit;
       let conditions = [];
@@ -50,6 +50,11 @@ class ActivityLogService {
         params.push(user_id);
       }
       
+      if (company_id) {
+        conditions.push("company_id = ?");
+        params.push(company_id);
+      }
+      
       if (start_date && end_date) {
         conditions.push("created_at BETWEEN ? AND ?");
         params.push(start_date, end_date);
@@ -69,7 +74,15 @@ class ActivityLogService {
       const [countResult] = await db.query(countQuery, params);
       
       // Data query with pagination
-      const query = `SELECT * FROM activity_logs${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      const query = `
+        SELECT 
+          al.*,
+          c.company_name
+        FROM activity_logs al
+        LEFT JOIN companies c ON al.company_id = c.id
+        ${whereClause} 
+        ORDER BY al.created_at DESC 
+        LIMIT ? OFFSET ?`;
       const queryParams = [...params, limit, offset];
       const [logs] = await db.query(query, queryParams);
       
@@ -88,12 +101,12 @@ class ActivityLogService {
         }
       };
     } catch (error) {
-      console.error("Error fetching activity logs:", error);
-      throw new Error(`Failed to fetch activity logs: ${error.message}`);
+      console.error("Error retrieving activity logs:", error.message);
+      throw new Error("Failed to retrieve activity logs: " + error.message);
     }
   }
 
-  static async getActivitySummary(start_date = null, end_date = null) {
+  static async getActivitySummary(start_date = null, end_date = null, company_id = null) {
     try {
       let query = `
         SELECT 
@@ -115,6 +128,11 @@ class ActivityLogService {
         query += ` AND DATE(created_at) <= ?`;
         params.push(end_date);
       }
+      
+      if (company_id) {
+        query += ` AND company_id = ?`;
+        params.push(company_id);
+      }
 
       query += ` GROUP BY module_name ORDER BY total_activities DESC`;
 
@@ -127,8 +145,8 @@ class ActivityLogService {
         data: summary
       };
     } catch (error) {
-      console.error("Error fetching activity summary:", error.message);
-      throw new Error("Failed to fetch activity summary: " + error.message);
+      console.error("Error retrieving activity summary:", error.message);
+      throw new Error("Failed to retrieve activity summary: " + error.message);
     }
   }
 }

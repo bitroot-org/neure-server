@@ -41,7 +41,8 @@ class ActivityLogController {
         performed_by: req.query.performed_by || null,
         start_date: req.query.start_date || null,
         end_date: req.query.end_date || null,
-        user_id: req.query.user_id || null
+        user_id: req.query.user_id || null,
+        company_id: req.query.company_id || null
       };
       
       const result = await ActivityLogService.getLogs(options);
@@ -61,8 +62,9 @@ class ActivityLogController {
     try {
       const start_date = req.query.start_date || null;
       const end_date = req.query.end_date || null;
+      const company_id = req.query.company_id || null;
       
-      const result = await ActivityLogService.getActivitySummary(start_date, end_date);
+      const result = await ActivityLogService.getActivitySummary(start_date, end_date, company_id);
       return res.status(result.code).json(result);
     } catch (error) {
       console.error('Error in getActivitySummary controller:', error);

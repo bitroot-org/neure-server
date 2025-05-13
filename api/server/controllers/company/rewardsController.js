@@ -111,13 +111,13 @@ class RewardsController {
           description += ` (Global reward)`;
         }
         
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'rewards',
-          action: 'create',
-          description: description
-        });
+        // await ActivityLogService.createLog({
+        //   user_id: user?.user_id,
+        //   performed_by: 'admin',
+        //   module_name: 'rewards',
+        //   action: 'create',
+        //   description: description
+        // });
       }
       
       res.status(result.code).json(result);
@@ -225,13 +225,13 @@ class RewardsController {
       const deletedRows = await deleteReward(id);
 
       // Log the reward deletion with more user-friendly description
-      await ActivityLogService.createLog({
-        user_id: user?.user_id,
-        performed_by: 'admin',
-        module_name: 'rewards',
-        action: 'delete',
-        description: `Reward "${reward.data.title}" was deleted`
-      });
+      // await ActivityLogService.createLog({
+      //   user_id: user?.user_id,
+      //   performed_by: 'admin',
+      //   module_name: 'rewards',
+      //   action: 'delete',
+      //   description: `Reward "${reward.data.title}" was deleted`
+      // });
 
       res.status(200).json({
         status: true,
@@ -390,13 +390,13 @@ class RewardsController {
           description += `. Changed to a Global reward (available to all companies)`;
         }
         
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'rewards',
-          action: 'update',
-          description: description
-        });
+        // await ActivityLogService.createLog({
+        //   user_id: user?.user_id,
+        //   performed_by: 'admin',
+        //   module_name: 'rewards',
+        //   action: 'update',
+        //   description: description
+        // });
       }
 
       return res.status(result.code).json(result);

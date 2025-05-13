@@ -15,7 +15,8 @@ const {
   updateUserSubscription,
   getUserSubscription,
   updateUserStressLevel,
-  updateDashboardTourStatus
+  updateDashboardTourStatus,
+  getSuperadmins
 } = require("../../services/user/UserServices");
 
 class UserController {
@@ -620,6 +621,32 @@ class UserController {
         status: false,
         code: 500,
         message: "Error updating terms acceptance status",
+        data: null,
+      });
+    }
+  }
+
+  static async getSuperadmins(req, res) {
+    try {
+      // Check if user is authorized (only superadmins can see other superadmins)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can view this information",
+          data: null,
+        });
+      }
+
+      const result = await getSuperadmins();
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error fetching superadmins:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "An error occurred while fetching superadmins",
         data: null,
       });
     }

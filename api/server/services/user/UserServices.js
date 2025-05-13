@@ -1508,6 +1508,24 @@ class UserServices {
       connection.release();
     }
   }
+
+  static async getSuperadmins() {
+    try {
+      const [users] = await db.query(
+        "SELECT user_id, username, email, first_name, last_name, profile_url FROM users WHERE role_id = 1"
+      );
+      
+      return {
+        status: true,
+        code: 200,
+        message: "Superadmins retrieved successfully",
+        data: users
+      };
+    } catch (error) {
+      console.error("Error retrieving superadmins:", error);
+      throw new Error("Failed to retrieve superadmins: " + error.message);
+    }
+  }
 }
 
 module.exports = UserServices;

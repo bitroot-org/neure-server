@@ -16,6 +16,7 @@ class AssessmentsController {
       return errorResponse(res, 'Error retrieving assessments', error);
     }
   }
+  
   static async getAssessmentById(req, res) {
     try {
       const { id } = req.params;
@@ -47,19 +48,15 @@ class AssessmentsController {
       
       const assessmentData = req.body;
 
-      // Validate required fields - removed frequency_days
+      // Validate required fields
       if (!assessmentData.title || !assessmentData.questions) {
         return errorResponse(res, 'Missing required fields', null, 400);
       }
 
       // Validate questions
       for (const question of assessmentData.questions) {
-        if (!question.question_text || !question.question_type || !question.options) {
+        if (!question.question_text || !question.options) {
           return errorResponse(res, 'Invalid question format', null, 400);
-        }
-
-        if (!['single_choice', 'multiple_choice'].includes(question.question_type)) {
-          return errorResponse(res, 'Invalid question type', null, 400);
         }
 
         // Validate options
@@ -68,8 +65,8 @@ class AssessmentsController {
         }
 
         for (const option of question.options) {
-          if (!option.option_text || typeof option.is_correct !== 'boolean') {
-            return errorResponse(res, 'Invalid option format', null, 400);
+          if (!option.option_text || typeof option.points !== 'number') {
+            return errorResponse(res, 'Invalid option format. Each option must have option_text and points', null, 400);
           }
         }
       }
@@ -97,19 +94,15 @@ class AssessmentsController {
       const { id } = req.body;
       const assessmentData = req.body;
 
-      // Validate required fields - removed frequency_days
+      // Validate required fields
       if (!assessmentData.title || !assessmentData.questions) {
         return errorResponse(res, 'Missing required fields', null, 400);
       }
 
       // Validate questions
       for (const question of assessmentData.questions) {
-        if (!question.question_text || !question.question_type || !question.options) {
+        if (!question.question_text || !question.options) {
           return errorResponse(res, 'Invalid question format', null, 400);
-        }
-
-        if (!['single_choice', 'multiple_choice'].includes(question.question_type)) {
-          return errorResponse(res, 'Invalid question type', null, 400);
         }
 
         // Validate options
@@ -118,8 +111,8 @@ class AssessmentsController {
         }
 
         for (const option of question.options) {
-          if (!option.option_text || typeof option.is_correct !== 'boolean') {
-            return errorResponse(res, 'Invalid option format', null, 400);
+          if (!option.option_text || typeof option.points !== 'number') {
+            return errorResponse(res, 'Invalid option format. Each option must have option_text and points', null, 400);
           }
         }
       }

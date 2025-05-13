@@ -536,15 +536,15 @@ class CompanyController {
       });
       
       // Log the deactivation request with user-friendly description
-      if (result.status && companyDetails.length > 0) {
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'companies',
-          action: 'deactivation_request',
-          description: `Deactivation requested for company "${companyDetails[0].company_name}". Reason: ${deactivation_reason}`
-        });
-      }
+      // if (result.status && companyDetails.length > 0) {
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'companies',
+      //     action: 'deactivation_request',
+      //     description: `Deactivation requested for company "${companyDetails[0].company_name}". Reason: ${deactivation_reason}`
+      //   });
+      // }
       
       return res.status(result.code).json(result);
     } catch (error) {
@@ -609,14 +609,30 @@ class CompanyController {
       
       // Log the deactivation request processing with user-friendly description
       if (result.status && requestDetails.length > 0) {
-        const action = status === 'approved' ? 'deactivation_approved' : 'deactivation_rejected';
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'companies',
-          action: action,
-          description: `Deactivation request for company "${requestDetails[0].company_name}" was ${status}${status === 'approved' ? '. Company has been deactivated.' : ''}`
-        });
+        try {
+          // Get user details for the log
+          const [userDetails] = await db.query(
+            `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+            [user.user_id]
+          );
+          
+          const performedBy = userDetails && userDetails.length > 0 
+            ? `${userDetails[0].first_name} ${userDetails[0].last_name}`
+            : `User ID: ${user.user_id}`;
+          
+          const action = status === 'approved' ? 'deactivation_approved' : 'deactivation_rejected';
+          
+          await ActivityLogService.createLog({
+            user_id: user.user_id,
+            performed_by: performedBy,
+            module_name: 'companies',
+            action: action,
+            description: `Deactivation request for company "${requestDetails[0].company_name}" was ${status}${status === 'approved' ? '. Company has been deactivated.' : ''}`
+          });
+        } catch (logError) {
+          console.error("Error creating activity log:", logError);
+          // Continue with the response even if logging fails
+        }
       }
       
       return res.status(result.code).json(result);
@@ -831,7 +847,7 @@ class CompanyController {
       const { user_id, role_id } = req.user;
 
       const { company_name, email, company_size, department_ids, contact_person_info } = req.body;
-  
+
       // Check if the user exists and has the correct role_id in the database
       const [user] = await db.query(
         `SELECT role_id FROM users WHERE user_id = ? AND role_id = ?`,
@@ -846,7 +862,7 @@ class CompanyController {
           data: null,
         });
       }
-  
+
       // Validate the required fields
       if (!company_name || !company_size || !contact_person_info) {
         return res.status(400).json({
@@ -856,7 +872,7 @@ class CompanyController {
           data: null,
         });
       }
-  
+
       // Validate department_ids (must be an array if provided)
       if (department_ids && !Array.isArray(department_ids)) {
         return res.status(400).json({
@@ -866,7 +882,7 @@ class CompanyController {
           data: null,
         });
       }
-  
+
       // Call the service to create the company
       const result = await createCompany({
         company_name,
@@ -874,16 +890,32 @@ class CompanyController {
         department_ids,
         contact_person_info
       });
-  
+
       // Log the company creation with user-friendly description
       if (result.status) {
-        await ActivityLogService.createLog({
-          user_id: user_id,
-          performed_by: 'admin',
-          module_name: 'companies',
-          action: 'create',
-          description: `Company "${company_name}" created. Contact person: ${contact_person_info.first_name} ${contact_person_info.last_name} (${contact_person_info.email})`
-        });
+        try {
+          // Get user details for the log
+          const [userDetails] = await db.query(
+            `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+            [user_id]
+          );
+          
+          const performedBy = userDetails && userDetails.length > 0 
+            ? `${userDetails[0].first_name} ${userDetails[0].last_name}`
+            : `User ID: ${user_id}`;
+            
+          await ActivityLogService.createLog({
+            user_id: user_id,
+            company_id: result.data.company.id,
+            performed_by: performedBy,
+            module_name: 'companies',
+            action: 'create',
+            description: `Company "${company_name}" created. Contact person: ${contact_person_info.first_name} ${contact_person_info.last_name} (${contact_person_info.email})`
+          });
+        } catch (logError) {
+          console.error("Error creating activity log:", logError);
+          // Continue with the response even if logging fails
+        }
       }
 
       return res.status(result.code).json(result);

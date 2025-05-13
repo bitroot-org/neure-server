@@ -104,15 +104,15 @@ class SoundscapeController {
       });
 
       // Log the soundscape creation
-      if (result.status) {
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'soundscapes',
-          action: 'create',
-          description: `Soundscape "${title}" created by artist "${artistName}" in category "${category}".`
-        });
-      }
+      // if (result.status) {
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'soundscapes',
+      //     action: 'create',
+      //     description: `Soundscape "${title}" created by artist "${artistName}" in category "${category}".`
+      //   });
+      // }
 
       return res.status(result.code).json(result);
     } catch (error) {
@@ -157,24 +157,24 @@ class SoundscapeController {
       }
 
       // Log the soundscape deletion
-      if (soundscapeDetails) {
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'soundscapes',
-          action: 'delete',
-          description: `Soundscape "${soundscapeDetails.title}" by artist "${soundscapeDetails.artist_name}" was deleted`
-        });
-      } else {
-        // Fallback if we couldn't get the details
-        await ActivityLogService.createLog({
-          user_id: user?.user_id,
-          performed_by: 'admin',
-          module_name: 'soundscapes',
-          action: 'delete',
-          description: `Soundscape was deleted`
-        });
-      }
+      // if (soundscapeDetails) {
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'soundscapes',
+      //     action: 'delete',
+      //     description: `Soundscape "${soundscapeDetails.title}" by artist "${soundscapeDetails.artist_name}" was deleted`
+      //   });
+      // } else {
+      //   // Fallback if we couldn't get the details
+      //   await ActivityLogService.createLog({
+      //     user_id: user?.user_id,
+      //     performed_by: 'admin',
+      //     module_name: 'soundscapes',
+      //     action: 'delete',
+      //     description: `Soundscape was deleted`
+      //   });
+      // }
 
       return res.status(200).json({
         status: true,
