@@ -200,7 +200,7 @@ class AssessmentsController {
   static async getUserAssessmentResponses(req, res) {
     try {
       const { assessment_id } = req.params;
-      const { user_id } = req.query; 
+      const { user_id } = req.user; 
 
       console.log("user_id", user_id);
       console.log("assessment_id", assessment_id);
@@ -269,6 +269,26 @@ class AssessmentsController {
     } catch (error) {
       console.error("Error in getAssessmentCompletionList controller:", error);
       return errorResponse(res, 'Error retrieving assessment completion list', error);
+    }
+  }
+
+  static async getUserSubmittedAssessments(req, res) {
+    try {
+      // Get user_id from JWT token or from query parameter
+      const requestedUserId = req.query.user_id ? parseInt(req.query.user_id) : req.user.user_id;
+      
+      // If a specific user_id is requested and not the user's own, check permissions
+      if (requestedUserId !== req.user.user_id) {
+        // Only superadmins can view other users' submissions
+        if (req.user.role_id !== 1) {
+          return errorResponse(res, 'Access denied. You can only view your own submissions', null, 403);
+        }
+      }
+      
+      const result = await AssessmentsService.getUserSubmittedAssessments(requestedUserId);
+      return successResponse(res, 'User submitted assessments retrieved successfully', result.data);
+    } catch (error) {
+      return errorResponse(res, 'Error retrieving user submitted assessments', error);
     }
   }
 }

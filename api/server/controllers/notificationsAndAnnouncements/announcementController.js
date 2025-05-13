@@ -243,6 +243,32 @@ class AnnouncementController {
       });
     }
   }
+
+  static async getUnreadCount(req, res) {
+    try {
+      const { company_id } = req.query;
+      const user_id = req.user.user_id;
+      
+      const count = await AnnouncementService.getUnreadAnnouncementCount(
+        user_id,
+        company_id ? parseInt(company_id) : null
+      );
+      
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: 'Unread announcement count retrieved successfully',
+        data: { count }
+      });
+    } catch (error) {
+      console.error('Error fetching announcement count:', error.message);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: 'Failed to fetch announcement count'
+      });
+    }
+  }
 }
 
 module.exports = AnnouncementController;

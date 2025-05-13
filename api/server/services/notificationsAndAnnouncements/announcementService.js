@@ -350,6 +350,40 @@ class AnnouncementService {
       throw new Error("Failed to mark announcements as read: " + error.message);
     }
   }
+
+  // Get unread announcement count for a user
+  static async getUnreadAnnouncementCount(user_id, company_id = null) {
+    try {
+      let query = `
+        SELECT COUNT(*) as count 
+        FROM announcements a
+        LEFT JOIN announcement_reads ar ON a.id = ar.announcement_id AND ar.user_id = ?
+        WHERE a.is_active = 1 AND ar.id IS NULL
+      `;
+      
+      const params = [user_id];
+      
+      // Add company filter if company_id is provided
+      if (company_id) {
+        query = `
+          SELECT COUNT(*) as count 
+          FROM announcements a
+          LEFT JOIN announcement_reads ar ON a.id = ar.announcement_id AND ar.user_id = ?
+          LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+          WHERE a.is_active = 1 
+          AND ar.id IS NULL
+          AND (a.audience_type = 'all' OR ac.company_id = ?)
+        `;
+        params.push(company_id);
+      }
+      
+      const [result] = await db.query(query, params);
+      return result[0].count;
+    } catch (error) {
+      console.error("Error in getUnreadAnnouncementCount:", error.message);
+      throw new Error("Failed to fetch announcement count");
+    }
+  }
 }
 
 module.exports = AnnouncementService;

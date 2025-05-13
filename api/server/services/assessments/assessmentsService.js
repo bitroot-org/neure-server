@@ -727,6 +727,44 @@ class AssessmentsService {
       return false;
     }
   }
+
+  static async getUserSubmittedAssessments(user_id) {
+    try {
+      // Query to get all assessments submitted by the user with scores
+      const query = `
+        SELECT 
+          ua.id as submission_id,
+          ua.assessment_id,
+          a.title as assessment_title,
+          ua.score,
+          ua.completed_at,
+          c.id as company_id,
+          c.company_name
+        FROM 
+          user_assessments ua
+        JOIN 
+          assessments a ON ua.assessment_id = a.id
+        JOIN 
+          companies c ON ua.company_id = c.id
+        WHERE 
+          ua.user_id = ?
+        ORDER BY 
+          ua.completed_at DESC
+      `;
+
+      const [results] = await db.query(query, [user_id]);
+      
+      return {
+        status: true,
+        code: 200,
+        message: "User submitted assessments retrieved successfully",
+        data: results
+      };
+    } catch (error) {
+      console.error("Error retrieving user submitted assessments:", error);
+      throw error;
+    }
+  }
 }
 
 module.exports = AssessmentsService;

@@ -11,6 +11,7 @@ router.get('/list', authorization, AssessmentsController.getAssessmentsList);
 router.get('/completionLists', authorization, AssessmentsController.getAssessmentCompletionList);
 router.get('/responses/:assessment_id', authorization, AssessmentsController.getUserAssessmentResponses);
 router.get('/getAssessmentCompletionList', authorization, AssessmentsController.getAssessmentCompletionList);
+router.get('/user-submissions', authorization, AssessmentsController.getUserSubmittedAssessments);
  
 // Parameter routes last
 router.get('/:id', authorization, AssessmentsController.getAssessmentById);

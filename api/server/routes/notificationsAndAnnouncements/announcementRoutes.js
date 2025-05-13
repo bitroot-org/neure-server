@@ -21,4 +21,7 @@ router.post("/mark-read", authorization, AnnouncementController.markAsRead);
 // Mark all announcements as read
 router.post("/mark-all-read", authorization, AnnouncementController.markAllAsRead);
 
+// Get unread announcement count
+router.get("/unread-count", authorization, AnnouncementController.getUnreadCount);
+
 module.exports = router;
