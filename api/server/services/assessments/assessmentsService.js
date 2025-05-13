@@ -29,7 +29,6 @@ class AssessmentsService {
           a.id, 
           a.title, 
           a.description, 
-          a.assessment_type,
           a.created_at
         FROM assessments a
         WHERE a.is_active = 1

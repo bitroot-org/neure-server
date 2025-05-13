@@ -77,19 +77,29 @@ class AnnouncementService {
 
       if (company_id) {
         if (audience_type === 'employees') {
-          // For employees, fetch both employee announcements AND 'all' announcements
+          // For employees, fetch employee announcements, company_employees announcements AND 'all' announcements
           query += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
-            AND (a.audience_type = 'employees' OR a.audience_type = 'all')
-            AND (a.audience_type = 'all' OR ac.company_id = ?)
+            AND (
+              a.audience_type = 'employees' 
+              OR a.audience_type = 'all' 
+              OR (a.audience_type = 'company_employees' AND ac.company_id = ?)
+            )
+            AND (a.audience_type = 'all' OR a.audience_type = 'employees' OR ac.company_id = ?)
           `;
           countQuery += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
-            AND (a.audience_type = 'employees' OR a.audience_type = 'all')
-            AND (a.audience_type = 'all' OR ac.company_id = ?)
+            AND (
+              a.audience_type = 'employees' 
+              OR a.audience_type = 'all' 
+              OR (a.audience_type = 'company_employees' AND ac.company_id = ?)
+            )
+            AND (a.audience_type = 'all' OR a.audience_type = 'employees' OR ac.company_id = ?)
           `;
+          queryParams.push(company_id, company_id);
+          countParams.push(company_id, company_id);
         } else if (audience_type === 'company') {
           // For companies, fetch both company announcements AND 'all' announcements
           query += `
@@ -104,6 +114,8 @@ class AnnouncementService {
             AND (a.audience_type = 'company' OR a.audience_type = 'all')
             AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
+          queryParams.push(company_id);
+          countParams.push(company_id);
         } else {
           // For 'all' audience_type, fetch all announcements for this company
           query += `
@@ -116,9 +128,9 @@ class AnnouncementService {
             WHERE a.is_active = 1 
             AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
+          queryParams.push(company_id);
+          countParams.push(company_id);
         }
-        queryParams.push(company_id);
-        countParams.push(company_id);
       } else {
         // If no company_id, fetch all active announcements
         query += `WHERE a.is_active = 1`;
@@ -239,8 +251,8 @@ class AnnouncementService {
           throw new Error("This announcement is not targeted to this user");
         }
         
-        // For targeted announcements, also check if the company is targeted
-        if (announcement[0].audience_type !== 'all') {
+        // For company-specific announcements, check if the company is targeted
+        if (announcement[0].audience_type === 'company' || announcement[0].audience_type === 'company_employees') {
           const [targetedCompany] = await db.query(
             `SELECT * FROM announcement_company 
              WHERE announcement_id = ? AND company_id = ?`,
