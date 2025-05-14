@@ -81,6 +81,15 @@ class EmailService {
     });
   }
 
+  static async sendWellbeingReportEmail(contactName, companyName, email, startDate, endDate, reportUrl) {
+    const template = EmailTemplates.wellbeingReportTemplate(contactName, companyName, startDate, endDate, reportUrl);
+    return this.sendEmail({
+      to: email,
+      subject: template.subject,
+      html: template.html
+    });
+  }
+
   static async sendAccountDeactivationEmail(employeeName, email, companyName) {
     const template = EmailTemplates.accountDeactivationTemplate(employeeName, companyName);
     return this.sendEmail({

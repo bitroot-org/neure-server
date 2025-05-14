@@ -497,13 +497,6 @@ class AssessmentsService {
     }
   }
 
-  // Helper function to compare sets
-  static setsAreEqual(a, b) {
-    if (a.size !== b.size) return false;
-    for (const item of a) if (!b.has(item)) return false;
-    return true;
-  }
-
   static async getAssessmentsList() {
     try {
       // Query to fetch only id and title of active assessments
@@ -709,22 +702,6 @@ class AssessmentsService {
     } catch (error) {
       console.error("Error in getAssessmentCompletionList:", error);
       throw error;
-    }
-  }
-
-  // Add a method to identify if an assessment is a PSI assessment
-  static async isPsiAssessment(assessmentId) {
-    try {
-      const [result] = await db.query(
-        "SELECT is_psi_assessment FROM assessments WHERE id = ? AND is_active = 1",
-        [assessmentId]
-      );
-      
-      // Return true if the assessment exists and is_psi_assessment is 1
-      return result.length > 0 && result[0].is_psi_assessment === 1;
-    } catch (error) {
-      console.error("Error checking if assessment is PSI:", error);
-      return false;
     }
   }
 

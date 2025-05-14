@@ -835,6 +835,12 @@ class CompanyService {
     const connection = await db.getConnection();
 
     try {
+      console.log("Processing bulk employee creation for company:", company_id);
+      
+      if (!company_id) {
+        throw new Error("Company ID is required");
+      }
+      
       const results = {
         successful: [],
         failed: [],
@@ -842,7 +848,7 @@ class CompanyService {
 
       await connection.beginTransaction();
 
-      // Get unique department IDs instead of names
+      // Get unique department IDs
       const departmentIds = [
         ...new Set(
           employees
@@ -854,6 +860,7 @@ class CompanyService {
       console.log("Department IDs:", departmentIds);
 
       // Validate department IDs if any exist
+      let validDepartmentIds = new Set();
       if (departmentIds.length > 0) {
         const [departments] = await connection.query(
           `SELECT id FROM departments WHERE id IN (?)`,
@@ -861,17 +868,56 @@ class CompanyService {
         );
 
         // Create department ID validation set
-        const validDepartmentIds = new Set(departments.map((dept) => dept.id));
-
+        validDepartmentIds = new Set(departments.map((dept) => dept.id));
         console.log("Valid department IDs:", validDepartmentIds);
       }
 
+      // Check for duplicate emails in the database
+      const allEmails = employees.map(emp => emp.email);
+      const [existingUsers] = await connection.query(
+        `SELECT email FROM users WHERE email IN (?)`,
+        [allEmails]
+      );
+      
+      const existingEmails = new Set(existingUsers.map(user => user.email.toLowerCase()));
+      console.log(`Found ${existingEmails.size} existing emails in the database`);
+
       for (const employee of employees) {
         try {
-          // Calculate age based on date_of_birth
-          const dob = new Date(
-            Math.round((employee.date_of_birth - 25569) * 86400 * 1000)
-          );
+          // Skip if email already exists in the database
+          if (existingEmails.has(employee.email.toLowerCase())) {
+            throw new Error(`Email ${employee.email} already exists in the system`);
+          }
+          
+          // Validate department ID if provided
+          if (employee.department_id && !validDepartmentIds.has(employee.department_id)) {
+            throw new Error(`Invalid department ID: ${employee.department_id}`);
+          }
+
+          // Convert Excel date number to JavaScript Date
+          let dob;
+          if (typeof employee.date_of_birth === 'number') {
+            // Excel date conversion - Excel dates are days since 1/1/1900
+            // But Excel has a leap year bug, so we need to adjust
+            const excelEpoch = new Date(1899, 11, 30);
+            dob = new Date(excelEpoch.getTime() + (employee.date_of_birth * 24 * 60 * 60 * 1000));
+            console.log(`Converting Excel date ${employee.date_of_birth} to ${dob.toISOString()}`);
+          } else if (employee.date_of_birth instanceof Date) {
+            dob = employee.date_of_birth;
+          } else if (employee.date_of_birth) {
+            // Try to parse as string
+            dob = new Date(employee.date_of_birth);
+          } else {
+            // Default to current date minus 30 years if not provided
+            dob = new Date();
+            dob.setFullYear(dob.getFullYear() - 30);
+          }
+          
+          // Validate the date is valid
+          if (isNaN(dob.getTime())) {
+            throw new Error(`Invalid date of birth for ${employee.email}`);
+          }
+          
           const age = Math.floor(
             (new Date() - dob) / (365.25 * 24 * 60 * 60 * 1000)
           );
@@ -882,6 +928,12 @@ class CompanyService {
             .slice(0, 4)
             .toLowerCase()}${day}${month}`;
           const hashedPassword = await bcrypt.hash(password, 10);
+          
+          // Generate username if not provided
+          const username = employee.username || await CompanyService.generateUniqueUsername(
+            employee.first_name,
+            employee.last_name
+          );
 
           // Insert user
           const [userResult] = await connection.query(
@@ -891,18 +943,20 @@ class CompanyService {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)`,
             [
               employee.email,
-              employee.phone,
+              employee.phone || null,
               hashedPassword,
-              employee.username,
+              username,
               employee.first_name,
               employee.last_name,
               employee.gender,
               dob,
               employee.job_title || null,
               age,
-              employee.city,
+              employee.city || null,
             ]
           );
+
+          console.log(`Created user with ID: ${userResult.insertId}`);
 
           // Add subscription record for the new user
           await connection.query(
@@ -923,6 +977,8 @@ class CompanyService {
             ) VALUES (?, ?, NOW())`,
             [company_id, userResult.insertId]
           );
+          
+          console.log(`Added user ${userResult.insertId} to company ${company_id}`);
 
           // Insert department if provided
           if (employee.department_id) {
@@ -932,6 +988,7 @@ class CompanyService {
               ) VALUES (?, ?)`,
               [userResult.insertId, employee.department_id]
             );
+            console.log(`Assigned user ${userResult.insertId} to department ${employee.department_id}`);
           }
 
           // Send welcome email
@@ -951,6 +1008,7 @@ class CompanyService {
             temp_password: password,
           });
         } catch (error) {
+          console.error(`Error processing employee ${employee.email}:`, error);
           results.failed.push({
             email: employee.email,
             error: error.message,
@@ -959,14 +1017,26 @@ class CompanyService {
       }
 
       await connection.commit();
+      
+      // If no employees were successfully created, return an error
+      if (results.successful.length === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: "No employees were created",
+          data: results,
+        };
+      }
+      
       return {
         status: true,
         code: 201,
-        message: "Bulk employee creation completed",
+        message: `Successfully created ${results.successful.length} employees${results.failed.length > 0 ? ` (${results.failed.length} failed)` : ''}`,
         data: results,
       };
     } catch (error) {
       await connection.rollback();
+      console.error("Error in bulkCreateEmployees:", error);
       throw error;
     } finally {
       connection.release();
@@ -2232,6 +2302,135 @@ class CompanyService {
     } catch (error) {
       console.error("Error in getCompanyStressTrends:", error);
       throw error;
+    }
+  }
+
+  static async deleteCompany(company_id) {
+    const connection = await db.getConnection();
+    try {
+      console.log(`Starting deletion process for company ID: ${company_id}`);
+      
+      await connection.beginTransaction();
+      
+      // 1. Check if company exists
+      const [company] = await connection.query(
+        `SELECT id, company_name, contact_person_id FROM companies WHERE id = ?`,
+        [company_id]
+      );
+      
+      if (!company || company.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Company not found",
+          data: null,
+        };
+      }
+      
+      const companyName = company[0].company_name;
+      const contactPersonId = company[0].contact_person_id;
+      
+      console.log(`Deleting company: ${companyName} (ID: ${company_id})`);
+      
+      // 2. Get all employees of the company
+      const [employees] = await connection.query(
+        `SELECT user_id FROM company_employees WHERE company_id = ?`,
+        [company_id]
+      );
+      
+      const employeeIds = employees.map(emp => emp.user_id);
+      console.log(`Found ${employeeIds.length} employees to delete`);
+      
+      if (employeeIds.length > 0) {
+        // 3. Delete from user_subscriptions for all employees
+        await connection.query(
+          `DELETE FROM user_subscriptions WHERE user_id IN (?)`,
+          [employeeIds]
+        );
+        console.log(`Deleted user subscriptions for ${employeeIds.length} employees`);
+        
+        // 4. Delete from user_departments for all employees
+        await connection.query(
+          `DELETE FROM user_departments WHERE user_id IN (?)`,
+          [employeeIds]
+        );
+        console.log(`Deleted department assignments for employees`);
+        
+        // 5. Delete from company_employees
+        await connection.query(
+          `DELETE FROM company_employees WHERE company_id = ?`,
+          [company_id]
+        );
+        console.log(`Deleted company_employees records`);
+        
+        // 6. Delete from users table (all employees except contact person)
+        const employeesExceptContact = employeeIds.filter(id => id !== contactPersonId);
+        if (employeesExceptContact.length > 0) {
+          await connection.query(
+            `DELETE FROM users WHERE user_id IN (?)`,
+            [employeesExceptContact]
+          );
+          console.log(`Deleted ${employeesExceptContact.length} employee user accounts`);
+        }
+      }
+      
+      // 7. Delete company subscriptions
+      await connection.query(
+        `DELETE FROM company_subscriptions WHERE company_id = ?`,
+        [company_id]
+      );
+      console.log(`Deleted company subscription`);
+      
+      
+      // 9. Delete company metrics history
+      await connection.query(
+        `DELETE FROM company_metrics_history WHERE company_id = ?`,
+        [company_id]
+      );
+      console.log(`Deleted company metrics history`);
+      
+      
+      // 12. Delete the company record
+      await connection.query(
+        `DELETE FROM companies WHERE id = ?`,
+        [company_id]
+      );
+      console.log(`Deleted company record`);
+      
+      // 13. Finally, delete the contact person from users table
+      if (contactPersonId) {
+        // First delete from user_subscriptions
+        await connection.query(
+          `DELETE FROM user_subscriptions WHERE user_id = ?`,
+          [contactPersonId]
+        );
+        
+        // Then delete the user
+        await connection.query(
+          `DELETE FROM users WHERE user_id = ?`,
+          [contactPersonId]
+        );
+        console.log(`Deleted contact person (user_id: ${contactPersonId})`);
+      }
+      
+      await connection.commit();
+      
+      return {
+        status: true,
+        code: 200,
+        message: "Company and all associated data deleted successfully",
+        data: {
+          company_id,
+          company_name: companyName,
+          deleted_employees_count: employeeIds.length
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      console.error(`Error deleting company ${company_id}:`, error);
+      throw new Error(`Error deleting company: ${error.message}`);
+    } finally {
+      connection.release();
     }
   }
 

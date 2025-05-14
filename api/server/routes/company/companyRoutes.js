@@ -4,7 +4,7 @@ const tokenValidator = require("../../../auth/tokenValidator.js");
 const { authorization } = tokenValidator;
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
-const { generateWellbeingReport } = require('../../controllers/company/reportController');
+const { generateWellbeingReport, emailWellbeingReport } = require('../../controllers/company/reportController');
 
 const {
   registerCompany,
@@ -38,6 +38,7 @@ const {
   getDeactivationRequests,
   getDeactivatedCompanies,
   getFeedback,
+  deleteCompany,
 } = require("../../controllers/company/companyController.js");
 const { validate } = require("node-cron");
 
@@ -104,5 +105,9 @@ router.get("/deactivationRequests", authorization, getDeactivationRequests);
 router.get("/deactivatedCompanies", authorization, getDeactivatedCompanies);
 
 router.get('/reports/wellbeing/:company_id', authorization, generateWellbeingReport);
+router.get('/reports/wellbeing/email/:company_id', authorization, emailWellbeingReport);
+
+// Delete a company and all its data
+router.delete("/delete/:company_id", authorization, deleteCompany);
 
 module.exports = router;

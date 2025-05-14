@@ -33,7 +33,8 @@ const {
   getCompanyStressTrends,
   getDeactivationRequests,
   getDeactivatedCompanies,
-  getFeedback
+  getFeedback,
+  deleteCompany
 } = require("../../services/company/companyService");
 
 // Helper function to validate date format
@@ -314,20 +315,80 @@ class CompanyController {
         });
       }
 
+      if (!req.body.company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+          data: null,
+        });
+      }
 
       const workbook = XLSX.readFile(req.file.path);
       const sheetName = workbook.SheetNames[0];
       const employees = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
       console.log("Received employees data:", employees);
+      
+      // Check if the file contains any employee records
+      if (!employees || employees.length === 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "The uploaded file contains no employee data",
+          data: null,
+        });
+      }
+      
+      // Validate required fields for each employee
+      const requiredFields = ['email', 'first_name', 'last_name', 'gender'];
+      const missingFieldsEmployees = employees.filter(emp => 
+        requiredFields.some(field => !emp[field])
+      );
+      
+      if (missingFieldsEmployees.length > 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Some employees are missing required fields (email, first_name, last_name, gender)",
+          data: {
+            invalidEmployees: missingFieldsEmployees.map(emp => ({
+              email: emp.email || 'No email provided',
+              missingFields: requiredFields.filter(field => !emp[field])
+            }))
+          },
+        });
+      }
+
       const result = await bulkCreateEmployees(employees, req.body.company_id);
+      
+      // Check if any employees were successfully created
+      if (result.data.successful.length === 0 && result.data.failed.length > 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Failed to create any employees",
+          data: result.data,
+        });
+      }
+      
+      // If some employees failed but others succeeded, return partial success
+      if (result.data.failed.length > 0) {
+        return res.status(207).json({  // 207 Multi-Status
+          status: true,
+          code: 207,
+          message: "Some employees were created successfully, but others failed",
+          data: result.data,
+        });
+      }
+      
       return res.status(201).json(result);
     } catch (error) {
-      console.error(error);
+      console.error("Error in bulkCreateEmployees controller:", error);
       return res.status(500).json({
         status: false,
         code: 500,
-        message: "Error creating employees",
+        message: "Error creating employees: " + error.message,
         data: null,
       });
     }
@@ -1141,6 +1202,86 @@ class CompanyController {
         code: 500,
         message: "Error retrieving feedback",
         data: null
+      });
+    }
+  }
+
+  static async deleteCompany(req, res) {
+    try {
+      const { company_id } = req.params;
+      const { user_id, role_id } = req.user;
+      
+      // Only superadmins can delete companies
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete companies",
+          data: null,
+        });
+      }
+      
+      if (!company_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Company ID is required",
+          data: null,
+        });
+      }
+      
+      // Get company details before deletion for logging
+      const [companyDetails] = await db.query(
+        `SELECT company_name FROM companies WHERE id = ?`,
+        [company_id]
+      );
+      
+      if (!companyDetails || companyDetails.length === 0) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Company not found",
+          data: null,
+        });
+      }
+      
+      const companyName = companyDetails[0].company_name;
+      
+      const result = await deleteCompany(company_id);
+      
+      // Log the company deletion
+      if (result.status) {
+        try {
+          // Get admin user details for the log
+          const [userDetails] = await db.query(
+            `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+            [user_id]
+          );
+          
+          const performedBy = userDetails && userDetails.length > 0 
+            ? `${userDetails[0].first_name} ${userDetails[0].last_name}`
+            : `User ID: ${user_id}`;
+          
+          await ActivityLogService.createLog({
+            user_id: user_id,
+            performed_by: performedBy,
+            module_name: 'companies',
+            action: 'delete',
+            description: `Company "${companyName}" (ID: ${company_id}) and all associated data permanently deleted`
+          });
+        } catch (logError) {
+          console.error("Error creating activity log:", logError);
+        }
+      }
+      
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in deleteCompany controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error deleting company: " + error.message,
+        data: null,
       });
     }
   }

@@ -255,6 +255,7 @@ const fs = require('fs');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const handlebars = require('handlebars');
+const EmailService = require("../email/emailService");
 
 class CompanyReportPdfService {
   static async generateWellbeingReport(companyId, startDate, endDate) {
@@ -445,6 +446,60 @@ class CompanyReportPdfService {
     } catch (error) {
       console.error('Error in uploadToS3:', error);
       throw new Error(`Failed to upload PDF to S3: ${error.message}`);
+    }
+  }
+
+  static async emailWellbeingReport(companyId, startDate, endDate) {
+    try {
+      // First generate the report
+      const reportResult = await this.generateWellbeingReport(companyId, startDate, endDate);
+      
+      if (!reportResult.status) {
+        throw new Error(`Failed to generate report: ${reportResult.message}`);
+      }
+      
+      // Get company contact person email
+      const [companies] = await db.query(
+        'SELECT c.*, u.email, u.first_name FROM companies c JOIN users u ON c.contact_person_id = u.user_id WHERE c.id = ?',
+        [companyId]
+      );
+      
+      if (!companies || companies.length === 0) {
+        throw new Error(`Company not found with ID: ${companyId}`);
+      }
+      
+      const company = companies[0];
+      
+      if (!company.email) {
+        throw new Error('Contact person email not found');
+      }
+      
+      // Format dates for display
+      const formattedStartDate = new Date(startDate).toLocaleDateString();
+      const formattedEndDate = new Date(endDate).toLocaleDateString();
+      
+      // Send email with the report URL using the template
+      await EmailService.sendWellbeingReportEmail(
+        company.first_name,
+        company.company_name,
+        company.email,
+        formattedStartDate,
+        formattedEndDate,
+        reportResult.data.pdfUrl
+      );
+      
+      return {
+        status: true,
+        message: 'Well-being report emailed successfully',
+        data: {
+          sentTo: company.email,
+          companyName: company.company_name,
+          reportDate: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error('Error in emailWellbeingReport:', error);
+      throw new Error(`Error emailing well-being report: ${error.message}`);
     }
   }
 }
