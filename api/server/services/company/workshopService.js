@@ -625,8 +625,8 @@ class workshopService {
         host_name
       };
 
-      // Generate PDFs for all employees in the company - pass complete data
-      await WorkshopPdfService.generateEmployeeWorkshopPdfs(
+      // Generate tickets for all employees and start PDF generation in background
+      const ticketResults = await WorkshopPdfService.generateTicketsForWorkshop(
         workshopData,
         company[0],
         companyEmployees,
@@ -667,7 +667,7 @@ class workshopService {
       return {
         status: true,
         code: 201,
-        message: "Workshop scheduled successfully and PDFs generated",
+        message: "Workshop scheduled successfully and tickets generated",
         data: {
           schedule_id: scheduleId,
           company_id,
@@ -676,6 +676,7 @@ class workshopService {
           end_time: formattedDates[0].formatted_end_time,
           duration_minutes,
           host_name,
+          tickets_generated: ticketResults.length
         },
       };
     } catch (error) {
