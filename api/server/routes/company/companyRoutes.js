@@ -4,6 +4,18 @@ const tokenValidator = require("../../../auth/tokenValidator.js");
 const { authorization } = tokenValidator;
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
+const imageUpload = multer({
+  dest: "temp/",
+  limits: { fieldSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPG, PNG, GIF and WEBP files are allowed!'));
+    }
+  }
+});
 const { generateWellbeingReport, emailWellbeingReport } = require('../../controllers/company/reportController');
 
 const {
@@ -44,7 +56,7 @@ const { validate } = require("node-cron");
 
 router.post("/registerCompany", authorization, registerCompany);
 router.get("/getAllCompanies", authorization, getAllCompanies);
-router.put("/updateCompanyInfo", authorization, updateCompany);
+router.put("/updateCompanyInfo", authorization, imageUpload.single("file"), updateCompany);
 router.get(
   "/getTopPerformingEmployee",
   authorization,

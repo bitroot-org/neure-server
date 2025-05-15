@@ -1,63 +1,102 @@
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const QRCode = require('qrcode');
-const PDFDocument = require('pdfkit');
 const { nanoid } = require('nanoid');
 const db = require("../../../config/db");
-
+const EmailService = require("../email/emailService");
+const fs = require('fs');
+const path = require('path');
+const handlebars = require('handlebars');
+const puppeteer = require('puppeteer');
 
 class WorkshopPdfService {
-  static async generateEmployeeWorkshopPdfs(workshop_id, company_id, schedule_id) {
+  static async generateEmployeeWorkshopPdfs(workshopIdOrData, companyIdOrData, employeesOrScheduleId, schedule_id = null) {
     try {
-      console.log('Generating PDFs for workshop:', workshop_id, 'company:', company_id, 'schedule:', schedule_id);
-      
-      // Get workshop details
-      const [workshopResults] = await db.query(
-        'SELECT * FROM workshops WHERE id = ?',
-        [workshop_id]
-      );
-      
-      if (workshopResults.length === 0) {
-        throw new Error(`Workshop not found with ID: ${workshop_id}`);
-      }
-      
-      // Get company details
-      const [companyResults] = await db.query(
-        'SELECT * FROM companies WHERE id = ?',
-        [company_id]
-      );
-      
-      if (companyResults.length === 0) {
-        throw new Error(`Company not found with ID: ${company_id}`);
-      }
 
-      // Get schedule details
-      const [scheduleResults] = await db.query(
-        'SELECT * FROM workshop_schedules WHERE id = ?',
-        [schedule_id]
-      );
-      
-      if (scheduleResults.length === 0) {
-        throw new Error(`Schedule not found with ID: ${schedule_id}`);
+      console.log('Starting PDF generation with data:', {
+        workshopIdOrData,
+        companyIdOrData,
+        employeesOrScheduleId,
+        schedule_id
+      });
+
+      // Check if first parameter is a workshop object or just an ID
+      if (typeof workshopIdOrData === 'object' && workshopIdOrData !== null) {
+        // New implementation with full data objects
+        return this.generateEmployeeWorkshopPdfsWithData(
+          workshopIdOrData, 
+          companyIdOrData, 
+          employeesOrScheduleId, 
+          schedule_id
+        );
+      } else {
+        // Legacy implementation with IDs
+        const workshop_id = workshopIdOrData;
+        const company_id = companyIdOrData;
+        schedule_id = employeesOrScheduleId; // In old signature, third param is schedule_id
+        
+        console.log('Generating PDFs for workshop:', workshop_id, 'company:', company_id, 'schedule:', schedule_id);
+        
+        // Get workshop details
+        const [workshopResults] = await db.query(
+          'SELECT * FROM workshops WHERE id = ?',
+          [workshop_id]
+        );
+        
+        if (workshopResults.length === 0) {
+          throw new Error(`Workshop not found with ID: ${workshop_id}`);
+        }
+        
+        // Get company details
+        const [companyResults] = await db.query(
+          'SELECT * FROM companies WHERE id = ?',
+          [company_id]
+        );
+        
+        if (companyResults.length === 0) {
+          throw new Error(`Company not found with ID: ${company_id}`);
+        }
+
+        // Get schedule details
+        const [scheduleResults] = await db.query(
+          'SELECT * FROM workshop_schedules WHERE id = ?',
+          [schedule_id]
+        );
+        
+        if (scheduleResults.length === 0) {
+          throw new Error(`Schedule not found with ID: ${schedule_id}`);
+        }
+        
+        // Add schedule_id to workshop object for use in PDF generation
+        const workshop = {
+          ...workshopResults[0],
+          schedule_id: schedule_id,
+          start_time: scheduleResults[0].start_time,
+          end_time: scheduleResults[0].end_time,
+          host_name: scheduleResults[0].host_name
+        };
+        
+        const company = companyResults[0];
+        
+        // Get all active employees in the company
+        const [employees] = await db.query(
+          `SELECT ce.user_id, u.first_name, u.last_name, u.email 
+           FROM company_employees ce
+           JOIN users u ON ce.user_id = u.user_id
+           WHERE ce.company_id = ? AND ce.is_active = 1
+           AND u.role_id NOT IN (1, 2)`,
+          [company_id]
+        );
+        
+        return this.generateEmployeeWorkshopPdfsWithData(workshop, company, employees, schedule_id);
       }
-      
-      // Add schedule_id to workshop object for use in PDF generation
-      const workshop = {
-        ...workshopResults[0],
-        schedule_id: schedule_id
-      };
-      
-      const company = companyResults[0];
-      
-      // Get all active employees in the company
-      const [employees] = await db.query(
-        `SELECT ce.user_id, u.first_name, u.last_name, u.email 
-         FROM company_employees ce
-         JOIN users u ON ce.user_id = u.user_id
-         WHERE ce.company_id = ? AND ce.is_active = 1
-         AND u.role_id NOT IN (1, 2)`,
-        [company_id]
-      );
-      
+    } catch (error) {
+      console.error('Error in generateEmployeeWorkshopPdfs:', error);
+      throw error;
+    }
+  }
+
+  static async generateEmployeeWorkshopPdfsWithData(workshopData, companyData, employees, schedule_id) {
+    try {
       if (employees.length === 0) {
         return {
           status: true,
@@ -71,10 +110,16 @@ class WorkshopPdfService {
       
       // Generate PDFs for each employee
       const pdfPromises = employees.map(employee => 
-        this.generateSinglePdf(workshop, company, employee, schedule_id)
+        this.generateSinglePdf(workshopData, companyData, employee, schedule_id)
       );
       
       const pdfResults = await Promise.all(pdfPromises);
+      
+      // Send emails in the background after returning the response
+      setTimeout(() => {
+        this.sendWorkshopTicketEmails(workshopData, companyData, employees, pdfResults)
+          .catch(error => console.error('Error sending workshop ticket emails:', error));
+      }, 0);
       
       return {
         status: true,
@@ -83,7 +128,7 @@ class WorkshopPdfService {
         data: pdfResults
       };
     } catch (error) {
-      console.error('Error in generateEmployeeWorkshopPdfs:', error);
+      console.error('Error in generateEmployeeWorkshopPdfsWithData:', error);
       throw error;
     }
   }
@@ -103,28 +148,8 @@ class WorkshopPdfService {
 
   static async generateSinglePdf(workshop, company, employee, schedule_id) {
     try {
-      console.log('Generating PDF for employee:', employee.user_id, 'for workshop:', workshop.id, 'schedule:', schedule_id);
-
-      if (!workshop?.id) {
-        throw new Error('Invalid workshop data: missing workshop ID');
-      }
-
-      if (!company?.company_name) {
-        throw new Error('Invalid company data: missing company name');
-      }
-
-      if (!employee?.user_id) {
-        throw new Error('Invalid employee data: missing user ID');
-      }
-
-      const doc = new PDFDocument();
-      const chunks = [];
-
-      doc.on('data', chunk => chunks.push(chunk));
-      doc.on('end', () => {
-        console.log('PDF document generation completed');
-      });
-
+      console.log(`Generating PDF for employee ${employee.first_name} ${employee.last_name} (ID: ${employee.user_id})`);
+      
       // Generate structured ticket ID
       const ticketId = this.generateTicketCode(workshop.id, employee.user_id, schedule_id);
       console.log('Generated ticket ID:', ticketId);
@@ -139,37 +164,30 @@ class WorkshopPdfService {
         timestamp: new Date().toISOString()
       });
       
-      const qrCodeImage = await QRCode.toBuffer(qrCodeData);
+      const qrCodeBase64 = await QRCode.toDataURL(qrCodeData);
       console.log('QR code generated successfully');
 
-      // Create PDF content
-      doc.fontSize(16).text(`Hi ${employee.first_name},`);
-      doc.fontSize(12).text("You're all set for the upcoming workshop! Below are your workshop details.");
-      doc.fontSize(24).text(workshop.title);
+      // Format start time
+      const startTime = typeof workshop.start_time === 'string' 
+        ? workshop.start_time 
+        : new Date(workshop.start_time).toLocaleString();
+
+      // Prepare data for template
+      const templateData = {
+        firstName: employee.first_name,
+        workshopTitle: workshop.title,
+        startTime,
+        hostName: workshop.host_name,
+        companyName: company.company_name,
+        ticketId,
+        qrCode: qrCodeBase64
+      };
+
+      // Generate HTML from template
+      const html = await this.generateTicketHtml(templateData);
       
-      // Add workshop details
-      const startTime = new Date(workshop.start_time).toLocaleString();
-      doc.fontSize(14).text(`Date & Time: ${startTime}`);
-      doc.text(`Hosted by: ${workshop.host_name}`);
-      doc.text(`Company: ${company.company_name}`);
-      doc.text(`Ticket ID: ${ticketId}`);
-
-      // Add QR code
-      doc.image(qrCodeImage, { width: 200 });
-      doc.text('Show this QR code or Ticket ID to check-in');
-
-      // Add footer
-      doc.fontSize(10).text('Need Help?');
-      doc.text('If you have any questions, reach out to us at support@neure.in');
-      doc.text('— Team Neure');
-
-      // Finalize the PDF
-      await new Promise((resolve) => {
-        doc.end();
-        doc.on('end', resolve);
-      });
-
-      const pdfBuffer = Buffer.concat(chunks);
+      // Convert HTML to PDF
+      const pdfBuffer = await this.convertHtmlToPdf(html);
       console.log('PDF Buffer size:', pdfBuffer.length);
 
       // Upload to S3
@@ -210,6 +228,136 @@ class WorkshopPdfService {
     } catch (error) {
       console.error('Error in generateSinglePdf:', error);
       throw error;
+    }
+  }
+
+  static async generateTicketHtml(data) {
+    const templatePath = path.join(__dirname, '../../../templates/workshop-ticket.html');
+    
+    // Create template if it doesn't exist (first time)
+    if (!fs.existsSync(templatePath)) {
+      const templateContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Workshop Ticket</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+              color: #333;
+            }
+            .ticket-container {
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+              border: 1px solid #ddd;
+              border-radius: 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .header {
+              background: linear-gradient(135deg, #0066cc, #0052a3);
+              color: white;
+              padding: 20px;
+              border-radius: 8px 8px 0 0;
+              text-align: center;
+            }
+            .content {
+              padding: 20px;
+            }
+            .workshop-title {
+              font-size: 24px;
+              font-weight: bold;
+              margin: 15px 0;
+              color: #0066cc;
+            }
+            .details {
+              margin: 20px 0;
+              line-height: 1.6;
+            }
+            .qr-code {
+              text-align: center;
+              margin: 20px 0;
+            }
+            .qr-code img {
+              max-width: 200px;
+            }
+            .ticket-id {
+              text-align: center;
+              font-size: 18px;
+              font-weight: bold;
+              margin: 10px 0;
+              color: #0066cc;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 20px;
+              font-size: 12px;
+              color: #666;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="ticket-container">
+            <div class="header">
+              <h1>Workshop Ticket</h1>
+            </div>
+            <div class="content">
+              <p>Hi {{firstName}},</p>
+              <p>You're all set for the upcoming workshop! Below are your workshop details.</p>
+              
+              <div class="workshop-title">{{workshopTitle}}</div>
+              
+              <div class="details">
+                <p><strong>Date & Time:</strong> {{startTime}}</p>
+                <p><strong>Hosted by:</strong> {{hostName}}</p>
+                <p><strong>Company:</strong> {{companyName}}</p>
+              </div>
+              
+              <div class="ticket-id">Ticket ID: {{ticketId}}</div>
+              
+              <div class="qr-code">
+                <img src="{{qrCode}}" alt="QR Code">
+                <p>Show this QR code or Ticket ID to check-in</p>
+              </div>
+            </div>
+            <div class="footer">
+              <p>This ticket was generated by Neure.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+      fs.writeFileSync(templatePath, templateContent);
+    }
+    
+    const templateContent = fs.readFileSync(templatePath, 'utf8');
+    const template = handlebars.compile(templateContent);
+    return template(data);
+  }
+
+  static async convertHtmlToPdf(html) {
+    // Using puppeteer with minimal settings for speed
+    const browser = await puppeteer.launch({ 
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'domcontentloaded' }); // Faster than networkidle
+      
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+      });
+      
+      return pdfBuffer;
+    } finally {
+      await browser.close();
     }
   }
 
@@ -259,6 +407,48 @@ class WorkshopPdfService {
     }
 
     return `workshops/${company.company_name}/${workshop.title}/${employee.first_name}_${employee.last_name}.pdf`;
+  }
+
+  // New method to send emails in the background
+  static async sendWorkshopTicketEmails(workshop, company, employees, pdfResults) {
+    try {
+      console.log(`Starting to send ${pdfResults.length} workshop ticket emails...`);
+      
+      // Create a map of user_id to pdfUrl for quick lookup
+      const ticketMap = pdfResults.reduce((map, result) => {
+        map[result.employeeId] = {
+          ticketId: result.ticketId,
+          pdfUrl: result.pdfUrl
+        };
+        return map;
+      }, {});
+      
+      // Format the start time for display
+      const formattedStartTime = new Date(workshop.start_time).toLocaleString();
+      
+      // Send emails to each employee
+      const emailPromises = employees.map(employee => {
+        const ticketInfo = ticketMap[employee.user_id];
+        if (!ticketInfo) return Promise.resolve(); // Skip if no ticket info
+        
+        return EmailService.sendWorkshopTicketEmail(
+          employee.first_name,
+          employee.email,
+          workshop.title,
+          formattedStartTime,
+          workshop.host_name,
+          company.company_name,
+          ticketInfo.ticketId,
+          ticketInfo.pdfUrl
+        );
+      });
+      
+      await Promise.all(emailPromises);
+      console.log(`Successfully sent ${emailPromises.length} workshop ticket emails`);
+    } catch (error) {
+      console.error('Error sending workshop ticket emails:', error);
+      // Log error but don't throw since this is running in the background
+    }
   }
 }
 

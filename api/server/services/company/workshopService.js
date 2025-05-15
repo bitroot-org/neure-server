@@ -540,8 +540,7 @@ class workshopService {
 
   static async scheduleWorkshop(scheduleData) {
     try {
-      const { company_id, date, time, workshop_id, duration_minutes, host_name } =
-        scheduleData;
+      const { company_id, date, time, workshop_id, duration_minutes, host_name } = scheduleData;
       console.log("Starting workshop scheduling with data:", scheduleData);
 
       // Validate workshop exists
@@ -597,21 +596,41 @@ class workshopService {
       const scheduleId = result.insertId;
       console.log("Created schedule with ID:", scheduleId);
 
-      // Generate PDFs for all employees in the company - pass schedule_id
-      const pdfResult = await WorkshopPdfService.generateEmployeeWorkshopPdfs(
-        workshop_id,
-        company_id,
-        scheduleId
-      );
-
       // Get all active employees in the company
       const [companyEmployees] = await db.query(
-        `SELECT ce.user_id, u.first_name, u.email 
+        `SELECT ce.user_id, u.first_name, u.last_name, u.email 
          FROM company_employees ce
          JOIN users u ON ce.user_id = u.user_id
          WHERE ce.company_id = ? AND ce.is_active = 1
          AND u.role_id NOT IN (1, 2)`,
         [company_id]
+      );
+
+      // Get the formatted dates directly from the database to avoid timezone issues
+      const [formattedDates] = await db.query(
+        `SELECT 
+          DATE_FORMAT(start_time, '%Y-%m-%d %H:%i:%s') as formatted_start_time,
+          DATE_FORMAT(end_time, '%Y-%m-%d %H:%i:%s') as formatted_end_time
+         FROM workshop_schedules
+         WHERE id = ?`,
+        [scheduleId]
+      );
+
+      // Prepare workshop data with schedule details and formatted dates
+      const workshopData = {
+        ...workshop[0],
+        schedule_id: scheduleId,
+        start_time: formattedDates[0].formatted_start_time,
+        end_time: formattedDates[0].formatted_end_time,
+        host_name
+      };
+
+      // Generate PDFs for all employees in the company - pass complete data
+      await WorkshopPdfService.generateEmployeeWorkshopPdfs(
+        workshopData,
+        company[0],
+        companyEmployees,
+        scheduleId
       );
 
       // Format date and time for notification
@@ -634,8 +653,8 @@ class workshopService {
           metadata: JSON.stringify({
             workshop_id: workshop_id,
             schedule_id: scheduleId,
-            start_time: start_time,
-            end_time: end_time,
+            start_time: formattedDates[0].formatted_start_time,
+            end_time: formattedDates[0].formatted_end_time,
             duration_minutes: duration_minutes,
             location: workshop[0].location,
           }),
@@ -653,10 +672,10 @@ class workshopService {
           schedule_id: scheduleId,
           company_id,
           workshop_id,
-          start_time,
-          end_time,
+          start_time: formattedDates[0].formatted_start_time,
+          end_time: formattedDates[0].formatted_end_time,
           duration_minutes,
-          pdfs: pdfResult.data,
+          host_name,
         },
       };
     } catch (error) {

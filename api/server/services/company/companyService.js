@@ -152,115 +152,198 @@ class CompanyService {
     }
   }
 
-  static async updateCompany(companyData, contactPersonData) {
+  // static async updateCompanyInfo(companyId, updateData) {
+  //   const connection = await db.getConnection();
+  //   try {
+  //     await connection.beginTransaction();
+      
+  //     const { companyName, companySize, companyProfileUrl, contactPerson } = updateData;
+      
+  //     // Update company information if provided
+  //     if (companyName || companySize || companyProfileUrl) {
+  //       const companyFields = [];
+  //       const companyValues = [];
+        
+  //       if (companyName) {
+  //         companyFields.push("company_name = ?");
+  //         companyValues.push(companyName);
+  //       }
+        
+  //       if (companySize) {
+  //         companyFields.push("company_size = ?");
+  //         companyValues.push(companySize);
+  //       }
+        
+  //       if (companyProfileUrl) {
+  //         companyFields.push("company_profile_url = ?");
+  //         companyValues.push(companyProfileUrl);
+  //       }
+        
+  //       if (companyFields.length > 0) {
+  //         companyValues.push(companyId);
+  //         await connection.query(
+  //           `UPDATE companies SET ${companyFields.join(", ")} WHERE id = ?`,
+  //           companyValues
+  //         );
+  //       }
+  //     }
+      
+  //     // Update contact person information if provided
+  //     if (contactPerson && contactPerson.id) {
+  //       const contactFields = [];
+  //       const contactValues = [];
+        
+  //       if (contactPerson.firstName) {
+  //         contactFields.push("first_name = ?");
+  //         contactValues.push(contactPerson.firstName);
+  //       }
+        
+  //       if (contactPerson.lastName) {
+  //         contactFields.push("last_name = ?");
+  //         contactValues.push(contactPerson.lastName);
+  //       }
+        
+  //       if (contactPerson.email) {
+  //         contactFields.push("email = ?");
+  //         contactValues.push(contactPerson.email);
+  //       }
+        
+  //       if (contactPerson.phone) {
+  //         contactFields.push("phone = ?");
+  //         contactValues.push(contactPerson.phone);
+  //       }
+        
+  //       if (contactPerson.jobTitle) {
+  //         contactFields.push("job_title = ?");
+  //         contactValues.push(contactPerson.jobTitle);
+  //       }
+        
+  //       if (contactFields.length > 0) {
+  //         contactValues.push(contactPerson.id);
+  //         await connection.query(
+  //           `UPDATE users SET ${contactFields.join(", ")} WHERE user_id = ?`,
+  //           contactValues
+  //         );
+  //       }
+  //     }
+      
+  //     await connection.commit();
+      
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: "Company information updated successfully",
+  //       data: { 
+  //         companyId,
+  //         updated: {
+  //           company: companyName || companySize || companyProfileUrl ? true : false,
+  //           contactPerson: contactPerson && contactPerson.id ? true : false
+  //         }
+  //       }
+  //     };
+  //   } catch (error) {
+  //     await connection.rollback();
+  //     throw new Error(`Error updating company information: ${error.message}`);
+  //   } finally {
+  //     connection.release();
+  //   }
+  // }
+
+  static async updateCompany(company, contactPerson) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-
-      console.log("contactPersonData", contactPersonData);
-
-      if (companyData && companyData.id) {
-        console.log("companyData", companyData);
-        if (companyData.services_interested) {
-          companyData.services_interested = JSON.stringify(
-            companyData.services_interested
+      
+      // Update company information
+      if (company) {
+        const companyFields = [];
+        const companyValues = [];
+        
+        if (company.company_name) {
+          companyFields.push("company_name = ?");
+          companyValues.push(company.company_name);
+        }
+        
+        if (company.company_size) {
+          companyFields.push("company_size = ?");
+          companyValues.push(company.company_size);
+        }
+        
+        if (company.company_profile_url) {
+          companyFields.push("company_profile_url = ?");
+          companyValues.push(company.company_profile_url);
+        }
+        
+        if (companyFields.length > 0) {
+          companyValues.push(company.id);
+          await connection.query(
+            `UPDATE companies SET ${companyFields.join(", ")} WHERE id = ?`,
+            companyValues
           );
         }
-
-        const companyKeys = Object.keys(companyData).filter(
-          (key) => key !== "id"
-        );
-
-        const companySetQuery = companyKeys
-          .map((key) => `${key} = ?`)
-          .join(", ");
-
-        console.log("companySetQuery: ", companySetQuery);
-
-        const companyValues = companyKeys.map((key) => companyData[key]);
-        companyValues.push(companyData.id);
-
-        await connection.query(
-          `UPDATE companies SET ${companySetQuery} WHERE id = ?`,
-          companyValues
-        );
       }
-
-      if (contactPersonData && (contactPersonData.user_id || contactPersonData.id)) {
-        console.log("contactPersonData", contactPersonData);
-        const departmentData = contactPersonData.department;
-        delete contactPersonData.department; 
-
-        // Map id to user_id if needed
-        if (contactPersonData.id && !contactPersonData.user_id) {
-          contactPersonData.user_id = contactPersonData.id;
-          delete contactPersonData.id;
+      
+      // Update contact person information
+      if (contactPerson && contactPerson.id) {
+        const contactFields = [];
+        const contactValues = [];
+        
+        if (contactPerson.first_name) {
+          contactFields.push("first_name = ?");
+          contactValues.push(contactPerson.first_name);
         }
-
-        const contactPersonKeys = Object.keys(contactPersonData).filter(
-          (key) => key !== "user_id"
-        );
-
-        const contactSetQuery = contactPersonKeys
-          .map((key) => `${key} = ?`)
-          .join(", ");
-
-        const contactValues = contactPersonKeys.map(
-          (key) => contactPersonData[key]
-        );
-        contactValues.push(contactPersonData.user_id);
-
-
-        console.log("contactSetQuery: ", contactSetQuery);
-
-
-        // Update user information
-        await connection.query(
-          `UPDATE users SET ${contactSetQuery} WHERE user_id = ?`,
-          contactValues
-        );
-
-
-        // Handle department update
-        if (departmentData && departmentData.id) {
-          // Check if user already has a department
-          const [existingDept] = await connection.query(
-            `SELECT department_id FROM user_departments WHERE user_id = ?`,
-            [contactPersonData.user_id]
+        
+        if (contactPerson.last_name) {
+          contactFields.push("last_name = ?");
+          contactValues.push(contactPerson.last_name);
+        }
+        
+        if (contactPerson.email) {
+          contactFields.push("email = ?");
+          contactValues.push(contactPerson.email);
+        }
+        
+        if (contactPerson.phone) {
+          contactFields.push("phone = ?");
+          contactValues.push(contactPerson.phone);
+        }
+        
+        if (contactPerson.job_title) {
+          contactFields.push("job_title = ?");
+          contactValues.push(contactPerson.job_title);
+        }
+        
+        if (contactFields.length > 0) {
+          contactValues.push(contactPerson.id);
+          await connection.query(
+            `UPDATE users SET ${contactFields.join(", ")} WHERE user_id = ?`,
+            contactValues
           );
-
-          if (existingDept.length > 0) {
-            // Update existing department
-            await connection.query(
-              `UPDATE user_departments SET department_id = ? WHERE user_id = ?`,
-              [departmentData.id, contactPersonData.user_id]
-            );
-          } else {
-            // Insert new department assignment
-            await connection.query(
-              `INSERT INTO user_departments (user_id, department_id) VALUES (?, ?)`,
-              [contactPersonData.user_id, departmentData.id]
-            );
-          }
         }
       }
-
+      
       await connection.commit();
-
+      
       return {
         status: true,
         code: 200,
-        message: "Company and contact person information updated successfully",
-        data: { company: companyData, contact_person: contactPersonData },
+        message: "Company information updated successfully",
+        data: { 
+          companyId: company.id,
+          updated: {
+            company: true,
+            contactPerson: contactPerson && contactPerson.id ? true : false
+          }
+        }
       };
     } catch (error) {
       await connection.rollback();
-      throw error;
+      throw new Error(`Error updating company information: ${error.message}`);
     } finally {
       connection.release();
     }
   }
-
+  
   static async getTopPerformingEmployee(
     company_id,
     page = 1,

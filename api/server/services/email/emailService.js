@@ -98,6 +98,15 @@ class EmailService {
       html: template.html
     });
   }
+
+  static async sendWorkshopTicketEmail(employeeName, email, workshopTitle, startTime, hostName, companyName, ticketId, pdfUrl) {
+    const template = EmailTemplates.workshopTicketTemplate(employeeName, workshopTitle, startTime, hostName, companyName, ticketId, pdfUrl);
+    return this.sendEmail({
+      to: email,
+      subject: template.subject,
+      html: template.html
+    });
+  }
 }
 
 module.exports = EmailService;

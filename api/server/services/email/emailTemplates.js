@@ -210,6 +210,46 @@ class EmailTemplates {
       `
     };
   }
+
+  static workshopTicketTemplate(employeeName, workshopTitle, startTime, hostName, companyName, ticketId, pdfUrl) {
+    return {
+      subject: `Your Ticket for Workshop: ${workshopTitle}`,
+      html: `
+        <div style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333333;">
+          <div style="background: linear-gradient(135deg, #0066cc, #0052a3); color: white; padding: 30px 20px; text-align: center;">
+            <h1 style="font-size: 28px; margin: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);">Workshop Ticket</h1>
+          </div>
+          <div style="padding: 30px;">
+            <p style="margin: 15px 0;">Hi <span style="color: #0066cc; font-weight: 600;">${employeeName}</span>,</p>
+            
+            <div style="background-color: #f8f9fa; border-left: 4px solid #0066cc; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+              <h3 style="color: #0066cc; margin: 20px 0 10px 0;">Your Workshop Ticket is Ready!</h3>
+              <p style="margin: 15px 0;">You're all set for the upcoming workshop. Here are your details:</p>
+            </div>
+
+            <div style="background-color: #f8f9fa; border-left: 4px solid #0066cc; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+              <h3 style="color: #0066cc; margin: 20px 0 10px 0;">Workshop Details</h3>
+              <p style="margin: 15px 0;"><strong>Workshop:</strong> ${workshopTitle}</p>
+              <p style="margin: 15px 0;"><strong>Date & Time:</strong> ${startTime}</p>
+              <p style="margin: 15px 0;"><strong>Host:</strong> ${hostName}</p>
+              <p style="margin: 15px 0;"><strong>Company:</strong> ${companyName}</p>
+              <p style="margin: 15px 0;"><strong>Ticket ID:</strong> ${ticketId}</p>
+            </div>
+
+            <p style="text-align: center; margin: 25px 0;">
+              <a href="${pdfUrl}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #0066cc, #0052a3); color: white !important; text-decoration: none; border-radius: 25px; font-weight: 600; margin: 15px 0; text-align: center; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0, 102, 204, 0.3);">Download Your Ticket</a>
+            </p>
+            
+            <p style="margin: 15px 0;">Please bring this ticket (either printed or on your device) to the workshop for check-in.</p>
+          </div>
+          <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #eee; color: #666; margin-top: 30px;">
+            <p style="margin: 5px 0;">We look forward to seeing you there!</p>
+            <p style="margin: 5px 0;">Regards,<br>Team Neure</p>
+          </div>
+        </div>
+      `
+    };
+  }
 }
 
 module.exports = EmailTemplates;

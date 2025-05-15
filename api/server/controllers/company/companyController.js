@@ -1,5 +1,7 @@
 const XLSX = require("xlsx");
 const db = require("../../../config/db");
+const { uploadImage } = require("../upload/UploadController");
+
 const ActivityLogService = require("../../services/logs/ActivityLogService");
 
 const {
@@ -113,22 +115,67 @@ class CompanyController {
 
   static async updateCompany(req, res) {
     try {
-      const { company, contact_person, employees } = req.body;
+      const { companyId, companyName, companySize, contactPerson } = req.body;
+      console.log("Received request to update company:", companyId);
+      console.log("Received request to body:", req.body);
 
-      if (!company || !company.id) {
+      if (!companyId) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: "Company data is required",
+          message: "Company ID is required",
           data: null,
         });
       }
 
-      const result = await updateCompany(company, contact_person, employees);
-      res.status(200).json(result);
+      // Create company update object
+      const companyData = {
+        id: companyId,
+        company_name: companyName,
+        company_size: companySize
+      };
+
+      // Handle image upload if file is present
+      if (req.file) {
+        console.log("Received request to update company image:", req.file);
+        req.body.type = 'profile'; // Set type for profile image
+        
+        // Call the existing uploadImage function
+        const uploadResult = await uploadImage(req);
+        console.log("Upload result:", uploadResult);
+        
+        if (!uploadResult.success) {
+          return res.status(500).json({
+            status: false,
+            code: 500,
+            message: "Error uploading company profile image",
+            data: null,
+          });
+        }
+        
+        // Add the image URL to the company data
+        companyData.company_profile_url = uploadResult.url;
+        console.log("Company profile image uploaded:", uploadResult.url);
+      }
+
+      // Process contact person if provided
+      let contactPersonData = null;
+      if (contactPerson) {
+        contactPersonData = {
+          id: contactPerson.id,
+          first_name: contactPerson.firstName,
+          last_name: contactPerson.lastName,
+          email: contactPerson.email,
+          phone: contactPerson.phone,
+          job_title: contactPerson.jobTitle
+        };
+      }
+
+      const result = await updateCompany(companyData, contactPersonData);
+      return res.status(200).json(result);
     } catch (error) {
-      console.error(error);
-      res.status(500).json({
+      console.error("Error in updateCompany controller:", error);
+      return res.status(500).json({
         status: false,
         code: 500,
         message: "An error occurred while updating company information",

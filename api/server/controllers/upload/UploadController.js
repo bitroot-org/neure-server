@@ -183,25 +183,33 @@ class MediaController {
   static async uploadImage(req) {
     try {
       const { type } = req.body;
-  
+
       // Validate required parameter
       if (!type) {
         throw new Error("Image type is required (profile, icon, article, workshop)");
       }
-  
+
       // Validate type is supported
       const supportedTypes = ['profile', 'icon', 'article', 'workshop', 'soundCover'];
       if (!supportedTypes.includes(type)) {
         throw new Error(`Unsupported image type: ${type}. Supported types are: ${supportedTypes.join(', ')}`);
       }
-  
+
       if (!req.file) {
         throw new Error("No file uploaded");
       }
-  
+
+      // For profile images, ensure they're properly sized
+      if (type === 'profile') {
+        // You could add image processing here with sharp or another library
+        // Example: resize to standard dimensions for profile images
+        // const processedImagePath = await resizeImage(req.file.path, 300, 300);
+        // Then use processedImagePath instead of req.file.path below
+      }
+
       const filename = `${nanoid()}.jpg`;
       const fileType = req.file.mimetype;
-  
+
       // Generate S3 path based on type
       let s3Path;
       switch (type) {
@@ -223,7 +231,7 @@ class MediaController {
         default:
           throw new Error(`Invalid type: ${type}`);
       }
-  
+
       const uploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
@@ -231,16 +239,16 @@ class MediaController {
         ContentType: fileType,
         ACL: 'public-read',
       };
-  
+
       const command = new PutObjectCommand(uploadParams);
       await s3Client.send(command);
-  
+
       // Clean up temp file
       unlinkSync(req.file.path);
-  
+
       // Generate file URL
       const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Path}`;
-  
+
       return {
         success: true,
         url: fileUrl,
