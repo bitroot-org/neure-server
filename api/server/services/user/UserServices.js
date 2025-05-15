@@ -785,7 +785,7 @@ class UserServices {
 
   static async updateUserDetails(user_id, userDetails) {
     try {
-      console.log(`Updating user details for user_id: ${user_id}`);
+      // console.log(`Updating user details for user_id: ${user_id}`);
 
       // Check if the user exists
       const [existingUser] = await db.query(
@@ -839,6 +839,10 @@ class UserServices {
         fields.push("accepted_terms = ?");
         values.push(userDetails.accepted_terms);
       }
+      if (userDetails.profile_url !== undefined) {
+        fields.push("profile_url = ?");
+        values.push(userDetails.profile_url);
+      }
 
       if (fields.length === 0) {
         return {
@@ -872,7 +876,7 @@ class UserServices {
         priority: "MEDIUM"
       });
 
-      console.log(`User details updated for user_id: ${user_id}`);
+      // console.log(`User details updated for user_id: ${user_id}`);
       return {
         status: true,
         code: 200,

@@ -48,7 +48,7 @@ class workshopController {
 
   static async getWorkshopsByCompanyIdOrUserId(req, res) {
     try {
-      console.log("Received request to get workshops by company or user ID:", req.query);
+      // console.log("Received request to get workshops by company or user ID:", req.query);
       const company_id = req.query.company_id ? parseInt(req.query.company_id) : null;
       const user_id = req.query.user_id ? parseInt(req.query.user_id) : null;
       const page = parseInt(req.query.page) || 1;

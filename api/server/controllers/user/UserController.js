@@ -223,6 +223,7 @@ class UserController {
       const passwordRegex =
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
       if (!passwordRegex.test(new_password)) {
+        console.log("New password does not meet complexity requirements");
         return res.status(400).json({
           status: false,
           code: 400,
@@ -311,8 +312,11 @@ class UserController {
           });
         }
         imageUrl = uploadResult.url;
-        userDetails.profile_url = imageUrl; // Add profile URL to user details
+        userDetails.profile_url = imageUrl; 
+        console.log("Image URL added to user details:", imageUrl);
       }
+
+      console.log("Updated user details before sending to service:", userDetails);
 
       const result = await updateUserDetails(user_id, userDetails);
       return res.status(result.code).json(result);

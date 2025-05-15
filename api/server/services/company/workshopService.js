@@ -120,13 +120,13 @@ class workshopService {
     start_time = null
   ) {
     try {
-      console.log("Received request to get workshops by company or user ID:", {
-        company_id,
-        user_id,
-        page,
-        limit,
-        start_time,
-      });
+      // console.log("Received request to get workshops by company or user ID:", {
+      //   company_id,
+      //   user_id,
+      //   page,
+      //   limit,
+      //   start_time,
+      // });
       let baseQuery = "";
       const queryParams = [];
       const today = new Date().toISOString().split("T")[0]; // Get today's date in YYYY-MM-DD format
