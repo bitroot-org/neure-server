@@ -200,33 +200,34 @@ class AssessmentsController {
   static async getUserAssessmentResponses(req, res) {
     try {
       const { assessment_id } = req.params;
-      const { user_id } = req.user; 
-
-      console.log("user_id", user_id);
-      console.log("assessment_id", assessment_id);
+      // Check if user_id is provided in query params, otherwise use the authenticated user's ID
+      const requestedUserId = req.query.user_id ? parseInt(req.query.user_id) : req.user.user_id;
+      
+      // console.log("requestedUserId", requestedUserId);
+      // console.log("assessment_id", assessment_id);
       
       // Check if assessment_id is provided
       if (!assessment_id) {
         return errorResponse(res, 'Assessment ID is required', null, 400);
       }
       
-      // Check if user_id is provided
-      if (!user_id) {
+      // Check if user_id is valid
+      if (!requestedUserId) {
         return errorResponse(res, 'User ID is required', null, 400);
       }
       
-      // Verify the requester is authorized to access this data
-      // Option 1: Check if requester is the same user (accessing their own data)
-      // Option 2: Check if requester is a superadmin (role_id = 1)
-      const requesterId = req.user.user_id;
-      const requesterRole = req.user.role_id;
+      // Authorization check:
+      // 1. If user is requesting their own data (requestedUserId === authenticated user's ID), allow access
+      // 2. If user is a superadmin (role_id === 1), allow access to any user's data
+      // 3. Otherwise, deny access
+      const authenticatedUserId = req.user.user_id;
+      const authenticatedUserRole = req.user.role_id;
       
-      // Only allow access if the requester is the same user or a superadmin
-      if (requesterId !== parseInt(user_id) && requesterRole !== 1) {
-        return errorResponse(res, 'Unauthorized access', null, 403);
+      if (requestedUserId !== authenticatedUserId && authenticatedUserRole !== 1) {
+        return errorResponse(res, 'Unauthorized access. You can only view your own assessment responses or must be a superadmin.', null, 403);
       }
       
-      const result = await AssessmentsService.getUserAssessmentResponses(user_id, assessment_id);
+      const result = await AssessmentsService.getUserAssessmentResponses(requestedUserId, assessment_id);
       return successResponse(res, 'User assessment responses retrieved successfully', result.data);
     } catch (error) {
       if (error.message === 'Assessment not submitted by this user') {
