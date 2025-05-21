@@ -246,27 +246,76 @@ class UserServices {
     }
   }
 
+  // static async refreshToken(token) {
+  //   try {
+  //     const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+
+  //     // Check if refresh token exists and is valid
+  //     const [tokens] = await db.query(
+  //       "SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()",
+  //       [token]
+  //     );
+
+  //     if (tokens.length === 0) {
+  //       throw new Error("Invalid refresh token");
+  //     }
+
+  //     // Generate new access token
+  //     const newAccessToken = jwt.sign(
+  //       { userId: decoded.userId },
+  //       process.env.JWT_SECRET,
+  //       { expiresIn: "5h" }
+  //     );
+
+  //     return {
+  //       status: true,
+  //       code: 200,
+  //       message: "Token refreshed successfully",
+  //       data: {
+  //         accessToken: newAccessToken,
+  //         expiresAt: new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(),
+  //       },
+  //     };
+  //   } catch (error) {
+  //     throw new Error("Error refreshing token: " + error.message);
+  //   }
+  // }
+
   static async refreshToken(token) {
     try {
       const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-
+  
       // Check if refresh token exists and is valid
       const [tokens] = await db.query(
         "SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()",
         [token]
       );
-
+  
       if (tokens.length === 0) {
         throw new Error("Invalid refresh token");
       }
-
-      // Generate new access token
+  
+      // Get user information to include in the new token
+      const [user] = await db.query(
+        "SELECT email, role_id FROM users WHERE user_id = ?",
+        [decoded.user_id]
+      );
+  
+      if (user.length === 0) {
+        throw new Error("User not found");
+      }
+  
+      // Generate new access token with consistent payload
       const newAccessToken = jwt.sign(
-        { userId: decoded.userId },
+        { 
+          user_id: decoded.user_id, 
+          email: user[0].email, 
+          role_id: user[0].role_id 
+        },
         process.env.JWT_SECRET,
         { expiresIn: "5h" }
       );
-
+  
       return {
         status: true,
         code: 200,

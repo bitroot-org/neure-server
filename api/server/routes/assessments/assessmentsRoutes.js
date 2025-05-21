@@ -15,6 +15,7 @@ router.get('/user-submissions', authorization, AssessmentsController.getUserSubm
  
 // Parameter routes last
 router.get('/:id', authorization, AssessmentsController.getAssessmentById);
+router.get('/generateAssessmentPdf/:assessment_id', authorization, AssessmentsController.generateAssessmentPdf);
 
 // POST, PUT, DELETE routes
 router.post('/createAssessment', authorization, AssessmentsController.createAssessment);

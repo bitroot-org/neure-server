@@ -1,0 +1,111 @@
+
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Assessment Report</title>
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                color: #000;
+                margin: 0;
+                padding: 40px;
+                max-width: 800px;
+                margin: 0 auto;
+              }
+              
+              .logo {
+                text-align: center;
+                margin-bottom: 14px;
+              }
+              
+              .logo img {
+                height: 40px;
+              }
+              
+              .report-title {
+                font-size: 32px;
+                font-weight: bold;
+                text-align: center;
+                margin-bottom: 40px;
+                text-decoration: underline;
+              }
+              
+              .section-title {
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 20px;
+              }
+              
+              .introduction p {
+                margin-bottom: 20px;
+                font-size: 16px;
+              }
+              
+              .score {
+                font-size: 120px;
+                font-weight: bold;
+                text-align: center;
+                margin: 60px 0;
+              }
+              
+              .scoring-range {
+                margin: 40px 0;
+              }
+              
+              .scoring-range p {
+                margin-bottom: 10px;
+                font-size: 16px;
+              }
+              
+              .footer {
+                margin-top: 60px;
+                text-align: center;
+                font-size: 12px;
+                color: #666;
+              }
+              
+              @media print {
+                body {
+                  padding: 20px;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <!-- Logo -->
+            <div class="logo">
+              <img src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg" alt="Neure Logo">
+            </div>
+            
+            <!-- Report Title -->
+            <h1 class="report-title">General Assessment Report</h1>
+            
+            <!-- Introduction Section -->
+            <h2 class="section-title">Introduction</h2>
+            <div class="introduction">
+              <p>Thank you for completing your assessment!</p>
+              <p>This report gives you a snapshot of where you currently stand in terms of your mental and emotional wellbeing, based on your responses.</p>
+              <p>Based on your total score, we've mapped your result into a specific range below to help you understand what it means. This helps identify how you're feeling right now, whether you're doing well, feeling a bit low, or might need support.</p>
+              <p>The goal? To give you insight, not labels. So you can take the next step toward feeling better.</p>
+              <p>Let's look at your result :</p>
+            </div>
+            
+            <!-- Score Display -->
+            <div class="score">{{score}}</div>
+            
+            <!-- Scoring Range Section -->
+            <div class="scoring-range">
+              <p>Scoring Range :</p>
+              <p>{{interpretation}}</p>
+            </div>
+            
+            <!-- Footer -->
+            <div class="footer">
+              <p>© Neure Assessment System</p>
+            </div>
+          </body>
+          </html>
+        

@@ -73,10 +73,10 @@ app.listen(PORT, () => {
 serverActive();
 
 // Initialize all cron jobs
-// calculateCompanyStressLevel();
-// calculateRetentionRate();
-// calculatePSI();
-// calculateEngagementScore();
+calculateCompanyStressLevel();
+calculateRetentionRate();
+calculatePSI();
+calculateEngagementScore();
 updateContentEngagementPercentage();
 checkAssessmentCompletion();
 

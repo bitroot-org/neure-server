@@ -514,7 +514,7 @@ class workshopService {
         );
       }
 
-      query += " ORDER BY ws.start_time ASC";
+      query += " ORDER BY ws.updated_at DESC";
 
       const [schedules] = await db.query(query, queryParams);
 

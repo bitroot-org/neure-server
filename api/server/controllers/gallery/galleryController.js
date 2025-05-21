@@ -107,6 +107,7 @@ class GalleryController {
   static async uploadGalleryItem(req, res) {
     try {
       const { type, title, description, tags, url } = req.body;
+      console.log("req.body:", req.body);
 
       const { role_id } = req.user;
       if (role_id !== 1) {

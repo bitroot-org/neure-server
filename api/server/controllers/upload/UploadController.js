@@ -349,6 +349,8 @@ class MediaController {
   }
 
   static async uploadGalleryFile(req) {
+    console.log("Received file:", req.file);
+    console.log("Received body:", req.body);
     try {
       if (!req.file) {
         throw new Error("No file uploaded");

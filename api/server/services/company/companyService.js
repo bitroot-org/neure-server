@@ -638,57 +638,6 @@ class CompanyService {
     }
   }
 
-  // static async getCompanyMetrics(company_id) {
-  //   try {
-  //     const [metrics] = await db.query(
-  //       `SELECT
-  //         c.id as company_id,
-  //         c.company_name,
-  //         c.company_profile_url,
-  //         c.psychological_safety_index,
-  //         c.retention_rate,
-  //         c.stress_level,
-  //         c.engagement_score,
-  //         COUNT(*) as total_employees,
-  //         SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
-  //         SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
-  //         MAX(ce.joined_date) as last_employee_joined,
-  //         (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
-  //       FROM companies c
-  //       LEFT JOIN company_employees ce ON c.id = ce.company_id
-  //       LEFT JOIN users u ON ce.user_id = u.user_id
-  //       WHERE c.id = ?
-  //       GROUP BY c.id`,
-  //       [company_id]
-  //     );
-
-  //     return {
-  //       status: true,
-  //       code: 200,
-  //       message: "Company metrics retrieved successfully",
-  //       data: {
-  //         metrics: {
-  //           companyId: metrics[0].company_id,
-  //           companyName: metrics[0].company_name,
-  //           company_profile_url: metrics[0].company_profile_url,
-  //           psychological_safety_index:
-  //             metrics[0].psychological_safety_index || 0,
-  //           retention_rate: metrics[0].retention_rate || 0,
-  //           stress_level: metrics[0].stress_level || 0,
-  //           engagement_score: metrics[0].engagement_score || 0,
-  //           total_employees: metrics[0].total_employees || 0,
-  //           active_employees: metrics[0].active_employees || 0,
-  //           inactive_employees: metrics[0].inactive_employees || 0,
-  //           last_employee_joined: metrics[0].last_employee_joined,
-  //           total_departments: metrics[0].total_departments || 0,
-  //         },
-  //       },
-  //     };
-  //   } catch (error) {
-  //     throw error;
-  //   }
-  // }
-
   static async getCompanyMetrics(company_id) {
     try {
       // Get current company metrics
@@ -918,7 +867,7 @@ class CompanyService {
     const connection = await db.getConnection();
 
     try {
-      console.log("Processing bulk employee creation for company:", company_id);
+      // console.log("Processing bulk employee creation for company:", company_id);
       
       if (!company_id) {
         throw new Error("Company ID is required");
@@ -940,7 +889,7 @@ class CompanyService {
         ),
       ];
 
-      console.log("Department IDs:", departmentIds);
+      // console.log("Department IDs:", departmentIds);
 
       // Validate department IDs if any exist
       let validDepartmentIds = new Set();
@@ -1039,7 +988,7 @@ class CompanyService {
             ]
           );
 
-          console.log(`Created user with ID: ${userResult.insertId}`);
+          // console.log(`Created user with ID: ${userResult.insertId}`);
 
           // Add subscription record for the new user
           await connection.query(
@@ -1061,7 +1010,7 @@ class CompanyService {
             [company_id, userResult.insertId]
           );
           
-          console.log(`Added user ${userResult.insertId} to company ${company_id}`);
+          // console.log(`Added user ${userResult.insertId} to company ${company_id}`);
 
           // Insert department if provided
           if (employee.department_id) {
@@ -1071,7 +1020,7 @@ class CompanyService {
               ) VALUES (?, ?)`,
               [userResult.insertId, employee.department_id]
             );
-            console.log(`Assigned user ${userResult.insertId} to department ${employee.department_id}`);
+            // console.log(`Assigned user ${userResult.insertId} to department ${employee.department_id}`);
           }
 
           // Send welcome email
@@ -1088,6 +1037,7 @@ class CompanyService {
 
           results.successful.push({
             email: employee.email,
+            first_name: employee.first_name,
             temp_password: password,
           });
         } catch (error) {
@@ -2103,16 +2053,17 @@ class CompanyService {
       // Send email asynchronously after successful DB transaction
       // This won't block the response
       const dashboardLink = process.env.DASHBOARD_URL;
-      setTimeout(() => {
-        EmailService.sendAdminWelcomeEmail(
-          contact_person_info.first_name,
-          contact_person_info.email,
-          tempPassword,
-          dashboardLink
-        ).catch(error => {
-          console.error("Error sending welcome email:", error);
+      process.nextTick(() => {
+        EmailService.sendEmployeeWelcomeEmail(
+          first_name,
+          email,
+          password,
+          process.env.DASHBOARD_URL
+        ).catch(emailError => {
+          console.error("Error sending welcome email:", emailError);
+          // Log to a monitoring system or error tracking service
         });
-      }, 0);
+      });
 
       return responseData;
     } catch (error) {
@@ -2140,13 +2091,14 @@ class CompanyService {
           c.psychological_safety_index as psi,
           c.retention_rate,
           c.stress_level,
-          COUNT(ce.user_id) as total_employees,
-          SUM(CASE WHEN ce.is_active = 1 THEN 1 ELSE 0 END) as active_employees,
-          SUM(CASE WHEN ce.is_active = 0 THEN 1 ELSE 0 END) as inactive_employees,
-          MAX(ce.joined_date) as last_employee_joined,
+          COUNT(CASE WHEN u.role_id != 2 THEN ce.user_id END) as total_employees,
+          SUM(CASE WHEN ce.is_active = 1 AND u.role_id != 2 THEN 1 ELSE 0 END) as active_employees,
+          SUM(CASE WHEN ce.is_active = 0 AND u.role_id != 2 THEN 1 ELSE 0 END) as inactive_employees,
+          MAX(CASE WHEN u.role_id != 2 THEN ce.joined_date END) as last_employee_joined,
           (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
         FROM companies c
         LEFT JOIN company_employees ce ON c.id = ce.company_id
+        LEFT JOIN users u ON ce.user_id = u.user_id
         WHERE c.id = ?
         GROUP BY c.id
         `,

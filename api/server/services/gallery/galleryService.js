@@ -192,12 +192,14 @@ class GalleryService {
         GROUP BY cga.item_type`;
         queryParams = [companyId];
       } else {
-        // If no companyId is provided, get total counts across all companies
+        // If no companyId is provided, get counts of unassigned media items
         query = `SELECT
-          cga.item_type as file_type,
+          g.file_type,
           COUNT(*) as count
-        FROM company_gallery_assignments cga
-        GROUP BY cga.item_type`;
+        FROM gallery g
+        LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id
+        WHERE cga.gallery_item_id IS NULL
+        GROUP BY g.file_type`;
       }
 
       console.log("query  :  ", query);
@@ -221,7 +223,7 @@ class GalleryService {
       return {
         status: true,
         code: 200,
-        message: "Media counts fetched successfully",
+        message: companyId ? "Media counts fetched successfully" : "Unassigned media counts fetched successfully",
         data: formattedCounts,
       };
     } catch (error) {

@@ -71,6 +71,15 @@ class AssessmentsController {
         }
       }
 
+      // Handle is_psi_assessment as 1 or 0
+      if (assessmentData.is_psi_assessment !== undefined) {
+        // Convert to number then to boolean for consistency
+        assessmentData.is_psi_assessment = Number(assessmentData.is_psi_assessment) === 1;
+      } else {
+        // Default to false if not provided
+        assessmentData.is_psi_assessment = false;
+      }
+
       const assessment = await AssessmentsService.createAssessment(assessmentData);
       return successResponse(res, 'Assessment created successfully', assessment, 201);
     } catch (error) {
@@ -115,6 +124,15 @@ class AssessmentsController {
             return errorResponse(res, 'Invalid option format. Each option must have option_text and points', null, 400);
           }
         }
+      }
+
+      // Handle is_psi_assessment as 1 or 0
+      if (assessmentData.is_psi_assessment !== undefined) {
+        // Convert to number then to boolean for consistency
+        assessmentData.is_psi_assessment = Number(assessmentData.is_psi_assessment) === 1;
+      } else {
+        // Default to false if not provided
+        assessmentData.is_psi_assessment = false;
       }
 
       const updatedAssessment = await AssessmentsService.updateAssessment(id, assessmentData);
@@ -290,6 +308,31 @@ class AssessmentsController {
       return successResponse(res, 'User submitted assessments retrieved successfully', result.data);
     } catch (error) {
       return errorResponse(res, 'Error retrieving user submitted assessments', error);
+    }
+  }
+
+  static async generateAssessmentPdf(req, res) {
+    try {
+      const { assessment_id } = req.params;
+      // Check if user_id is provided in query params, otherwise use the authenticated user's ID
+      const requestedUserId = req.query.user_id ? parseInt(req.query.user_id) : req.user.user_id;
+      
+      // Authorization check
+      const authenticatedUserId = req.user.user_id;
+      const authenticatedUserRole = req.user.role_id;
+      
+      if (requestedUserId !== authenticatedUserId && authenticatedUserRole !== 1) {
+        return errorResponse(res, 'Unauthorized access. You can only generate PDFs for your own assessments or must be a superadmin.', null, 403);
+      }
+      
+      // Generate the PDF
+      const result = await AssessmentsService.generateAssessmentPdf(requestedUserId, assessment_id);
+      return successResponse(res, 'Assessment PDF generated successfully', { pdfUrl: result.pdfUrl });
+    } catch (error) {
+      if (error.message === 'Assessment not submitted by this user') {
+        return errorResponse(res, error.message, null, 404);
+      }
+      return errorResponse(res, 'Error generating assessment PDF', error);
     }
   }
 }

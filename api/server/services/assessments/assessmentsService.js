@@ -2,7 +2,11 @@ const db = require("../../../config/db");
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const ActivityLogService = require('../logs/ActivityLogService');
 const UserServices = require('../user/UserServices');
-
+const path = require('path');
+const fs = require('fs');
+const handlebars = require('handlebars');
+const { chromium } = require('playwright');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 class AssessmentsService {
   static async getAllAssessments(page = 1, limit = 10, user_id, all = false) {
@@ -29,7 +33,8 @@ class AssessmentsService {
           a.id, 
           a.title, 
           a.description, 
-          a.created_at
+          a.created_at,
+          a.is_psi_assessment
         FROM assessments a
         WHERE a.is_active = 1
         AND NOT EXISTS (
@@ -51,9 +56,10 @@ class AssessmentsService {
         all ? [user_id] : [user_id, limit, offset]
       );
       
-      // For each assessment, get its questions and options
-      const assessmentsWithQuestions = await Promise.all(
+      // For each assessment, get its questions, options, and interpretation ranges
+      const assessmentsWithDetails = await Promise.all(
         assessments.map(async (assessment) => {
+          // Get questions
           const [questions] = await db.query(
             `SELECT 
               q.id, 
@@ -83,15 +89,26 @@ class AssessmentsService {
             })
           );
           
+          // Get interpretation ranges for this assessment
+          const [ranges] = await db.query(
+            `SELECT id, min_score, max_score, description 
+             FROM assessment_interpretation_ranges 
+             WHERE assessment_id = ? 
+             ORDER BY min_score ASC`,
+            [assessment.id]
+          );
+          console.log("Ranges:", ranges);
+          
           return {
             ...assessment,
-            questions: questionsWithOptions
+            questions: questionsWithOptions,
+            interpretation_ranges: ranges
           };
         })
       );
       
       const response = {
-        assessments: assessmentsWithQuestions
+        assessments: assessmentsWithDetails
       };
       
       // Add pagination info only if not returning all records
@@ -139,6 +156,21 @@ class AssessmentsService {
         GROUP BY a.id`;
 
       const [results] = await db.query(query, [id]);
+      
+      // Get interpretation ranges for this assessment
+      const [ranges] = await db.query(
+        `SELECT id, min_score, max_score, description 
+         FROM assessment_interpretation_ranges 
+         WHERE assessment_id = ? 
+         ORDER BY min_score ASC`,
+        [id]
+      );
+      
+      // Add ranges to the result
+      if (results && results.length > 0) {
+        results[0].interpretation_ranges = ranges;
+      }
+      
       return results[0];
     } catch (error) {
       throw error;
@@ -148,22 +180,24 @@ class AssessmentsService {
   static async createAssessment(assessmentData) {
     const connection = await db.getConnection();
     try {
-      console.log("Starting assessment creation with data:", {
-        title: assessmentData.title
-      });
+      // console.log("Starting assessment creation with data:", {
+      //   title: assessmentData.title,
+      //   is_psi_assessment: assessmentData.is_psi_assessment
+      // });
 
       await connection.beginTransaction();
 
-      // Insert assessment
+      // Insert assessment with is_psi_assessment flag (1 or 0)
       const [assessmentResult] = await connection.query(
-        "INSERT INTO assessments (title, description) VALUES (?, ?)",
+        "INSERT INTO assessments (title, description, is_psi_assessment) VALUES (?, ?, ?)",
         [
           assessmentData.title,
-          assessmentData.description
+          assessmentData.description,
+          assessmentData.is_psi_assessment ? 1 : 0
         ]
       );
       const assessmentId = assessmentResult.insertId;
-      console.log("Assessment created with ID:", assessmentId);
+      // console.log("Assessment created with ID:", assessmentId);
 
       // Insert questions
       for (const question of assessmentData.questions) {
@@ -181,7 +215,45 @@ class AssessmentsService {
           );
         }
       }
-      console.log("Questions and options inserted successfully");
+      // console.log("Questions and options inserted successfully");
+
+      // Insert interpretation ranges if provided
+      if (assessmentData.interpretation_ranges && assessmentData.interpretation_ranges.length > 0) {
+        // console.log("Processing interpretation ranges:", assessmentData.interpretation_ranges);
+        for (const range of assessmentData.interpretation_ranges) {
+          // Ensure we have valid values for min_score and max_score
+          // Convert to numbers and handle 0 values properly
+          const minScore = range.min_score !== undefined && range.min_score !== null ? 
+                          Number(range.min_score) : 
+                          (range.lowRange !== undefined && range.lowRange !== null ? 
+                            Number(range.lowRange) : null);
+                          
+          const maxScore = range.max_score !== undefined && range.max_score !== null ? 
+                          Number(range.max_score) : 
+                          (range.highRange !== undefined && range.highRange !== null ? 
+                            Number(range.highRange) : null);
+          
+          // Log the values we're about to insert
+          // console.log(`Inserting range: min=${minScore}, max=${maxScore}, desc=${range.description}`);
+          
+          // Validate that min_score and max_score are not null
+          if (minScore === null || maxScore === null) {
+            console.error(`Invalid range values: min=${minScore}, max=${maxScore}`);
+            throw new Error("Interpretation range min_score and max_score cannot be null");
+          }
+          
+          await connection.query(
+            "INSERT INTO assessment_interpretation_ranges (assessment_id, min_score, max_score, description) VALUES (?, ?, ?, ?)",
+            [
+              assessmentId, 
+              minScore,
+              maxScore,
+              range.description || ''
+            ]
+          );
+        }
+        // console.log("Interpretation ranges inserted successfully");
+      }
 
       // Get all active employees from all companies
       const [employees] = await connection.query(`
@@ -248,15 +320,20 @@ class AssessmentsService {
 
   static async updateAssessment(assessmentId, assessmentData) {
     const connection = await db.getConnection();
+    console.log("Starting assessment update with data:", {
+      title: assessmentData.title,
+      is_psi_assessment: assessmentData.is_psi_assessment
+    });
     try {
       await connection.beginTransaction();
 
-      // Update assessment details
+      // Update assessment details including is_psi_assessment (1 or 0)
       await connection.query(
-        "UPDATE assessments SET title = ?, description = ? WHERE id = ?",
+        "UPDATE assessments SET title = ?, description = ?, is_psi_assessment = ? WHERE id = ?",
         [
           assessmentData.title,
           assessmentData.description,
+          assessmentData.is_psi_assessment ? 1 : 0,
           assessmentId
         ]
       );
@@ -266,9 +343,16 @@ class AssessmentsService {
         "DELETE FROM options WHERE question_id IN (SELECT id FROM questions WHERE assessment_id = ?)",
         [assessmentId]
       );
+
       await connection.query("DELETE FROM questions WHERE assessment_id = ?", [
         assessmentId
       ]);
+
+      // Delete existing interpretation ranges
+      await connection.query(
+        "DELETE FROM assessment_interpretation_ranges WHERE assessment_id = ?",
+        [assessmentId]
+      );
 
       // Insert updated questions and options
       for (const question of assessmentData.questions) {
@@ -283,6 +367,31 @@ class AssessmentsService {
           await connection.query(
             "INSERT INTO options (question_id, option_text, points) VALUES (?, ?, ?)",
             [questionId, option.option_text, option.points]
+          );
+        }
+      }
+
+      // Insert updated interpretation ranges if provided
+      if (assessmentData.interpretation_ranges && assessmentData.interpretation_ranges.length > 0) {
+        console.log("Updating interpretation ranges:", assessmentData.interpretation_ranges);
+        for (const range of assessmentData.interpretation_ranges) {
+          // Ensure we have valid values for min_score and max_score
+          const minScore = range.min_score !== undefined ? range.min_score : 
+                          (range.lowRange !== undefined ? range.lowRange : 0);
+          const maxScore = range.max_score !== undefined ? range.max_score : 
+                          (range.highRange !== undefined ? range.highRange : 0);
+          
+          // Log the values we're about to insert
+          console.log(`Inserting range: min=${minScore}, max=${maxScore}, desc=${range.description}`);
+          
+          await connection.query(
+            "INSERT INTO assessment_interpretation_ranges (assessment_id, min_score, max_score, description) VALUES (?, ?, ?, ?)",
+            [
+              assessmentId, 
+              minScore,
+              maxScore,
+              range.description || ''
+            ]
           );
         }
       }
@@ -356,7 +465,7 @@ class AssessmentsService {
 
       // Check if assessment exists and is active
       const [assessment] = await connection.query(
-        "SELECT id, title FROM assessments WHERE id = ? AND is_active = 1",
+        "SELECT id, title, is_psi_assessment FROM assessments WHERE id = ? AND is_active = 1",
         [assessment_id]
       );
 
@@ -430,12 +539,12 @@ class AssessmentsService {
       // Calculate percentage score (0-100)
       const percentageScore = maxPossiblePoints > 0 ? (totalPoints / maxPossiblePoints) * 100 : 0;
       
-      // Insert submission
+      // Insert submission with total_points and max_possible_points
       const [userAssessmentResult] = await connection.query(
         `INSERT INTO user_assessments 
-         (user_id, company_id, assessment_id, responses, score, completed_at) 
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [user_id, company_id, assessment_id, JSON.stringify(responses), percentageScore]
+         (user_id, company_id, assessment_id, responses, score, total_points, max_possible_points, completed_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [user_id, company_id, assessment_id, JSON.stringify(responses), percentageScore, totalPoints, maxPossiblePoints]
       );
       
       const userAssessmentId = userAssessmentResult.insertId;
@@ -466,6 +575,16 @@ class AssessmentsService {
         );
       }
 
+      // Get the interpretation range that matches the user's score
+      const [interpretationRange] = await connection.query(
+        `SELECT id, min_score, max_score, description 
+         FROM assessment_interpretation_ranges 
+         WHERE assessment_id = ? 
+         AND ? BETWEEN min_score AND max_score
+         LIMIT 1`,
+        [assessment_id, totalPoints]
+      );
+
       // Create notification for the user
       await NotificationService.createNotification({
         title: `Assessment Submission Result: ${assessment[0].title}`,
@@ -477,9 +596,25 @@ class AssessmentsService {
         metadata: JSON.stringify({
           assessment_id: assessment_id,
           score: percentageScore,
+          total_points: totalPoints,
+          max_possible_points: maxPossiblePoints,
+          interpretation: interpretationRange && interpretationRange.length > 0 ? interpretationRange[0] : null,
           completion_date: new Date().toISOString()
         })
       });
+
+      // If this is a PSI assessment, update the employee's PSI score
+      if (assessment[0].is_psi_assessment) {
+        console.log(`Updating PSI score for user ${user_id} to ${percentageScore}`);
+        
+        // Update the employee's PSI score with the percentage value
+        await connection.query(
+          `UPDATE company_employees 
+           SET psi = ?
+           WHERE user_id = ? AND company_id = ?`,
+          [percentageScore, user_id, company_id]
+        );
+      }
 
       await connection.commit();
 
@@ -487,6 +622,7 @@ class AssessmentsService {
         score: percentageScore,
         total_points: totalPoints,
         max_possible_points: maxPossiblePoints,
+        interpretation: interpretationRange && interpretationRange.length > 0 ? interpretationRange[0] : null,
         questions: structuredQuestions
       };
     } catch (error) {
@@ -524,7 +660,7 @@ class AssessmentsService {
     try {
       // First check if the user has submitted this assessment
       const [userAssessment] = await db.query(
-        `SELECT id, score, completed_at 
+        `SELECT id, score, total_points, max_possible_points, completed_at 
          FROM user_assessments 
          WHERE user_id = ? AND assessment_id = ?`,
         [user_id, assessment_id]
@@ -540,6 +676,16 @@ class AssessmentsService {
       const [assessment] = await db.query(
         `SELECT title, description FROM assessments WHERE id = ?`,
         [assessment_id]
+      );
+
+      // Get interpretation range that matches the user's score
+      const [interpretationRange] = await db.query(
+        `SELECT id, min_score, max_score, description 
+         FROM assessment_interpretation_ranges 
+         WHERE assessment_id = ? 
+         AND ? BETWEEN min_score AND max_score
+         LIMIT 1`,
+        [assessment_id, userAssessment[0].total_points || 0]
       );
 
       // Get questions with user responses
@@ -592,6 +738,9 @@ class AssessmentsService {
           user_assessment: {
             id: userAssessment[0].id,
             score: userAssessment[0].score,
+            total_points: userAssessment[0].total_points,
+            max_possible_points: userAssessment[0].max_possible_points,
+            interpretation: interpretationRange && interpretationRange.length > 0 ? interpretationRange[0] : null,
             completed_at: userAssessment[0].completed_at
           },
           responses: processedQuestions
@@ -741,6 +890,123 @@ class AssessmentsService {
       console.error("Error retrieving user submitted assessments:", error);
       throw error;
     }
+  }
+
+  static async generateAssessmentPdf(userId, assessmentId) {
+    try {
+      // Check if PDF already exists
+      const [existingPdf] = await db.query(
+        `SELECT pdf_url FROM user_assessments 
+         WHERE user_id = ? AND assessment_id = ? AND pdf_url IS NOT NULL`,
+        [userId, assessmentId]
+      );
+      
+      if (existingPdf && existingPdf.length > 0 && existingPdf[0].pdf_url) {
+        return { pdfUrl: existingPdf[0].pdf_url };
+      }
+      
+      // Get assessment data with the correct interpretation from assessment_interpretation_ranges
+      const [userAssessment] = await db.query(
+        `SELECT ua.total_points, ua.score
+         FROM user_assessments ua
+         WHERE ua.user_id = ? AND ua.assessment_id = ?`,
+        [userId, assessmentId]
+      );
+      
+      if (!userAssessment || userAssessment.length === 0) {
+        throw new Error('Assessment not found or not completed');
+      }
+      
+      // Get the interpretation range that matches the user's score
+      const [interpretationRange] = await db.query(
+        `SELECT description 
+         FROM assessment_interpretation_ranges 
+         WHERE assessment_id = ? 
+         AND ? BETWEEN min_score AND max_score
+         LIMIT 1`,
+        [assessmentId, userAssessment[0].total_points]
+      );
+      
+      // Prepare template data
+      const templateData = {
+        score: userAssessment[0].total_points,
+        interpretation: interpretationRange && interpretationRange.length > 0 
+          ? interpretationRange[0].description 
+          : 'No interpretation available'
+      };
+      
+      // Generate HTML and convert to PDF
+      const html = await this.generateAssessmentReportHtml(templateData);
+      const pdfBuffer = await this.convertHtmlToPdf(html);
+      
+      // Upload to S3
+      const timestamp = new Date().toISOString().replace(/[^0-9]/g, '');
+      const pdfPath = `assessments/report_${userId}_${timestamp}.pdf`;
+      const pdfUrl = await this.uploadAssessmentPdfToS3(pdfBuffer, pdfPath);
+      
+      // Update database with PDF URL
+      await db.query(
+        `UPDATE user_assessments SET pdf_url = ? WHERE user_id = ? AND assessment_id = ?`,
+        [pdfUrl, userId, assessmentId]
+      );
+      
+      return { pdfUrl };
+    } catch (error) {
+      console.error('Error generating assessment PDF:', error);
+      throw error;
+    }
+  }
+
+  static async generateAssessmentReportHtml(data) {
+    const templatePath = path.join(__dirname, '../../../templates/assessment-report.html');
+    const templateContent = fs.readFileSync(templatePath, 'utf8');
+    const template = handlebars.compile(templateContent);
+    return template(data);
+  }
+
+  static async convertHtmlToPdf(html) {
+    const browser = await chromium.launch({ 
+      headless: true, 
+      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+    });
+    
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle' });
+      
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+      });
+      
+      return pdfBuffer;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  static async uploadAssessmentPdfToS3(pdfBuffer, pdfPath) {
+    const s3Client = new S3Client({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      }
+    });
+    
+    const uploadParams = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: pdfPath,
+      Body: pdfBuffer,
+      ContentType: 'application/pdf',
+      ACL: 'public-read'
+    };
+    
+    const command = new PutObjectCommand(uploadParams);
+    await s3Client.send(command);
+    
+    return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfPath}`;
   }
 }
 
