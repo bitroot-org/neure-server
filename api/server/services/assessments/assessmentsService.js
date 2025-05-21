@@ -892,20 +892,22 @@ class AssessmentsService {
     }
   }
 
-  static async generateAssessmentPdf(userId, assessmentId) {
+  static async generateAssessmentPdf(userId, assessmentId, returnType = 'url') {
     try {
-      // Check if PDF already exists
-      const [existingPdf] = await db.query(
-        `SELECT pdf_url FROM user_assessments 
-         WHERE user_id = ? AND assessment_id = ? AND pdf_url IS NOT NULL`,
-        [userId, assessmentId]
-      );
-      
-      if (existingPdf && existingPdf.length > 0 && existingPdf[0].pdf_url) {
-        return { pdfUrl: existingPdf[0].pdf_url };
+      // Check if PDF already exists and returnType is url
+      if (returnType === 'url') {
+        const [existingPdf] = await db.query(
+          `SELECT pdf_url FROM user_assessments 
+           WHERE user_id = ? AND assessment_id = ? AND pdf_url IS NOT NULL`,
+          [userId, assessmentId]
+        );
+        
+        if (existingPdf && existingPdf.length > 0 && existingPdf[0].pdf_url) {
+          return { pdfUrl: existingPdf[0].pdf_url };
+        }
       }
       
-      // Get assessment data with the correct interpretation from assessment_interpretation_ranges
+      // Get assessment data
       const [userAssessment] = await db.query(
         `SELECT ua.total_points, ua.score
          FROM user_assessments ua
@@ -939,7 +941,16 @@ class AssessmentsService {
       const html = await this.generateAssessmentReportHtml(templateData);
       const pdfBuffer = await this.convertHtmlToPdf(html);
       
-      // Upload to S3
+      // If returnType is 'blob', return the buffer directly
+      if (returnType === 'blob') {
+        return { 
+          pdfBuffer,
+          contentType: 'application/pdf',
+          filename: `assessment_report_${userId}_${assessmentId}.pdf`
+        };
+      }
+      
+      // Otherwise, upload to S3 and return URL
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, '');
       const pdfPath = `assessments/report_${userId}_${timestamp}.pdf`;
       const pdfUrl = await this.uploadAssessmentPdfToS3(pdfBuffer, pdfPath);
