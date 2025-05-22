@@ -1,6 +1,6 @@
 {
   "name": "neure-server",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "index.js",
   "scripts": {
     "start": "./node_modules/pm2/bin/pm2-runtime api/index.js",
