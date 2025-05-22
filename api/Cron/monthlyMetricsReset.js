@@ -8,16 +8,23 @@ const recordCompanyMetricsHistory = async (connection) => {
     firstDayOfMonth.setDate(1);
     firstDayOfMonth.setHours(0, 0, 0, 0);
 
-    // Get all active companies and their current metrics
+    // Get all active companies and their current metrics with employee and department counts
     const [companies] = await connection.query(`
       SELECT 
-        id,
-        stress_level,
-        retention_rate,
-        engagement_score,
-        psychological_safety_index
-      FROM companies 
-      WHERE active = 1
+        c.id,
+        c.stress_level,
+        c.retention_rate,
+        c.engagement_score,
+        c.psychological_safety_index,
+        COUNT(CASE WHEN u.role_id NOT IN (1, 2) THEN ce.user_id END) as total_employees,
+        SUM(CASE WHEN ce.is_active = 1 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as active_employees,
+        SUM(CASE WHEN ce.is_active = 0 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as inactive_employees,
+        (SELECT COUNT(*) FROM company_departments cd WHERE cd.company_id = c.id) as total_departments
+      FROM companies c
+      LEFT JOIN company_employees ce ON c.id = ce.company_id
+      LEFT JOIN users u ON ce.user_id = u.user_id
+      WHERE c.active = 1
+      GROUP BY c.id
     `);
 
     // Insert metrics history for each company
@@ -29,15 +36,23 @@ const recordCompanyMetricsHistory = async (connection) => {
           stress_level,
           retention_rate,
           engagement_score,
-          psychological_safety_index
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          psychological_safety_index,
+          total_employees,
+          active_employees,
+          inactive_employees,
+          total_departments
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         company.id,
         firstDayOfMonth,
         company.stress_level,
         company.retention_rate,
         company.engagement_score,
-        company.psychological_safety_index
+        company.psychological_safety_index,
+        company.total_employees || 0,
+        company.active_employees || 0,
+        company.inactive_employees || 0,
+        company.total_departments || 0
       ]);
     }
 

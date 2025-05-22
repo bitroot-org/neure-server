@@ -1,4 +1,5 @@
 const AnnouncementService = require("../../services/notificationsAndAnnouncements/announcementService");
+const db = require("../../../config/db");
 
 class AnnouncementController {
   // Create a new announcement
@@ -54,13 +55,23 @@ class AnnouncementController {
     try {
       const { company_id, page = 1, limit = 10, audience_type } = req.query;
       const user_id = req.user.user_id;
+      
+      // Get user's join date
+      const [userJoinData] = await db.query(
+        `SELECT joined_date FROM company_employees WHERE user_id = ? AND is_active = 1`,
+        [user_id]
+      );
+      
+      const joinDate = userJoinData && userJoinData.length > 0 ? 
+        userJoinData[0].joined_date : null;
   
       const result = await AnnouncementService.getAnnouncements({
         company_id: company_id ? parseInt(company_id) : null,
         page: parseInt(page),
         limit: parseInt(limit),
         audience_type,
-        user_id // Pass user_id to get read status
+        user_id, // Pass user_id to get read status
+        join_date: joinDate // Pass join date to filter announcements
       });
   
       return res.status(200).json({

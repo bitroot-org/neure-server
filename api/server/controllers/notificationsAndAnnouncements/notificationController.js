@@ -1,4 +1,6 @@
 const NotificationService = require('../../services/notificationsAndAnnouncements/notificationService');
+const db = require("../../../config/db");
+
 
 class NotificationController {
   static async createNotification(req, res) {
@@ -51,13 +53,23 @@ class NotificationController {
     try {
       const { company_id, type, page = 1, limit = 10 } = req.query;
       const user_id = req.user.user_id;
+      
+      // Get user's join date
+      const [userJoinData] = await db.query(
+        `SELECT joined_date FROM company_employees WHERE user_id = ? AND is_active = 1`,
+        [user_id]
+      );
+      
+      const joinDate = userJoinData && userJoinData.length > 0 ? 
+        userJoinData[0].joined_date : null;
 
       const result = await NotificationService.getNotifications({
         company_id: company_id ? parseInt(company_id) : null,
         user_id: user_id ? parseInt(user_id) : null,
         type,
         page: parseInt(page),
-        limit: parseInt(limit)
+        limit: parseInt(limit),
+        join_date: joinDate // Pass join date to filter notifications
       });
 
       return res.status(200).json({

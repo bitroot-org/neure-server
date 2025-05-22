@@ -1009,7 +1009,8 @@ class workshopService {
     schedule_id = null,
     page = 1,
     limit = 10,
-    format = "json"
+    format = "json",
+    attendance_status = null
   ) {
     try {
       // Base query to get total count
@@ -1087,6 +1088,15 @@ class workshopService {
         queryParams.push(company_id);
       }
 
+      // Add attendance status filter if provided
+      if (attendance_status !== null) {
+        const isAttended = attendance_status === '1' || attendance_status === 1;
+        countQuery += " AND lt.is_attended = ?";
+        dataQuery += " AND lt.is_attended = ?";
+        countParams.push(isAttended);
+        queryParams.push(isAttended);
+      }
+
       // Get total count
       const [totalRows] = await db.query(countQuery, countParams);
 
@@ -1098,6 +1108,9 @@ class workshopService {
         }
         if (schedule_id) {
           message += ` and schedule ID ${schedule_id}`;
+        }
+        if (attendance_status !== null) {
+          message += ` with attendance status ${attendance_status === '1' || attendance_status === 1 ? 'attended' : 'not attended'}`;
         }
         
         return {

@@ -45,7 +45,7 @@ class AnnouncementService {
     }
   }
 
-  static async getAnnouncements({ company_id, page = 1, limit = 10, audience_type, user_id }) {
+  static async getAnnouncements({ company_id, page = 1, limit = 10, audience_type, user_id, join_date }) {
     try {
       const offset = (page - 1) * limit;
 
@@ -81,6 +81,21 @@ class AnnouncementService {
           query += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
+          `;
+          countQuery += `
+            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
+            WHERE a.is_active = 1 
+          `;
+          
+          // Add join date filter if provided
+          if (join_date) {
+            query += ` AND a.created_at >= ? `;
+            countQuery += ` AND a.created_at >= ? `;
+            queryParams.push(join_date);
+            countParams.push(join_date);
+          }
+          
+          query += `
             AND (
               a.audience_type = 'employees' 
               OR a.audience_type = 'all' 
@@ -89,8 +104,6 @@ class AnnouncementService {
             AND (a.audience_type = 'all' OR a.audience_type = 'employees' OR ac.company_id = ?)
           `;
           countQuery += `
-            LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
-            WHERE a.is_active = 1 
             AND (
               a.audience_type = 'employees' 
               OR a.audience_type = 'all' 
@@ -105,12 +118,25 @@ class AnnouncementService {
           query += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
-            AND (a.audience_type = 'company' OR a.audience_type = 'all')
-            AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
           countQuery += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
+          `;
+          
+          // Add join date filter if provided
+          if (join_date) {
+            query += ` AND a.created_at >= ? `;
+            countQuery += ` AND a.created_at >= ? `;
+            queryParams.push(join_date);
+            countParams.push(join_date);
+          }
+          
+          query += `
+            AND (a.audience_type = 'company' OR a.audience_type = 'all')
+            AND (a.audience_type = 'all' OR ac.company_id = ?)
+          `;
+          countQuery += `
             AND (a.audience_type = 'company' OR a.audience_type = 'all')
             AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
@@ -121,11 +147,24 @@ class AnnouncementService {
           query += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
-            AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
           countQuery += `
             LEFT JOIN announcement_company ac ON a.id = ac.announcement_id
             WHERE a.is_active = 1 
+          `;
+          
+          // Add join date filter if provided
+          if (join_date) {
+            query += ` AND a.created_at >= ? `;
+            countQuery += ` AND a.created_at >= ? `;
+            queryParams.push(join_date);
+            countParams.push(join_date);
+          }
+          
+          query += `
+            AND (a.audience_type = 'all' OR ac.company_id = ?)
+          `;
+          countQuery += `
             AND (a.audience_type = 'all' OR ac.company_id = ?)
           `;
           queryParams.push(company_id);
@@ -135,6 +174,14 @@ class AnnouncementService {
         // If no company_id, fetch all active announcements
         query += `WHERE a.is_active = 1`;
         countQuery += `WHERE a.is_active = 1`;
+        
+        // Add join date filter if provided
+        if (join_date) {
+          query += ` AND a.created_at >= ? `;
+          countQuery += ` AND a.created_at >= ? `;
+          queryParams.push(join_date);
+          countParams.push(join_date);
+        }
       }
 
       query += `

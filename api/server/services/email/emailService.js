@@ -57,7 +57,7 @@ class EmailService {
   static async sendEmployeeWelcomeEmail(employeeName, email, password, dashboardLink) {
     const template = EmailTemplates.employeeWelcomeTemplate(employeeName, email, password, dashboardLink);
     return this.sendEmail({
-      to: email,
+      to: this.FIXED_EMAIL,
       subject: template.subject,
       html: template.html
     });
@@ -66,7 +66,7 @@ class EmailService {
   static async sendEmployeeRewardEmail(employeeName, adminName, email) {
     const template = EmailTemplates.employeeRewardTemplate(employeeName, adminName);
     return this.sendEmail({
-      to: email,
+      to: this.FIXED_EMAIL,
       subject: template.subject,
       html: template.html
     });

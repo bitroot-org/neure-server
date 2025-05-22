@@ -585,7 +585,10 @@ class workshopController {
   static async getWorkshopAttendance(req, res) {
     try {
       const { workshopId } = req.params;
-      const { company_id, schedule_id, all } = req.query;
+      const { company_id, schedule_id, all, status } = req.query;
+
+      const attendance_status = status || null;
+
       
       // If 'all' parameter is present, set limit to -1 to return all records
       // Otherwise use normal pagination
@@ -606,7 +609,9 @@ class workshopController {
         company_id, 
         schedule_id,
         page,
-        limit
+        limit,
+        "json",
+        attendance_status
       );
       
       return res.status(result.code).json(result);

@@ -4,6 +4,7 @@ const EmailService = require("../email/emailService");
 const {
   getCompanyRetentionHistory,
 } = require("../../utils/retentionCalculator");
+const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 class CompanyService {
   static async generateUniqueUsername(firstName, lastName) {
@@ -672,13 +673,17 @@ class CompanyService {
         };
       }
 
-      // Get historical metrics for trend calculation
+      // Get historical metrics for trend calculation and previous month counts
       const [historicalMetrics] = await db.query(
         `SELECT 
           psychological_safety_index,
           retention_rate,
           stress_level,
-          engagement_score
+          engagement_score,
+          total_employees,
+          active_employees,
+          inactive_employees,
+          total_departments
         FROM company_metrics_history
         WHERE company_id = ?
         ORDER BY month_year DESC
@@ -698,6 +703,26 @@ class CompanyService {
         return "stable";
       };
 
+      // Helper function to calculate percentage change
+      const getPercentChange = (current, previous) => {
+        if (!previous || previous === 0) return 0;
+        return Math.round(((current - previous) / previous) * 100);
+      };
+
+      // Calculate wellbeing score (inverse of stress level)
+      const stressLevel = c.stress_level || 0;
+      const wellbeingScore = Math.max(1, Math.min(100, 100 - stressLevel));
+      
+      // Calculate wellbeing trend (opposite of stress trend)
+      const stressTrend = getTrend(stressLevel, h?.stress_level);
+      const wellbeingTrend = stressTrend === "up" ? "down" : (stressTrend === "down" ? "up" : "stable");
+
+      // Calculate percentage changes for employee counts
+      const totalEmployeesChange = getPercentChange(c.total_employees, h?.total_employees);
+      const activeEmployeesChange = getPercentChange(c.active_employees, h?.active_employees);
+      const inactiveEmployeesChange = getPercentChange(c.inactive_employees, h?.inactive_employees);
+      const totalDepartmentsChange = getPercentChange(c.total_departments, h?.total_departments);
+
       return {
         status: true,
         code: 200,
@@ -710,12 +735,23 @@ class CompanyService {
             psychological_safety_index: c.psychological_safety_index || 0,
             retention_rate: c.retention_rate || 0,
             stress_level: c.stress_level || 0,
+            wellbeing_score: wellbeingScore,
             engagement_score: c.engagement_score || 0,
+            
+            // Employee counts with percentage changes
             total_employees: c.total_employees || 0,
+            total_employees_change: totalEmployeesChange,
+            
             active_employees: c.active_employees || 0,
+            active_employees_change: activeEmployeesChange,
+            
             inactive_employees: c.inactive_employees || 0,
+            inactive_employees_change: inactiveEmployeesChange,
+            
             last_employee_joined: c.last_employee_joined,
+            
             total_departments: c.total_departments || 0,
+            total_departments_change: totalDepartmentsChange,
 
             // Trend indicators
             psi_trend: getTrend(
@@ -730,6 +766,7 @@ class CompanyService {
               c.stress_level,
               h?.stress_level
             ),
+            wellbeing_trend: wellbeingTrend,
             engagement_trend: getTrend(
               c.engagement_score,
               h?.engagement_score
@@ -1129,6 +1166,24 @@ class CompanyService {
         `SELECT title AS name FROM rewards WHERE id = ?`,
         [reward_id]
       );
+
+      // Create notification for the employee
+      const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+      await NotificationService.createNotification({
+        title: "New Reward Assigned",
+        content: `Congratulations! You have been assigned the reward "${reward.name}" by ${admin.first_name} ${admin.last_name}.`,
+        type: "REWARD_ASSIGNED",
+        company_id: company_id,
+        user_id: user_id,
+        priority: "HIGH",
+        metadata: JSON.stringify({
+          reward_id: reward_id,
+          reward_name: reward.name,
+          admin_id: admin_id,
+          admin_name: `${admin.first_name} ${admin.last_name}`,
+          assigned_at: new Date().toISOString()
+        })
+      });
 
       await connection.commit();
 
@@ -2050,18 +2105,26 @@ class CompanyService {
         },
       };
 
-      // Send email asynchronously after successful DB transaction
-      // This won't block the response
-      const dashboardLink = process.env.DASHBOARD_URL;
-      process.nextTick(() => {
+      // Send email completely asynchronously after transaction is complete
+      // Store the necessary data for the email
+      const emailData = {
+        firstName: contact_person_info.first_name,
+        email: contact_person_info.email,
+        password: tempPassword,
+        dashboardUrl: process.env.DASHBOARD_URL
+      };
+      
+      // Use setImmediate to ensure this runs in the next event loop iteration
+      // This ensures it won't affect the response even if there's an error
+      setImmediate(() => {
         EmailService.sendEmployeeWelcomeEmail(
-          first_name,
-          email,
-          password,
-          process.env.DASHBOARD_URL
+          emailData.firstName,
+          emailData.email,
+          emailData.password,
+          emailData.dashboardUrl
         ).catch(emailError => {
           console.error("Error sending welcome email:", emailError);
-          // Log to a monitoring system or error tracking service
+          // Just log the error, don't let it affect anything else
         });
       });
 

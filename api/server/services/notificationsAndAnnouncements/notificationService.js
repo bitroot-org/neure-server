@@ -38,7 +38,8 @@ class NotificationService {
     type = null,
     is_read = null,
     page = 1,
-    limit = 10
+    limit = 10,
+    join_date = null
   }) {
     try {
       const offset = (page - 1) * limit;
@@ -61,17 +62,25 @@ class NotificationService {
         query = `
           SELECT DISTINCT n.* 
           FROM notifications n
-          WHERE n.user_id = ?
-          OR (n.company_id = ? AND n.user_id IS NULL)
+          WHERE (n.user_id = ?
+          OR (n.company_id = ? AND n.user_id IS NULL))
         `;
         countQuery = `
           SELECT COUNT(DISTINCT n.id) as total 
           FROM notifications n
-          WHERE n.user_id = ?
-          OR (n.company_id = ? AND n.user_id IS NULL)
+          WHERE (n.user_id = ?
+          OR (n.company_id = ? AND n.user_id IS NULL))
         `;
         params.push(company_id);
         countParams.push(company_id);
+      }
+
+      // Filter by join date if provided
+      if (join_date) {
+        query += ` AND n.created_at >= ? `;
+        countQuery += ` AND n.created_at >= ? `;
+        params.push(join_date);
+        countParams.push(join_date);
       }
 
       if (type) {
