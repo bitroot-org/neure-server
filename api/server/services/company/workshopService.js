@@ -1100,8 +1100,8 @@ class workshopService {
       // Get total count
       const [totalRows] = await db.query(countQuery, countParams);
 
-      // If no records found
-      if (totalRows[0].total === 0) {
+      // If no records found when NOT filtering by attendance status
+      if (totalRows[0].total === 0 && attendance_status === null) {
         let message = `No attendance data found for workshop ID ${workshop_id}`;
         if (company_id) {
           message += ` and company ID ${company_id}`;
@@ -1109,15 +1109,36 @@ class workshopService {
         if (schedule_id) {
           message += ` and schedule ID ${schedule_id}`;
         }
-        if (attendance_status !== null) {
-          message += ` with attendance status ${attendance_status === '1' || attendance_status === 1 ? 'attended' : 'not attended'}`;
-        }
         
         return {
           status: false,
           code: 404,
           message,
           data: null,
+        };
+      }
+      
+      // If filtering by attendance status but no records found, return 200 with empty data
+      if (totalRows[0].total === 0 && attendance_status !== null) {
+        let message = `No ${attendance_status === '1' || attendance_status === 1 ? 'attended' : 'not attended'} records found for workshop ID ${workshop_id}`;
+        if (company_id) {
+          message += ` and company ID ${company_id}`;
+        }
+        if (schedule_id) {
+          message += ` and schedule ID ${schedule_id}`;
+        }
+        
+        return {
+          status: true,
+          code: 200,
+          message,
+          data: [],
+          pagination: {
+            total: 0,
+            currentPage: parseInt(page),
+            totalPages: 0,
+            limit: parseInt(limit)
+          }
         };
       }
 

@@ -1,9 +1,12 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
-const { updateCompanyStressLevel } = require("../../utils/stressLevelCalculator");
+const {
+  updateCompanyStressLevel,
+} = require("../../utils/stressLevelCalculator");
 const { updateCompanyPSI } = require("../../utils/psiCalculator");
-const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+const NotificationService = require("../notificationsAndAnnouncements/notificationService");
+const EmailService = require("../email/emailService");
 
 function calculateAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -108,10 +111,9 @@ class UserServices {
         }
       }
 
-      await db.query(
-        "UPDATE users SET last_login = NOW() WHERE user_id = ?",
-        [user.user_id]
-      );
+      await db.query("UPDATE users SET last_login = NOW() WHERE user_id = ?", [
+        user.user_id,
+      ]);
 
       let companyData = null;
 
@@ -284,38 +286,38 @@ class UserServices {
   static async refreshToken(token) {
     try {
       const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
-  
+
       // Check if refresh token exists and is valid
       const [tokens] = await db.query(
         "SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()",
         [token]
       );
-  
+
       if (tokens.length === 0) {
         throw new Error("Invalid refresh token");
       }
-  
+
       // Get user information to include in the new token
       const [user] = await db.query(
         "SELECT email, role_id FROM users WHERE user_id = ?",
         [decoded.user_id]
       );
-  
+
       if (user.length === 0) {
         throw new Error("User not found");
       }
-  
+
       // Generate new access token with consistent payload
       const newAccessToken = jwt.sign(
-        { 
-          user_id: decoded.user_id, 
-          email: user[0].email, 
-          role_id: user[0].role_id 
+        {
+          user_id: decoded.user_id,
+          email: user[0].email,
+          role_id: user[0].role_id,
         },
         process.env.JWT_SECRET,
         { expiresIn: "5h" }
       );
-  
+
       return {
         status: true,
         code: 200,
@@ -481,7 +483,7 @@ class UserServices {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-  
+
       const {
         email,
         username,
@@ -492,85 +494,87 @@ class UserServices {
         years_of_experience,
         specialization,
         bio,
-        date_of_birth
+        date_of_birth,
       } = updateData;
-  
+
       // Calculate age if date_of_birth provided
       const age = date_of_birth ? calculateAge(date_of_birth) : null;
-  
+
       // Update user table
       const userUpdateFields = [];
       const userUpdateValues = [];
-  
+
       if (email) {
-        userUpdateFields.push('email = ?');
+        userUpdateFields.push("email = ?");
         userUpdateValues.push(email);
       }
       if (username) {
-        userUpdateFields.push('username = ?');
+        userUpdateFields.push("username = ?");
         userUpdateValues.push(username);
       }
       if (first_name) {
-        userUpdateFields.push('first_name = ?');
+        userUpdateFields.push("first_name = ?");
         userUpdateValues.push(first_name);
       }
       if (last_name) {
-        userUpdateFields.push('last_name = ?');
+        userUpdateFields.push("last_name = ?");
         userUpdateValues.push(last_name);
       }
       if (phone) {
-        userUpdateFields.push('phone = ?');
+        userUpdateFields.push("phone = ?");
         userUpdateValues.push(phone);
       }
       if (gender) {
-        userUpdateFields.push('gender = ?');
+        userUpdateFields.push("gender = ?");
         userUpdateValues.push(gender);
       }
       if (date_of_birth) {
-        userUpdateFields.push('date_of_birth = ?', 'age = ?');
+        userUpdateFields.push("date_of_birth = ?", "age = ?");
         userUpdateValues.push(date_of_birth, age);
       }
-  
+
       if (userUpdateFields.length > 0) {
         userUpdateValues.push(therapistId);
         await connection.query(
-          `UPDATE users SET ${userUpdateFields.join(', ')} WHERE user_id = ?`,
+          `UPDATE users SET ${userUpdateFields.join(", ")} WHERE user_id = ?`,
           userUpdateValues
         );
       }
-  
+
       // Update therapist table
       const therapistUpdateFields = [];
       const therapistUpdateValues = [];
-  
+
       if (bio) {
-        therapistUpdateFields.push('bio = ?');
+        therapistUpdateFields.push("bio = ?");
         therapistUpdateValues.push(bio);
       }
       if (specialization) {
-        therapistUpdateFields.push('specialization = ?');
+        therapistUpdateFields.push("specialization = ?");
         therapistUpdateValues.push(specialization);
       }
       if (years_of_experience) {
-        therapistUpdateFields.push('years_of_experience = ?');
+        therapistUpdateFields.push("years_of_experience = ?");
         therapistUpdateValues.push(years_of_experience);
       }
-  
+
       if (therapistUpdateFields.length > 0) {
         therapistUpdateValues.push(therapistId);
         await connection.query(
-          `UPDATE therapists SET ${therapistUpdateFields.join(', ')} WHERE user_id = ?`,
+          `UPDATE therapists SET ${therapistUpdateFields.join(
+            ", "
+          )} WHERE user_id = ?`,
           therapistUpdateValues
         );
       }
-  
+
       await connection.commit();
-  
+
       return {
         status: true,
         code: 200,
         message: "Therapist updated successfully",
-        data: { therapistId }
+        data: { therapistId },
       };
     } catch (error) {
       await connection.rollback();
@@ -579,12 +583,12 @@ class UserServices {
       connection.release();
     }
   }
-  
+
   static async deleteTherapist(therapistId) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-  
+
       // Check if therapist exists
       const [therapist] = await connection.query(
         `SELECT t.*, u.email 
@@ -595,33 +599,33 @@ class UserServices {
       );
 
       console.log("Therapist data:", therapist);
-  
+
       if (!therapist || therapist.length === 0) {
         throw new Error("Therapist not found or already inactive");
       }
-  
+
       // Soft delete in therapists table
       await connection.query(
         "UPDATE therapists SET is_active = 0 WHERE user_id = ?",
         [therapistId]
       );
-  
+
       // Soft delete in users table
       await connection.query(
         "UPDATE users SET is_active = 0 WHERE user_id = ?",
         [therapistId]
       );
-  
+
       await connection.commit();
-  
+
       return {
         status: true,
         code: 200,
         message: "Therapist deleted successfully",
         data: {
           therapistId,
-          email: therapist[0].email
-        }
+          email: therapist[0].email,
+        },
       };
     } catch (error) {
       await connection.rollback();
@@ -697,7 +701,7 @@ class UserServices {
         content: `Your password was changed successfully on ${new Date().toLocaleString()}. If you didn't perform this action, please contact support immediately.`,
         type: "ACCOUNT_UPDATE",
         user_id: user[0].user_id,
-        priority: "HIGH"
+        priority: "HIGH",
       });
 
       console.log("Password change successful");
@@ -916,13 +920,15 @@ class UserServices {
       }
 
       // Create notification after successful update
-      const updatedFieldNames = fields.map(field => field.split(' = ')[0]);
+      const updatedFieldNames = fields.map((field) => field.split(" = ")[0]);
       await NotificationService.createNotification({
         title: "Profile Update",
-        content: `Your profile information has been updated. Updated fields: ${updatedFieldNames.join(', ')}`,
+        content: `Your profile information has been updated. Updated fields: ${updatedFieldNames.join(
+          ", "
+        )}`,
         type: "PROFILE_UPDATE",
         user_id: user_id,
-        priority: "MEDIUM"
+        priority: "MEDIUM",
       });
 
       // console.log(`User details updated for user_id: ${user_id}`);
@@ -994,7 +1000,7 @@ class UserServices {
 
   static async getEmployeeRewards(user_id, page = 1, limit = 10) {
     try {
-      console.log(`Fetching rewards for user_id: ${user_id}`);
+      // console.log(`Fetching rewards for user_id: ${user_id}`);
 
       // Check if the user exists
       const [existingUser] = await db.query(
@@ -1065,7 +1071,7 @@ class UserServices {
 
   //     // Check if the reward is assigned to the user and not already claimed
   //     const [reward] = await db.query(
-  //       `SELECT * FROM employee_rewards 
+  //       `SELECT * FROM employee_rewards
   //        WHERE user_id = ? AND reward_id = ? AND claimed_status = 0`,
   //       [user_id, reward_id]
   //     );
@@ -1083,8 +1089,8 @@ class UserServices {
   //     }
 
   //     await db.query(
-  //       `UPDATE employee_rewards 
-  //        SET claimed_status = 1, claimed_at = NOW() 
+  //       `UPDATE employee_rewards
+  //        SET claimed_status = 1, claimed_at = NOW()
   //        WHERE id = ?`,
   //       [reward[0].id]
   //     );
@@ -1108,10 +1114,7 @@ class UserServices {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      console.log(
-        `Claiming reward for user_id: ${user_id}, reward_id: ${reward_id}`
-      );
-  
+
       // Get reward details including admin info and reward name
       const [reward] = await connection.query(
         `SELECT 
@@ -1120,6 +1123,8 @@ class UserServices {
           r.title AS reward_name,
           u1.first_name AS employee_name,
           u2.first_name AS admin_name,
+          u2.user_id AS admin_id,
+          u2.email AS admin_email,
           c.contact_person_id,
           u3.first_name AS contact_person_name,
           u3.email AS contact_person_email
@@ -1151,17 +1156,34 @@ class UserServices {
       );
 
       // Create notification for company contact person
+      // await NotificationService.createNotification({
+      //   title: "Reward Redemption Alert",
+      //   content: `${reward[0].employee_name} has redeemed the reward "${reward[0].reward_name}" that was assigned by ${reward[0].admin_name}.`,
+      //   type: "REWARD_REDEMPTION",
+      //   company_id: reward[0].company_id,
+      //   user_id: reward[0].contact_person_id,
+      //   priority: "MEDIUM",
+      //   metadata: JSON.stringify({
+      //     reward_id: reward_id,
+      //     employee_id: user_id,
+      //     admin_id: reward[0].admin_id,
+      //     redemption_date: new Date().toISOString(),
+      //   }),
+      // });
+
+      // Create notification for the admin who assigned the reward
       await NotificationService.createNotification({
-        title: "Reward Redemption Alert",
-        content: `${reward[0].employee_name} has redeemed the reward "${reward[0].reward_name}" that was assigned by ${reward[0].admin_name}.`,
-        type: "REWARD_REDEMPTION",
+        title: "Reward Claimed Notification",
+        content: `${reward[0].employee_name} has claimed the reward "${reward[0].reward_name}" that you assigned to them.`,
+        type: "REWARD_CLAIMED",
         company_id: reward[0].company_id,
-        user_id: reward[0].contact_person_id,
+        user_id: reward[0].admin_id,
         priority: "MEDIUM",
         metadata: JSON.stringify({
           reward_id: reward_id,
           employee_id: user_id,
-          admin_id: reward[0].rewarded_by,
+          employee_name: reward[0].employee_name,
+          reward_name: reward[0].reward_name,
           redemption_date: new Date().toISOString()
         })
       });
@@ -1171,14 +1193,15 @@ class UserServices {
       // Send email notification to admin
       const EmailService = require('../email/emailService');
       await EmailService.sendRewardRedemptionAdminEmail(
-        reward[0].contact_person_name,
+        reward[0].admin_name,
         reward[0].employee_name,
-        reward[0].reward_name
+        reward[0].reward_name,
+        reward[0].admin_email
       );
 
-      console.log(
-        `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
-      );
+      // console.log(
+      //   `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
+      // );
       return {
         status: true,
         code: 200,
@@ -1390,7 +1413,7 @@ class UserServices {
           company_id,
           stress_level,
           stress_message,
-          last_stress_modal_seen_at
+          last_stress_modal_seen_at,
         },
       };
     } catch (error) {
@@ -1409,7 +1432,7 @@ class UserServices {
 
       // Check if user exists
       const [user] = await connection.query(
-        'SELECT * FROM users WHERE user_id = ?',
+        "SELECT * FROM users WHERE user_id = ?",
         [user_id]
       );
 
@@ -1425,7 +1448,7 @@ class UserServices {
 
       // Update has_seen_dashboard_tour status
       await connection.query(
-        'UPDATE users SET has_seen_dashboard_tour = 1 WHERE user_id = ?',
+        "UPDATE users SET has_seen_dashboard_tour = 1 WHERE user_id = ?",
         [user_id]
       );
 
@@ -1437,7 +1460,7 @@ class UserServices {
         message: "Dashboard tour status updated successfully",
         data: {
           user_id,
-          has_seen_dashboard_tour: true
+          has_seen_dashboard_tour: true,
         },
       };
     } catch (error) {
@@ -1484,7 +1507,6 @@ class UserServices {
         [psi_score, user_id, company_id]
       );
 
-
       await connection.commit();
 
       // Update company's overall PSI
@@ -1517,7 +1539,7 @@ class UserServices {
 
       // Check if user exists
       const [user] = await connection.query(
-        'SELECT * FROM users WHERE user_id = ?',
+        "SELECT * FROM users WHERE user_id = ?",
         [user_id]
       );
 
@@ -1537,10 +1559,7 @@ class UserServices {
          SET 
            accepted_terms = ?
          WHERE user_id = ?`,
-        [
-          accepted_terms,
-          user_id
-        ]
+        [accepted_terms, user_id]
       );
 
       await connection.commit();
@@ -1567,12 +1586,12 @@ class UserServices {
       const [users] = await db.query(
         "SELECT user_id, username, email, first_name, last_name, profile_url FROM users WHERE role_id = 1"
       );
-      
+
       return {
         status: true,
         code: 200,
         message: "Superadmins retrieved successfully",
-        data: users
+        data: users,
       };
     } catch (error) {
       console.error("Error retrieving superadmins:", error);

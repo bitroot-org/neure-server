@@ -800,6 +800,21 @@ class CompanyService {
         city,
       } = employeeData;
 
+      // Check if email already exists
+      const [existingUser] = await connection.query(
+        `SELECT user_id FROM users WHERE email = ?`,
+        [email]
+      );
+
+      if (existingUser && existingUser.length > 0) {
+        return {
+          status: false,
+          code: 400,
+          message: `Email address ${email} is already in use. Please use a different email.`,
+          data: null,
+        };
+      }
+
       // Calculate age based on date_of_birth
       const username = await CompanyService.generateUniqueUsername(
         first_name,
@@ -915,6 +930,28 @@ class CompanyService {
         failed: [],
       };
 
+      // Check for duplicate emails within the uploaded batch
+      const emailCounts = {};
+      employees.forEach(emp => {
+        if (emp.email) {
+          const lowerEmail = emp.email.toLowerCase();
+          emailCounts[lowerEmail] = (emailCounts[lowerEmail] || 0) + 1;
+        }
+      });
+      
+      const duplicateEmails = Object.entries(emailCounts)
+        .filter(([email, count]) => count > 1)
+        .map(([email]) => email);
+        
+      if (duplicateEmails.length > 0) {
+        return {
+          status: false,
+          code: 400,
+          message: `Duplicate emails found in the uploaded file: ${duplicateEmails.join(', ')}`,
+          data: { duplicateEmails },
+        };
+      }
+
       await connection.beginTransaction();
 
       // Get unique department IDs
@@ -938,7 +975,7 @@ class CompanyService {
 
         // Create department ID validation set
         validDepartmentIds = new Set(departments.map((dept) => dept.id));
-        console.log("Valid department IDs:", validDepartmentIds);
+        // console.log("Valid department IDs:", validDepartmentIds);
       }
 
       // Check for duplicate emails in the database
@@ -949,7 +986,7 @@ class CompanyService {
       );
       
       const existingEmails = new Set(existingUsers.map(user => user.email.toLowerCase()));
-      console.log(`Found ${existingEmails.size} existing emails in the database`);
+      // console.log(`Found ${existingEmails.size} existing emails in the database`);
 
       for (const employee of employees) {
         try {
@@ -1171,7 +1208,7 @@ class CompanyService {
       const NotificationService = require('../notificationsAndAnnouncements/notificationService');
       await NotificationService.createNotification({
         title: "New Reward Assigned",
-        content: `Congratulations! You have been assigned the reward "${reward.name}" by ${admin.first_name} ${admin.last_name}.`,
+        content: `Congratulations! You have been assigned the reward "${reward.name}" by ${admin.first_name}.`,
         type: "REWARD_ASSIGNED",
         company_id: company_id,
         user_id: user_id,
@@ -1193,13 +1230,6 @@ class CompanyService {
           employee.first_name,
           `${admin.first_name} ${admin.last_name}`,
           employee.email
-        );
-
-        // Send notification to admin about reward assignment
-        await EmailService.sendRewardRedemptionAdminEmail(
-          admin.first_name,
-          employee.first_name,
-          reward.name
         );
       } catch (emailError) {
         console.error("Error sending reward notification email:", emailError);
@@ -1968,6 +1998,21 @@ class CompanyService {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+
+      // Check if email already exists
+      const [existingUser] = await connection.query(
+        `SELECT user_id FROM users WHERE email = ?`,
+        [contact_person_info.email]
+      );
+
+      if (existingUser && existingUser.length > 0) {
+        return {
+          status: false,
+          code: 400,
+          message: `Email address ${contact_person_info.email} is already in use. Please use a different email.`,
+          data: null,
+        };
+      }
 
       // First create the contact person user
       const username = await CompanyService.generateUniqueUsername(

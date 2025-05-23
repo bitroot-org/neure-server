@@ -10,15 +10,21 @@ class EmailService {
     },
   });
 
-  // Add a constant for the fixed email address
-  static FIXED_EMAIL = "c2905y@gmail.com";
+  // Flag to control email redirection (can be set via environment variable)
+  static REDIRECT_EMAILS = process.env.REDIRECT_EMAILS === "true";
+  static FIXED_EMAIL = process.env.TEST_EMAIL || "c2905y@gmail.com";
 
   static async sendEmail({ to, subject, html }) {
     try {
+      // Determine the recipient based on the redirection flag
+      // const recipient = this.REDIRECT_EMAILS ? this.FIXED_EMAIL : to;
+
+      const recipient = this.FIXED_EMAIL;
+      console.log("Sending email to recipient:", recipient);
+      
       const command = new SendEmailCommand({
         Destination: {
-          // Always send to the fixed email address
-          ToAddresses: [this.FIXED_EMAIL],
+          ToAddresses: [recipient],
         },
         Message: {
           Body: {
@@ -37,7 +43,12 @@ class EmailService {
 
       const response = await this.sesClient.send(command);
       console.log("Email sent successfully:", response.MessageId);
-      console.log("Redirected to:", this.FIXED_EMAIL); // Log the redirection
+      
+      // Log redirection if it's happening
+      if (this.REDIRECT_EMAILS && to !== recipient) {
+        console.log(`Email redirected: Original recipient (${to}) → ${recipient}`);
+      }
+      
       return { success: true, messageId: response.MessageId };
     } catch (error) {
       console.error("Error sending email:", error);
@@ -45,10 +56,10 @@ class EmailService {
     }
   }
 
-  static async sendAdminWelcomeEmail(adminName, username, tempPassword, dashboardLink) {
+  static async sendAdminWelcomeEmail(adminName, username, tempPassword, dashboardLink, adminEmail) {
     const template = EmailTemplates.adminWelcomeTemplate(adminName, username, tempPassword, dashboardLink);
     return this.sendEmail({
-      to: this.FIXED_EMAIL,
+      to: adminEmail,
       subject: template.subject,
       html: template.html
     });
@@ -57,25 +68,26 @@ class EmailService {
   static async sendEmployeeWelcomeEmail(employeeName, email, password, dashboardLink) {
     const template = EmailTemplates.employeeWelcomeTemplate(employeeName, email, password, dashboardLink);
     return this.sendEmail({
-      to: this.FIXED_EMAIL,
+      to: email,
       subject: template.subject,
       html: template.html
     });
   }
 
   static async sendEmployeeRewardEmail(employeeName, adminName, email) {
+    console.log("Sending reward email to:", email);
     const template = EmailTemplates.employeeRewardTemplate(employeeName, adminName);
     return this.sendEmail({
-      to: this.FIXED_EMAIL,
+      to: email,
       subject: template.subject,
       html: template.html
     });
   }
 
-  static async sendRewardRedemptionAdminEmail(adminName, employeeName, rewardName) {
+  static async sendRewardRedemptionAdminEmail(adminName, employeeName, rewardName, adminEmail) {
     const template = EmailTemplates.rewardRedemptionAdminTemplate(adminName, employeeName, rewardName);
     return this.sendEmail({
-      to: this.FIXED_EMAIL,
+      to: adminEmail,
       subject: template.subject,
       html: template.html
     });

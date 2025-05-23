@@ -202,7 +202,7 @@ class GalleryService {
         GROUP BY g.file_type`;
       }
 
-      console.log("query  :  ", query);
+      // console.log("query  :  ", query);
 
       const [counts] = await db.query(query, queryParams);
 
