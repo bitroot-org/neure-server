@@ -19,7 +19,7 @@ class EmailService {
       // Determine the recipient based on the redirection flag
       // const recipient = this.REDIRECT_EMAILS ? this.FIXED_EMAIL : to;
 
-      const recipient = this.FIXED_EMAIL;
+      const recipient = to || this.FIXED_EMAIL;
       console.log("Sending email to recipient:", recipient);
       
       const command = new SendEmailCommand({
