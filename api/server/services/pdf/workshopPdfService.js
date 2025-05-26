@@ -340,25 +340,42 @@ class WorkshopPdfService {
   }
 
   static async convertHtmlToPdf(html) {
-    // Using puppeteer with minimal settings for speed
-    const browser = await puppeteer.launch({ 
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
     try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'domcontentloaded' }); // Faster than networkidle
+      console.log('Using html-pdf for workshop ticket generation...');
+      const htmlPdf = require('html-pdf');
       
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+      return new Promise((resolve, reject) => {
+        const options = {
+          format: 'A4',
+          border: {
+            top: '1cm',
+            right: '1cm',
+            bottom: '1cm',
+            left: '1cm'
+          },
+          // Prevent page breaks
+          pageBreak: { mode: 'avoid-all' },
+          // Faster rendering
+          timeout: 30000,
+          // Better rendering quality
+          quality: '100',
+          // Enable background colors and images
+          printBackground: true
+        };
+        
+        htmlPdf.create(html, options).toBuffer((err, buffer) => {
+          if (err) {
+            console.error('Error in html-pdf conversion:', err);
+            reject(err);
+          } else {
+            console.log('Workshop ticket PDF generated successfully, size:', buffer.length);
+            resolve(buffer);
+          }
+        });
       });
-      
-      return pdfBuffer;
-    } finally {
-      await browser.close();
+    } catch (error) {
+      console.error('Error generating PDF with html-pdf:', error);
+      throw new Error(`Workshop ticket PDF generation failed: ${error.message}`);
     }
   }
 
@@ -570,7 +587,7 @@ class WorkshopPdfService {
       const html = await this.generateTicketHtml(templateData);
       
       console.log('Converting HTML to PDF...');
-      // Convert HTML to PDF
+      // Convert HTML to PDF using html-pdf instead of puppeteer
       const pdfBuffer = await this.convertHtmlToPdf(html);
       console.log('PDF generated successfully, size:', pdfBuffer.length);
 

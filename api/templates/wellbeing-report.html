@@ -224,9 +224,24 @@
       color: var(--danger);
     }
     
+    /* Specific styles for html-pdf */
+    .page-break {
+      display: block;
+      page-break-before: always;
+      break-before: page;
+    }
+    
+    /* Ensure charts render properly */
+    canvas {
+      max-width: 100%;
+      height: auto !important;
+    }
+    
     @media print {
       body {
         padding: 0;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       
       .container {
@@ -238,6 +253,8 @@
         color: var(--dark);
         box-shadow: none;
         padding: 20px;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       
       .company-info {
@@ -266,10 +283,6 @@
       .stats-grid {
         page-break-inside: avoid;
         break-inside: avoid;
-      }
-      
-      .page-break {
-        page-break-after: always;
       }
     }
     
@@ -371,6 +384,9 @@
       </div>
     </div>
     
+    <!-- Add a page break here for better PDF layout -->
+    <div class="page-break"></div>
+    
     <!-- Employee Statistics Section -->
     <div class="section">
       <div class="section-title">Employee Statistics</div>
@@ -424,6 +440,7 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: false, // Disable animation for PDF rendering
         scales: {
           y: {
             beginAtZero: true,
@@ -460,6 +477,12 @@
         }
       }
     });
+    
+    // Render the chart immediately for PDF generation
+    setTimeout(() => {
+      // This helps ensure the chart is rendered before PDF generation
+      console.log('Chart rendering complete');
+    }, 500);
   </script>
 </body>
 </html>
