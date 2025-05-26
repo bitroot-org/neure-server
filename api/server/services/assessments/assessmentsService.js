@@ -976,24 +976,40 @@ class AssessmentsService {
   }
 
   static async convertHtmlToPdf(html) {
-    const browser = await chromium.launch({ 
-      headless: true, 
-      args: ['--no-sandbox', '--disable-setuid-sandbox'] 
-    });
-    
     try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle' });
+      console.log('Using html-pdf for PDF generation...');
+      const htmlPdf = require('html-pdf');
       
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+      return new Promise((resolve, reject) => {
+        const options = {
+          format: 'A4',
+          border: {
+            top: '0.5cm',
+            right: '0.5cm',
+            bottom: '0.5cm',
+            left: '0.5cm'
+          },
+          // Reduce height to fit on one page
+          height: '26cm',
+          // Prevent page breaks
+          pageBreak: { mode: 'avoid-all' },
+          // Faster rendering
+          timeout: 30000
+        };
+        
+        htmlPdf.create(html, options).toBuffer((err, buffer) => {
+          if (err) {
+            console.error('Error in html-pdf conversion:', err);
+            reject(err);
+          } else {
+            console.log('PDF generated successfully with html-pdf, size:', buffer.length);
+            resolve(buffer);
+          }
+        });
       });
-      
-      return pdfBuffer;
-    } finally {
-      await browser.close();
+    } catch (error) {
+      console.error('Error generating PDF with html-pdf:', error);
+      throw new Error(`PDF generation failed: ${error.message}`);
     }
   }
 

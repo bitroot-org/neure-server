@@ -8,69 +8,91 @@
             <style>
               body {
                 font-family: Arial, sans-serif;
-                line-height: 1.6;
+                line-height: 1.4;
                 color: #000;
                 margin: 0;
-                padding: 40px;
+                padding: 30px;
                 max-width: 800px;
                 margin: 0 auto;
+                font-size: 12px;
               }
               
               .logo {
                 text-align: center;
-                margin-bottom: 14px;
+                margin-bottom: 10px;
               }
               
               .logo img {
-                height: 40px;
+                height: 30px;
               }
               
               .report-title {
-                font-size: 32px;
+                font-size: 24px;
                 font-weight: bold;
                 text-align: center;
-                margin-bottom: 40px;
+                margin-bottom: 15px;
                 text-decoration: underline;
               }
               
               .section-title {
-                font-size: 24px;
+                font-size: 18px;
                 font-weight: bold;
-                margin-bottom: 20px;
+                margin-bottom: 8px;
+                margin-top: 12px;
+              }
+
+              .introduction{
+                text-align: justify;
+                hyphens: auto;
+                -webkit-hyphens: auto;
+                -ms-hyphens: auto;
               }
               
               .introduction p {
-                margin-bottom: 20px;
-                font-size: 16px;
+                margin-bottom: 8px;
+                font-size: 14px;
+                text-align: justify;
+                
               }
               
               .score {
-                font-size: 120px;
+                font-size: 60px;
                 font-weight: bold;
                 text-align: center;
-                margin: 60px 0;
+                margin: 20px 0;
               }
               
               .scoring-range {
-                margin: 40px 0;
+                margin: 15px 0;
               }
               
               .scoring-range p {
-                margin-bottom: 10px;
-                font-size: 16px;
+                margin-bottom: 5px;
+                font-size: 12px;
+              }
+              
+              .interpretation {
+                margin: 15px 0;
+                padding: 10px;
+                font-size: 18px;
+                /* border: 1px solid #ccc;
+                background-color: #f9f9f9; */
               }
               
               .footer {
-                margin-top: 60px;
+                margin-top: 20px;
                 text-align: center;
-                font-size: 12px;
+                font-size: 10px;
                 color: #666;
               }
               
-              @media print {
-                body {
-                  padding: 20px;
-                }
+              /* Compact layout for html-pdf */
+              p {
+                margin: 5px 0;
+              }
+              
+              h1, h2, h3 {
+                margin: 8px 0;
               }
             </style>
           </head>
@@ -81,28 +103,31 @@
             </div>
             
             <!-- Report Title -->
-            <h1 class="report-title">General Assessment Report</h1>
+            <div class="report-title">General Assessment Report</div>
             
-            <!-- Introduction Section -->
-            <h2 class="section-title">Introduction</h2>
+            <!-- Introduction -->
+            <div class="section-title">Introduction</div>
             <div class="introduction">
-              <p>Thank you for completing your assessment!</p>
-              <p>This report gives you a snapshot of where you currently stand in terms of your mental and emotional wellbeing, based on your responses.</p>
+              <p>Thank you for completing your assessment! This report gives you a snapshot of where you currently stand in terms of your mental and emotional wellbeing, based on your responses.</p>
               <p>Based on your total score, we've mapped your result into a specific range below to help you understand what it means. This helps identify how you're feeling right now, whether you're doing well, feeling a bit low, or might need support.</p>
               <p>The goal? To give you insight, not labels. So you can take the next step toward feeling better.</p>
-              <p>Let's look at your result :</p>
             </div>
             
-            <!-- Score Display -->
+            <!-- Score -->
             <div class="score">{{score}}</div>
             
-            <!-- Scoring Range Section -->
-            <div class="scoring-range">
-              <p>Suggested Action : {{interpretation}}</p>
-            </div>           
+            <!-- Interpretation -->
+            <div class="interpretation">
+              <p><strong>Suggested Action:</strong> {{interpretation}}</p>
+            </div>
+            
+            <!-- Suggested Action -->
+            <!-- <div class="section-title">Suggested Action</div>
+            <p>{{suggestedAction}}</p> -->
+            
             <!-- Footer -->
             <div class="footer">
-              <p>© Neure Assessment System</p>
+              © Neure Assessment System
             </div>
           </body>
           </html>
