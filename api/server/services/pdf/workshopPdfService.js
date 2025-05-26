@@ -501,16 +501,27 @@ class WorkshopPdfService {
       
       // Generate PDFs for each employee
       const pdfPromises = employees.map(async (employee) => {
-        const ticketId = ticketMap[employee.user_id];
-        if (!ticketId) return null;
-        
-        return this.generateSinglePdfWithTicket(workshopData, companyData, employee, scheduleId, ticketId);
+        try {
+          const ticketId = ticketMap[employee.user_id];
+          if (!ticketId) return null;
+          
+          console.log(`Starting PDF generation for employee ${employee.first_name} ${employee.last_name} with ticket ${ticketId}`);
+          return await this.generateSinglePdfWithTicket(workshopData, companyData, employee, scheduleId, ticketId);
+        } catch (error) {
+          console.error(`Error generating PDF for employee ${employee.user_id}:`, error);
+          return null;
+        }
       });
       
       const pdfResults = (await Promise.all(pdfPromises)).filter(Boolean);
+      console.log(`Successfully generated ${pdfResults.length} PDFs out of ${employees.length} employees`);
       
-      // Send emails with tickets
-      await this.sendWorkshopTicketEmails(workshopData, companyData, employees, pdfResults);
+      if (pdfResults.length > 0) {
+        // Send emails with tickets
+        await this.sendWorkshopTicketEmails(workshopData, companyData, employees, pdfResults);
+      } else {
+        console.error('No PDFs were successfully generated');
+      }
       
       console.log(`Completed background generation of ${pdfResults.length} PDFs`);
       return pdfResults;
@@ -534,7 +545,9 @@ class WorkshopPdfService {
         timestamp: new Date().toISOString()
       });
       
+      console.log('Generating QR code...');
       const qrCodeBase64 = await QRCode.toDataURL(qrCodeData);
+      console.log('QR code generated successfully');
       
       // Format start time
       const startTime = typeof workshop.start_time === 'string' 
@@ -546,23 +559,30 @@ class WorkshopPdfService {
         firstName: employee.first_name,
         workshopTitle: workshop.title,
         startTime,
-        hostName: workshop.host_name,
+        hostName: workshop.host_name || 'Workshop Host',
         companyName: company.company_name,
         ticketId,
         qrCode: qrCodeBase64
       };
 
+      console.log('Generating HTML from template...');
       // Generate HTML from template
       const html = await this.generateTicketHtml(templateData);
       
+      console.log('Converting HTML to PDF...');
       // Convert HTML to PDF
       const pdfBuffer = await this.convertHtmlToPdf(html);
+      console.log('PDF generated successfully, size:', pdfBuffer.length);
 
       // Upload to S3
-      const pdfPath = `workshops/${company.company_name}/${workshop.title}/${employee.first_name}_${employee.last_name}_${ticketId}.pdf`;
+      const pdfPath = `workshops/${company.company_name.replace(/[^a-zA-Z0-9]/g, '_')}/${workshop.title.replace(/[^a-zA-Z0-9]/g, '_')}/${employee.first_name}_${employee.last_name}_${ticketId}.pdf`;
+      console.log('Uploading to S3 path:', pdfPath);
+      
       await this.uploadToS3(pdfBuffer, pdfPath);
+      console.log('S3 upload completed successfully');
 
       const pdfUrl = this.constructPdfUrl(pdfPath);
+      console.log('Generated PDF URL:', pdfUrl);
       
       // Update PDF URL in database
       await db.query(
@@ -571,6 +591,7 @@ class WorkshopPdfService {
          WHERE workshop_id = ? AND user_id = ? AND schedule_id = ?`,
         [pdfUrl, workshop.id, employee.user_id, scheduleId]
       );
+      console.log('Database updated with PDF URL');
 
       return {
         employeeId: employee.user_id,
