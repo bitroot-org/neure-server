@@ -7,163 +7,149 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    :root {
-      --primary: #4361ee;
-      --secondary: #3f37c9;
-      --success: #4CAF50;
-      --info: #2196F3;
-      --warning: #FFC107;
-      --danger: #F44336;
-      --light: #f8f9fa;
-      --dark: #212529;
-      --gray: #6c757d;
-      --border-radius: 12px;
-      --box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-    
+
     body {
       font-family: 'Inter', sans-serif;
       margin: 0;
       padding: 0;
-      color: var(--dark);
+      color: #212529;
       line-height: 1.6;
       background-color: white;
     }
-    
+
     .container {
       max-width: 900px;
       margin: 0 auto;
       padding: 40px 20px;
     }
-    
+
     .header {
-      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      background: linear-gradient(135deg, #4361ee, #3f37c9);
       color: white;
-      padding: 30px;
-      border-radius: var(--border-radius);
+      padding: 10px;
+      border-radius: 12px;
       margin-bottom: 10px;
-      box-shadow: var(--box-shadow);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
-    
+
     .logo {
       text-align: center;
       margin-bottom: 14px;
     }
-    
+
     .logo img {
       height: 40px;
     }
-    
+
     h1 {
       text-align: center;
       font-size: 24px;
       margin-bottom: 5px;
       font-weight: 700;
     }
-    
+
     .company-info {
       text-align: center;
       margin-bottom: 10px;
       font-size: 16px;
       color: rgba(255,255,255,0.9);
     }
-    
+
     .company-info p {
       margin: 5px 0;
     }
-    
+
     .section {
       background-color: white;
-      border-radius: var(--border-radius);
+      border-radius: 12px;
       padding: 20px;
       margin-bottom: 20px;
-      box-shadow: var(--box-shadow);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       page-break-inside: avoid;
       break-inside: avoid;
     }
-    
+
     .section-title {
       font-size: 18px;
       font-weight: 600;
       margin-bottom: 10px;
-      color: var(--primary);
-      border-bottom: 2px solid var(--light);
+      color: #4361ee;
+      border-bottom: 2px solid #f8f9fa;
       padding-bottom: 10px;
     }
-    
+
     .introduction, .final-remarks {
       font-size: 14px;
     }
-    
+
     .metrics-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 15px;
       margin-bottom: 15px;
     }
-    
+
     .metric-card {
       background-color: white;
-      border-radius: var(--border-radius);
+      border-radius: 12px;
       padding: 10px;
-      box-shadow: var(--box-shadow);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       transition: transform 0.2s;
     }
-    
+
     .metric-card:hover {
       transform: translateY(-5px);
     }
-    
+
     .metric-title {
       font-size: 12px;
-      color: var(--gray);
+      color: #6c757d;
       margin-bottom: 4px;
       font-weight: 500;
     }
-    
+
     .metric-value {
       font-size: 18px;
       font-weight: 700;
       margin-bottom: 4px;
     }
-    
+
     .metric-trend {
       font-size: 8px;
-      color: var(--gray);
+      color: #6c757d;
       display: flex;
       align-items: center;
     }
-    
+
     .progress-bar {
       height: 4px;
-      background-color: var(--light);
+      background-color: #f8f9fa;
       margin-top: 8px;
       border-radius: 4px;
       overflow: hidden;
     }
-    
+
     .progress-bar-fill {
       height: 100%;
       border-radius: 4px;
     }
-    
+
     .engagement .progress-bar-fill {
-      background-color: var(--success);
+      background-color: #4CAF50;
     }
-    
+
     .psi .progress-bar-fill {
-      background-color: var(--info);
+      background-color: #2196F3;
     }
-    
+
     .retention .progress-bar-fill {
-      background-color: var(--warning);
+      background-color: #FFC107;
     }
-    
+
     .stress .progress-bar-fill {
-      background-color: var(--danger);
+      background-color: #F44336;
     }
-    
+
     .charts-container {
       display: grid;
       grid-template-columns: 3fr 2fr;
@@ -172,85 +158,85 @@
       page-break-inside: avoid;
       break-inside: avoid;
     }
-    
+
     .chart-box {
       background-color: white;
-      border-radius: var(--border-radius);
+      border-radius: 12px;
       padding: 18px;
-      box-shadow: var(--box-shadow);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
-    
+
     .chart-title {
       font-size: 14px;
       font-weight: 600;
       margin-bottom: 10px;
-      color: var(--primary);
+      color: #4361ee;
     }
-    
+
     .chart-container {
       height: 250px;
     }
-    
+
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 12px;
     }
-    
+
     .stat-card {
       background-color: rgba(67, 97, 238, 0.05);
       padding: 10px;
       text-align: center;
       border-radius: 8px;
     }
-    
+
     .stat-title {
       font-size: 12px;
-      color: var(--gray);
+      color: #6c757d;
       margin-bottom: 4px;
     }
-    
+
     .stat-value {
       font-size: 18px;
       font-weight: 700;
-      color: var(--dark);
+      color: #212529;
     }
-    
+
     .positive-trend {
-      color: var(--success);
+      color: #4CAF50;
     }
-    
+
     .negative-trend {
-      color: var(--danger);
+      color: #F44336;
     }
-    
+
     @media print {
       body {
         padding: 0;
       }
-      
+
       .container {
         padding: 20px;
       }
-      
+
       .header {
         background: white;
-        color: var(--dark);
+        color: #212529;
         box-shadow: none;
         padding: 20px;
       }
-      
+
       .company-info {
-        color: var(--dark);
+        color: #212529;
       }
-      
+
       .section {
         box-shadow: none;
         border: 1px solid #eee;
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      
+
       .metric-card, .chart-box {
         box-shadow: none;
         border: 1px solid #eee;
@@ -262,27 +248,27 @@
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      
+
       .stats-grid {
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      
+
       .page-break {
         page-break-after: always;
       }
     }
-    
+
     @media (max-width: 768px) {
       .metrics-grid {
         grid-template-columns: repeat(2, 1fr);
       }
-      
+
       .charts-container {
         grid-template-columns: 1fr;
       }
     }
-    
+
     @media (max-width: 480px) {
       .metrics-grid {
         grid-template-columns: 1fr;
@@ -290,6 +276,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="container">
     <!-- Header Section -->
@@ -320,47 +307,50 @@
     <!-- Report Overview Section -->
     <div class="section">
       <div class="section-title">Report Overview</div>
-      <div class="metrics-grid">
-        <!-- Engagement Score -->
-        <div class="metric-card engagement">
-          <div class="metric-title">Engagement Score</div>
-          <div class="metric-value">{{metrics.engagement_score}}%</div>
-          <div class="metric-trend">+10% from prev. month</div>
-          <div class="progress-bar">
-            <div class="progress-bar-fill" style="width: {{metrics.engagement_score}}%;"></div>
-          </div>
-        </div>
-        
-        <!-- PSI Score -->
-        <div class="metric-card psi">
-          <div class="metric-title">PSI Score</div>
-          <div class="metric-value">{{metrics.psychological_safety_index}}%</div>
-          <div class="metric-trend">+10% from prev. month</div>
-          <div class="progress-bar">
-            <div class="progress-bar-fill" style="width: {{metrics.psychological_safety_index}}%;"></div>
-          </div>
-        </div>
-        
-        <!-- Retention Rate -->
-        <div class="metric-card retention">
-          <div class="metric-title">Retention Rate</div>
-          <div class="metric-value">{{metrics.retention_rate}}%</div>
-          <div class="metric-trend">+10% from prev. month</div>
-          <div class="progress-bar">
-            <div class="progress-bar-fill" style="width: {{metrics.retention_rate}}%;"></div>
-          </div>
-        </div>
-        
-        <!-- Stress Level -->
-        <div class="metric-card stress">
-          <div class="metric-title">Stress Level</div>
-          <div class="metric-value">{{metrics.stress_level}}%</div>
-          <div class="metric-trend">+10% from prev. month</div>
-          <div class="progress-bar">
-            <div class="progress-bar-fill" style="width: {{metrics.stress_level}}%;"></div>
-          </div>
-        </div>
-      </div>
+      <table style="width: 100%; border-collapse: separate; border-spacing: 12px; margin-bottom: 15px;">
+        <tr>
+          <!-- Engagement Score -->
+          <td style="width: 50%; background-color: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+            <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Engagement Score</div>
+            <div style="font-size: 18px; font-weight: 700; margin-bottom: 4px;">{{metrics.engagement_score}}%</div>
+            <div style="font-size: 8px; color: #6c757d; display: flex; align-items: center;">+10% from prev. month</div>
+            <div style="height: 4px; background-color: #f8f9fa; margin-top: 8px; border-radius: 4px; overflow: hidden;">
+              <div style="height: 100%; border-radius: 4px; background-color: #4CAF50; width: {{metrics.engagement_score}}%;"></div>
+            </div>
+          </td>
+          
+          <!-- PSI Score -->
+          <td style="width: 50%; background-color: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+            <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">PSI Score</div>
+            <div style="font-size: 18px; font-weight: 700; margin-bottom: 4px;">{{metrics.psychological_safety_index}}%</div>
+            <div style="font-size: 8px; color: #6c757d; display: flex; align-items: center;">+10% from prev. month</div>
+            <div style="height: 4px; background-color: #f8f9fa; margin-top: 8px; border-radius: 4px; overflow: hidden;">
+              <div style="height: 100%; border-radius: 4px; background-color: #2196F3; width: {{metrics.psychological_safety_index}}%;"></div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <!-- Retention Rate -->
+          <td style="width: 50%; background-color: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+            <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Retention Rate</div>
+            <div style="font-size: 18px; font-weight: 700; margin-bottom: 4px;">{{metrics.retention_rate}}%</div>
+            <div style="font-size: 8px; color: #6c757d; display: flex; align-items: center;">+10% from prev. month</div>
+            <div style="height: 4px; background-color: #f8f9fa; margin-top: 8px; border-radius: 4px; overflow: hidden;">
+              <div style="height: 100%; border-radius: 4px; background-color: #FFC107; width: {{metrics.retention_rate}}%;"></div>
+            </div>
+          </td>
+          
+          <!-- Stress Level -->
+          <td style="width: 50%; background-color: white; border-radius: 12px; padding: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+            <div style="font-size: 12px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Stress Level</div>
+            <div style="font-size: 18px; font-weight: 700; margin-bottom: 4px;">{{metrics.stress_level}}%</div>
+            <div style="font-size: 8px; color: #6c757d; display: flex; align-items: center;">+10% from prev. month</div>
+            <div style="height: 4px; background-color: #f8f9fa; margin-top: 8px; border-radius: 4px; overflow: hidden;">
+              <div style="height: 100%; border-radius: 4px; background-color: #F44336; width: {{metrics.stress_level}}%;"></div>
+            </div>
+          </td>
+        </tr>
+      </table>
     </div>
     
     <!-- Charts Section -->
@@ -374,32 +364,38 @@
     <!-- Employee Statistics Section -->
     <div class="section">
       <div class="section-title">Employee Statistics</div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-title">Total Employees</div>
-          <div class="stat-value">{{metrics.active_employees}}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Active Employees</div>
-          <div class="stat-value">{{metrics.active_employees}}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Inactive Employees</div>
-          <div class="stat-value">{{metrics.inactive_employees}}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Total Departments</div>
-          <div class="stat-value">{{metrics.total_departments}}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">New Users</div>
-          <div class="stat-value">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Last Employee Joined</div>
-          <div class="stat-value">{{metrics.last_employee_joined}}</div>
-        </div>
-      </div>
+      <table style="width: 100%; border-collapse: separate; border-spacing: 12px; margin-bottom: 15px;">
+        <tr>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Total Employees</div>
+            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
+          </td>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Active Employees</div>
+            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Inactive Employees</div>
+            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.inactive_employees}}</div>
+          </td>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Total Departments</div>
+            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.total_departments}}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">New Users</div>
+            <div style="font-size: 28px; font-weight: 700; color: #212529;">0</div>
+          </td>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Last Employee Joined</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.last_employee_joined}}</div>
+          </td>
+        </tr>
+      </table>
     </div>
     
     <!-- Final Remarks Section -->
