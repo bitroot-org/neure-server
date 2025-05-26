@@ -127,23 +127,19 @@ class CompanyReportPdfService {
     return JSON.stringify({
       labels: dates,
       datasets: [
-        { 
-          label: 'Engagement Score', 
-          data: engagementScores, 
-          fill: false,
-          borderColor: '#4CAF50',
-          backgroundColor: 'rgba(76, 175, 80, 0.1)',
-          borderWidth: 2,
-          pointBackgroundColor: '#4CAF50'
+        {
+          label: "Engagement Score",
+          data: engagementScores,
+          borderColor: "rgb(75, 192, 192)",
+          backgroundColor: "rgba(75, 192, 192, 0.1)",
+          fill: true,
         },
-        { 
-          label: 'Stress Level', 
-          data: stressLevels, 
-          fill: false,
-          borderColor: '#F44336',
-          backgroundColor: 'rgba(244, 67, 54, 0.1)',
-          borderWidth: 2,
-          pointBackgroundColor: '#F44336'
+        {
+          label: "Stress Level",
+          data: stressLevels,
+          borderColor: "rgb(255, 99, 132)",
+          backgroundColor: "rgba(255, 99, 132, 0.1)",
+          fill: true,
         },
       ],
     });
@@ -171,44 +167,43 @@ class CompanyReportPdfService {
   }
 
   static async convertHtmlToPdf(html) {
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
     try {
-      console.log('Using html-pdf for wellbeing report generation...');
-      const htmlPdf = require('html-pdf');
-      
-      return new Promise((resolve, reject) => {
-        const options = {
-          format: 'A4',
-          border: {
-            top: '1cm',
-            right: '1cm',
-            bottom: '1cm',
-            left: '1cm'
-          },
-          // Better rendering quality
-          quality: '100',
-          // Enable background colors and images
-          printBackground: true,
-          // Faster rendering
-          timeout: 60000, // 60 seconds for larger reports
-          // Better rendering
-          renderDelay: 1000,
-          // Allow multiple pages
-          pageBreak: { mode: 'css', before: '.page-break', after: '.page-break' }
-        };
-        
-        htmlPdf.create(html, options).toBuffer((err, buffer) => {
-          if (err) {
-            console.error('Error in html-pdf conversion:', err);
-            reject(err);
-          } else {
-            console.log('Wellbeing report PDF generated successfully, size:', buffer.length);
-            resolve(buffer);
-          }
-        });
+      const page = await browser.newPage();
+
+      // Set viewport for better rendering
+      await page.setViewport({
+        width: 1024,
+        height: 1440,
+        deviceScaleFactor: 1,
       });
+
+      await page.setContent(html, {
+        waitUntil: "networkidle0",
+      });
+
+      const pdfBuffer = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: {
+          top: "15px",
+          right: "15px",
+          bottom: "15px",
+          left: "15px",
+        },
+      });
+
+      return pdfBuffer;
     } catch (error) {
-      console.error('Error generating PDF with html-pdf:', error);
-      throw new Error(`Wellbeing report PDF generation failed: ${error.message}`);
+      console.error("Error generating PDF:", error);
+      throw new Error(`PDF generation failed: ${error.message}`);
+    } finally {
+      await browser.close();
     }
   }
 

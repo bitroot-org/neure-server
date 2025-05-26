@@ -224,24 +224,9 @@
       color: var(--danger);
     }
     
-    /* Specific styles for html-pdf */
-    .page-break {
-      display: block;
-      page-break-before: always;
-      break-before: page;
-    }
-    
-    /* Ensure charts render properly */
-    canvas {
-      max-width: 100%;
-      height: auto !important;
-    }
-    
     @media print {
       body {
         padding: 0;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
       }
       
       .container {
@@ -253,8 +238,6 @@
         color: var(--dark);
         box-shadow: none;
         padding: 20px;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
       }
       
       .company-info {
@@ -283,6 +266,10 @@
       .stats-grid {
         page-break-inside: avoid;
         break-inside: avoid;
+      }
+      
+      .page-break {
+        page-break-after: always;
       }
     }
     
@@ -343,7 +330,7 @@
             <div class="progress-bar-fill" style="width: {{metrics.engagement_score}}%;"></div>
           </div>
         </div>
-
+        
         <!-- PSI Score -->
         <div class="metric-card psi">
           <div class="metric-title">PSI Score</div>
@@ -353,7 +340,7 @@
             <div class="progress-bar-fill" style="width: {{metrics.psychological_safety_index}}%;"></div>
           </div>
         </div>
-
+        
         <!-- Retention Rate -->
         <div class="metric-card retention">
           <div class="metric-title">Retention Rate</div>
@@ -363,7 +350,7 @@
             <div class="progress-bar-fill" style="width: {{metrics.retention_rate}}%;"></div>
           </div>
         </div>
-
+        
         <!-- Stress Level -->
         <div class="metric-card stress">
           <div class="metric-title">Stress Level</div>
@@ -383,9 +370,6 @@
         <canvas id="trendsChart"></canvas>
       </div>
     </div>
-    
-    <!-- Add a page break here for better PDF layout -->
-    <div class="page-break"></div>
     
     <!-- Employee Statistics Section -->
     <div class="section">
@@ -440,7 +424,6 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: false, // Disable animation for PDF rendering
         scales: {
           y: {
             beginAtZero: true,
@@ -477,12 +460,6 @@
         }
       }
     });
-    
-    // Render the chart immediately for PDF generation
-    setTimeout(() => {
-      // This helps ensure the chart is rendered before PDF generation
-      console.log('Chart rendering complete');
-    }, 500);
   </script>
 </body>
 </html>
