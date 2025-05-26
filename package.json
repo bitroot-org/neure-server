@@ -1,8 +1,9 @@
 {
   "name": "neure-server",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "main": "index.js",
   "scripts": {
+    "postinstall": "node install-browser.js",
     "start": "./node_modules/pm2/bin/pm2-runtime api/index.js",
     "dev": "nodemon api/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
