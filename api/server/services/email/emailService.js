@@ -14,6 +14,10 @@ class EmailService {
   static REDIRECT_EMAILS = process.env.REDIRECT_EMAILS === "true";
   static FIXED_EMAIL = process.env.TEST_EMAIL || "c2905y@gmail.com";
 
+  // Define dashboard URLs as static properties
+  static EMPLOYEE_DASHBOARD_URL = "https://main.d20xlhmrfjnx3n.amplifyapp.com/";
+  static ADMIN_DASHBOARD_URL = "https://main.d141ack5c21hha.amplifyapp.com/";
+
   static async sendEmail({ to, subject, html }) {
     try {
       // Determine the recipient based on the redirection flag
@@ -56,8 +60,13 @@ class EmailService {
     }
   }
 
-  static async sendAdminWelcomeEmail(adminName, username, tempPassword, dashboardLink, adminEmail) {
-    const template = EmailTemplates.adminWelcomeTemplate(adminName, username, tempPassword, dashboardLink);
+  static async sendAdminWelcomeEmail(adminName, username, tempPassword, adminEmail) {
+    const template = EmailTemplates.adminWelcomeTemplate(
+      adminName, 
+      username, 
+      tempPassword, 
+      this.ADMIN_DASHBOARD_URL
+    );
     return this.sendEmail({
       to: adminEmail,
       subject: template.subject,
@@ -65,8 +74,13 @@ class EmailService {
     });
   }
 
-  static async sendEmployeeWelcomeEmail(employeeName, email, password, dashboardLink) {
-    const template = EmailTemplates.employeeWelcomeTemplate(employeeName, email, password, dashboardLink);
+  static async sendEmployeeWelcomeEmail(employeeName, email, password, dashboardLink = null) {
+    const template = EmailTemplates.employeeWelcomeTemplate(
+      employeeName, 
+      email, 
+      password, 
+      dashboardLink || this.EMPLOYEE_DASHBOARD_URL
+    );
     return this.sendEmail({
       to: email,
       subject: template.subject,

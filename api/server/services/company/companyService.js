@@ -888,8 +888,8 @@ class CompanyService {
         await EmailService.sendEmployeeWelcomeEmail(
           first_name,
           email,
-          password, // Add the password parameter
-          process.env.DASHBOARD_URL
+          password,
+          EmailService.EMPLOYEE_DASHBOARD_URL
         );
       } catch (emailError) {
         console.error("Error sending welcome email:", emailError);
@@ -1103,7 +1103,7 @@ class CompanyService {
               employee.first_name,
               employee.email,
               password,
-              process.env.DASHBOARD_URL
+              EmailService.EMPLOYEE_DASHBOARD_URL
             );
           } catch (emailError) {
             console.error("Error sending welcome email:", emailError);
@@ -2162,11 +2162,11 @@ class CompanyService {
       // Use setImmediate to ensure this runs in the next event loop iteration
       // This ensures it won't affect the response even if there's an error
       setImmediate(() => {
-        EmailService.sendEmployeeWelcomeEmail(
+        EmailService.sendAdminWelcomeEmail(
           emailData.firstName,
-          emailData.email,
+          emailData.username,
           emailData.password,
-          emailData.dashboardUrl
+          emailData.email
         ).catch(emailError => {
           console.error("Error sending welcome email:", emailError);
           // Just log the error, don't let it affect anything else
