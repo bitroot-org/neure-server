@@ -358,6 +358,12 @@ class workshopService {
         fields.push("description = ?");
         values.push(workshopData.description);
       }
+
+      if (workshopData.agenda) {
+        fields.push("agenda = ?");
+        values.push(workshopData.agenda);
+      }
+
       if (workshopData.location) {
         fields.push("location = ?");
         values.push(workshopData.location);

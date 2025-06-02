@@ -20,7 +20,8 @@ const {
   updateDashboardTourStatus,
   submitPSI,
   updateTermsAcceptance,
-  getSuperadmins
+  getSuperadmins,
+  createSuperadmin
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -64,5 +65,6 @@ router.put("/updateDashboardTourStatus", authorization, updateDashboardTourStatu
 router.post("/submitPSI", authorization, submitPSI);
 router.put("/updateTermsAcceptance", authorization, updateTermsAcceptance);
 router.get("/getSuperadmins", authorization, getSuperadmins);
+router.post("/createSuperadmin", authorization, createSuperadmin);
 
 module.exports = router;

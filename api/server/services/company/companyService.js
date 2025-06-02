@@ -1181,10 +1181,14 @@ class CompanyService {
         [user_id]
       );
 
+      console.log(`Assigning reward to ${employee.first_name} (${employee.email})`);
+
       const [[admin]] = await connection.query(
         `SELECT first_name, last_name FROM users WHERE user_id = ?`,
         [admin_id]
       );
+
+      console.log(`Reward assigned by ${admin.first_name} ${admin.last_name}`);
 
       // Insert reward assignment
       const [result] = await connection.query(

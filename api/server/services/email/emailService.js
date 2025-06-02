@@ -89,7 +89,7 @@ class EmailService {
   }
 
   static async sendEmployeeRewardEmail(employeeName, adminName, email) {
-    console.log("Sending reward email to:", email);
+    
     const template = EmailTemplates.employeeRewardTemplate(employeeName, adminName);
     return this.sendEmail({
       to: email,
@@ -129,6 +129,29 @@ class EmailService {
     const template = EmailTemplates.workshopTicketTemplate(employeeName, workshopTitle, startTime, hostName, companyName, ticketId, pdfUrl);
     return this.sendEmail({
       to: email,
+      subject: template.subject,
+      html: template.html
+    });
+  }
+
+  static async sendSuperAdminWelcomeEmail(adminName, username, tempPassword, adminEmail) {
+    const template = EmailTemplates.superAdminWelcomeTemplate(
+      adminName, 
+      username, 
+      tempPassword, 
+      this.ADMIN_DASHBOARD_URL
+    );
+    return this.sendEmail({
+      to: adminEmail,
+      subject: template.subject,
+      html: template.html
+    });
+  }
+
+  static async sendRewardClaimConfirmationEmail(employeeName, rewardName, employeeEmail) {
+    const template = EmailTemplates.rewardClaimConfirmationTemplate(employeeName, rewardName);
+    return this.sendEmail({
+      to: employeeEmail,
       subject: template.subject,
       html: template.html
     });

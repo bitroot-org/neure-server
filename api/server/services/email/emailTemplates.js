@@ -38,6 +38,41 @@ class EmailTemplates {
     };
   }
 
+  static superAdminWelcomeTemplate(adminName, username, tempPassword, dashboardLink) {
+    return {
+      subject: "Your Super Admin Access to Lumos Has Been Activated",
+      html: `
+        <div style="max-width: 600px; margin: 20px auto; background:rgba(40, 41, 50, 0.91); border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: white;">
+          <div style="background: #191A20; color: white; padding: 30px 20px; text-align: center;">
+            <h1 style="font-size: 28px; margin: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);">Super Admin Access Granted</h1>
+          </div>
+          <div style="padding: 30px;">
+            <p style="margin: 15px 0;">Dear <span style="font-weight: 600;">${adminName}</span>,</p>
+            <p style="margin: 15px 0;">We're pleased to welcome you to Lumos - Neure's internal platform designed to support and manage our wellbeing operations with clarity and efficiency.</p>
+            <p style="margin: 15px 0;">You have been granted Super Admin access, which enables you to oversee key internal functions and team activity.</p>
+            
+            <div style="background-color: transparent; border-image: linear-gradient(to bottom, #FFFFFF 0%, #797B87 100%) 1; border-width: 0 0 0 4px; border-style: solid; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+              <h3 style="color: white; margin: 20px 0 10px 0;">Your Super Admin Credentials</h3>
+              <p style="margin: 15px 0;"><strong>Username:</strong> ${username}</p>
+              <p style="margin: 15px 0;"><strong>Temporary Password:</strong> ${tempPassword}</p>
+              <p style="margin: 15px 0;"><em>We recommend updating your password to a stronger one after login.</em></p>
+            </div>
+
+            <p style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardLink}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(180deg, #FFFFFF 0%, #797B87 100%); color: black !important; text-decoration: none; border-radius: 25px; font-weight: 600; margin: 15px 0; text-align: center; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">Access Lumos Super Admin Dashboard</a>
+            </p>
+
+            <p style="margin: 15px 0;">We're excited to have you onboard in this pivotal role and look forward to building together.</p>
+          </div>
+          <div style="background-color: #191A20; padding: 20px; text-align: center; border-top: 1px solid #eee; color: #666; margin-top: 30px;">
+            <p style="margin: 5px 0;">Warm regards,</p>
+            <p style="margin: 5px 0;">Team Neure</p>
+          </div>
+        </div>
+      `
+    };
+  }
+
   static employeeWelcomeTemplate(employeeName, email, password, dashboardLink) {
     return {
       subject: `Welcome to Neure - ${employeeName}`,
@@ -152,6 +187,38 @@ class EmailTemplates {
       `
     };
   }
+
+  static rewardClaimConfirmationTemplate(employeeName, rewardName) {
+  return {
+    subject: "Reward Claim Confirmation",
+    html: `
+      <div style="max-width: 600px; margin: 20px auto; background:rgba(40, 41, 50, 0.91); border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: white;">
+        <div style="background: #191A20; color: white; padding: 30px 20px; text-align: center;">
+          <h1 style="font-size: 28px; margin: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);">Reward Claimed Successfully</h1>
+        </div>
+        <div style="padding: 30px;">
+          <p style="margin: 15px 0;">Hi <span style="font-weight: 600;">${employeeName}</span>,</p>
+
+          <div style="background-color: transparent; border-image: linear-gradient(to bottom, #FFFFFF 0%, #797B87 100%) 1; border-width: 0 0 0 4px; border-style: solid; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+            <h3 style="color: white; margin: 20px 0 10px 0;">Your reward has been successfully claimed! 🎉</h3>
+            <p style="margin: 15px 0;"><strong>Reward:</strong> ${rewardName}</p>
+            <p style="margin: 15px 0;"><strong>Claimed on:</strong> ${new Date().toLocaleDateString()}</p>
+          </div>
+
+          <p style="margin: 15px 0;">Your reward has been processed and is now ready for redemption. If your reward requires any additional steps for redemption, your administrator will reach out with further instructions.</p>
+          
+          <div style="background-color: transparent; border-image: linear-gradient(to bottom, #FFFFFF 0%, #797B87 100%) 1; border-width: 0 0 0 4px; border-style: solid; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+            <p style="margin: 15px 0;">Thank you for your continued dedication and contributions. We hope you enjoy your well-deserved reward!</p>
+          </div>
+        </div>
+        <div style="background-color: #191A20; padding: 20px; text-align: center; border-top: 1px solid #eee; color: #666; margin-top: 30px;">
+          <p style="margin: 5px 0;">Keep up the great work! 🚀</p>
+          <p style="margin: 5px 0;">Team Neure</p>
+        </div>
+      </div>
+    `
+  };
+}
 
   static accountDeactivationTemplate(employeeName, companyName) {
     return {

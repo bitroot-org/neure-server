@@ -457,32 +457,52 @@ class CompanyController {
 
   static async assignReward(req, res) {
     try {
-      const { company_id, user_id, reward_id , admin_id} = req.body;
-      console.log(req.body);
-
-      if (!company_id || !user_id || !reward_id || !admin_id) {
+      const { company_id, user_ids, reward_id, admin_id } = req.body;
+      
+      // Validate required fields
+      if (!company_id || !user_ids || !reward_id || !admin_id) {
         return res.status(400).json({
           status: false,
           code: 400,
-          message: "company_id, user_id, admin_id and reward_id are required.",
+          message: "company_id, user_ids, admin_id and reward_id are required.",
+          data: null,
+        });
+      }
+      
+      // Validate user_ids format
+      if (!Array.isArray(user_ids) && typeof user_ids !== 'number' && typeof user_ids !== 'string') {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "user_ids must be an array of IDs or a single ID",
+          data: null,
+        });
+      }
+      
+      // If user_ids is an array, ensure it's not empty
+      if (Array.isArray(user_ids) && user_ids.length === 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "At least one user_id must be provided",
           data: null,
         });
       }
 
-      const id = await assignReward(company_id, user_id, reward_id, admin_id);
+      const result = await assignReward(company_id, user_ids, reward_id, admin_id);
 
-      return res.status(201).json({
-        status: true,
-        code: 201,
-        message: "Reward assigned successfully",
-        data: { id },
-      });
+      // If there were partial failures but some successes
+      if (result.failed && result.failed.length > 0 && result.successful && result.successful.length > 0) {
+        return res.status(207).json(result); // 207 Multi-Status
+      }
+
+      return res.status(result.code).json(result);
     } catch (error) {
       console.error("Error assigning reward:", error);
       return res.status(500).json({
         status: false,
         code: 500,
-        message: "An error occurred while assigning reward",
+        message: "An error occurred while assigning reward: " + error.message,
         data: null,
       });
     }

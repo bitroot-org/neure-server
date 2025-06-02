@@ -1,107 +1,108 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Workshop Ticket</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+        line-height: 1;
+      }
+      .ticket-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: #191a20;
+        color: white;
+        padding: 12px;
+        border-radius: 8px 8px 0 0;
+        text-align: center;
+      }
+      .content {
+        padding: 12px;
+      }
+      .workshop-title {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 10px 0;
+        color: #191a20;
+      }
+      .details {
+        margin: 10px 0;
+        line-height: 1;
+      }
+      .qr-code {
+        text-align: center;
+        margin: 10px 0;
+      }
+      .qr-code img {
+        max-width: 180px;
+      }
+      .ticket-id {
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+        margin: 10px 0;
+        color: #191a20;
+      }
+      .footer {
+        text-align: center;
+        margin-top: 10px;
+        font-size: 12px;
+        color: #666;
+      }
+      /* Force single page */
+      @media print {
+        .page-break {
+          display: none;
+        }
+        body {
+          width: 100%;
+          height: 100%;
+          margin: 0;
+          padding: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ticket-container">
+      <div class="header">
+        <h1>Workshop Ticket</h1>
+      </div>
+      <div class="content">
+        <p>Hi {{firstName}},</p>
+        <p>
+          You're all set for the upcoming workshop! Below are your workshop
+          details.
+        </p>
 
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <title>Workshop Ticket</title>
-          <style>
-            body {
-              font-family: 'Segoe UI', Arial, sans-serif;
-              margin: 0;
-              padding: 0;
-              color: #333;
-              line-height: 1.4;
-            }
-            .ticket-container {
-              max-width: 800px;
-              margin: 0 auto;
-              padding: 20px;
-              border: 1px solid #ddd;
-              border-radius: 10px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            .header {
-              background: #191A20;
-              color: white;
-              padding: 15px;
-              border-radius: 8px 8px 0 0;
-              text-align: center;
-            }
-            .content {
-              padding: 15px;
-            }
-            .workshop-title {
-              font-size: 24px;
-              font-weight: bold;
-              margin: 10px 0;
-              color: #191A20;
-            }
-            .details {
-              margin: 15px 0;
-              line-height: 1.4;
-            }
-            .qr-code {
-              text-align: center;
-              margin: 10px 0;
-            }
-            .qr-code img {
-              max-width: 180px;
-            }
-            .ticket-id {
-              text-align: center;
-              font-size: 18px;
-              font-weight: bold;
-              margin: 10px 0;
-              color: #191A20;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 15px;
-              font-size: 12px;
-              color: #666;
-            }
-            /* Force single page */
-            @media print {
-              .page-break {
-                display: none;
-              }
-              body {
-                width: 100%;
-                height: 100%;
-                margin: 0;
-                padding: 0;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="ticket-container">
-            <div class="header">
-              <h1>Workshop Ticket</h1>
-            </div>
-            <div class="content">
-              <p>Hi {{firstName}},</p>
-              <p>You're all set for the upcoming workshop! Below are your workshop details.</p>
-              
-              <div class="workshop-title">{{workshopTitle}}</div>
-              
-              <div class="details">
-                <p><strong>Date & Time:</strong> {{startTime}}</p>
-                <p><strong>Hosted by:</strong> {{hostName}}</p>
-                <p><strong>Company:</strong> {{companyName}}</p>
-              </div>
-              
-              <div class="ticket-id">Ticket ID: {{ticketId}}</div>
-              
-              <div class="qr-code">
-                <img src="{{qrCode}}" alt="QR Code">
-                <p>Show this QR code or Ticket ID to check-in</p>
-              </div>
-            </div>
-            <div class="footer">
-              <p>This ticket was generated by Neure.</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      
+        <div class="workshop-title">{{workshopTitle}}</div>
+
+        <div class="details">
+          <p><strong>Date & Time:</strong> {{startTime}}</p>
+          <p><strong>Hosted by:</strong> {{hostName}}</p>
+          <p><strong>Company:</strong> {{companyName}}</p>
+        </div>
+
+        <div class="ticket-id">Ticket ID: {{ticketId}}</div>
+
+        <div class="qr-code">
+          <img src="{{qrCode}}" alt="QR Code" />
+          <p>Show this QR code or Ticket ID to check-in</p>
+        </div>
+      </div>
+      <div class="footer">
+        <p>This ticket was generated by Neure.</p>
+      </div>
+    </div>
+  </body>
+</html>

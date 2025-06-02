@@ -1154,22 +1154,21 @@ class UserServices {
          WHERE id = ?`,
         [reward[0].id]
       );
-
-      // Create notification for company contact person
-      // await NotificationService.createNotification({
-      //   title: "Reward Redemption Alert",
-      //   content: `${reward[0].employee_name} has redeemed the reward "${reward[0].reward_name}" that was assigned by ${reward[0].admin_name}.`,
-      //   type: "REWARD_REDEMPTION",
-      //   company_id: reward[0].company_id,
-      //   user_id: reward[0].contact_person_id,
-      //   priority: "MEDIUM",
-      //   metadata: JSON.stringify({
-      //     reward_id: reward_id,
-      //     employee_id: user_id,
-      //     admin_id: reward[0].admin_id,
-      //     redemption_date: new Date().toISOString(),
-      //   }),
-      // });
+      
+      // Create notification for the employee who claimed the reward
+      await NotificationService.createNotification({
+        title: "Reward Claimed Successfully",
+        content: `You have successfully claimed the reward "${reward[0].reward_name}".`,
+        type: "REWARD_CLAIMED_CONFIRMATION",
+        company_id: reward[0].company_id,
+        user_id: user_id,
+        priority: "HIGH",
+        metadata: JSON.stringify({
+          reward_id: reward_id,
+          reward_name: reward[0].reward_name,
+          claimed_date: new Date().toISOString(),
+        }),
+      });
 
       // Create notification for the admin who assigned the reward
       await NotificationService.createNotification({
@@ -1184,24 +1183,20 @@ class UserServices {
           employee_id: user_id,
           employee_name: reward[0].employee_name,
           reward_name: reward[0].reward_name,
-          redemption_date: new Date().toISOString()
-        })
+          redemption_date: new Date().toISOString(),
+        }),
       });
 
       await connection.commit();
 
-      // Send email notification to admin
-      const EmailService = require('../email/emailService');
-      await EmailService.sendRewardRedemptionAdminEmail(
-        reward[0].admin_name,
+      // Send email notification to employee instead of admin
+      const EmailService = require("../email/emailService");
+      await EmailService.sendRewardClaimConfirmationEmail(
         reward[0].employee_name,
         reward[0].reward_name,
-        reward[0].admin_email
+        reward[0].email // Employee's email
       );
 
-      // console.log(
-      //   `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
-      // );
       return {
         status: true,
         code: 200,
@@ -1584,7 +1579,7 @@ class UserServices {
   static async getSuperadmins() {
     try {
       const [users] = await db.query(
-        "SELECT user_id, username, email, first_name, last_name, profile_url FROM users WHERE role_id = 1"
+        "SELECT user_id, username, email, phone, first_name, last_name, profile_url FROM users WHERE role_id = 1"
       );
 
       return {
@@ -1596,6 +1591,87 @@ class UserServices {
     } catch (error) {
       console.error("Error retrieving superadmins:", error);
       throw new Error("Failed to retrieve superadmins: " + error.message);
+    }
+  }
+
+  static async createSuperadmin(userData) {
+    const connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      const { first_name, last_name, email, gender, phone = null } = userData;
+
+      // Check if email already exists
+      const [existingUser] = await connection.query(
+        "SELECT * FROM users WHERE email = ?",
+        [email]
+      );
+
+      if (existingUser.length > 0) {
+        await connection.rollback();
+        return {
+          status: false,
+          code: 409,
+          message: "Email already exists",
+          data: null,
+        };
+      }
+
+      // Generate a temporary password
+      const tempPassword = `${first_name.slice(0, 4)}1234`;
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+      // Insert user with role_id = 1 (superadmin)
+      const [userResult] = await connection.query(
+        `INSERT INTO users (
+          email, phone, password, first_name, last_name,
+          gender, role_id
+        ) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [email, phone, hashedPassword, first_name, last_name, gender]
+      );
+
+      // Add subscription record for the new user
+      await connection.query(
+        `INSERT INTO user_subscriptions (
+          user_id, 
+          email_notification, 
+          sms_notification, 
+          workshop_event_reminder, 
+          system_updates_announcement
+        ) VALUES (?, 1, 1, 1, 1)`,
+        [userResult.insertId]
+      );
+
+      await connection.commit();
+
+      // Send welcome email to the new superadmin using the new template
+      try {
+        await EmailService.sendSuperAdminWelcomeEmail(
+          first_name,
+          email, // Using email as username for superadmins
+          tempPassword,
+          email
+        );
+      } catch (emailError) {
+        console.error("Error sending welcome email:", emailError);
+        // Continue execution even if email fails
+      }
+
+      return {
+        status: true,
+        code: 201,
+        message: "Superadmin created successfully",
+        data: {
+          user_id: userResult.insertId,
+          email,
+          temp_password: tempPassword,
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error("Error creating superadmin: " + error.message);
+    } finally {
+      connection.release();
     }
   }
 }

@@ -197,6 +197,7 @@ class UserController {
   static async changePassword(req, res) {
     try {
       const { email, old_password, new_password } = req.body;
+      console.log("Received password change request:", req.body);
 
       console.log("Received password change request for email:", email);
 
@@ -651,6 +652,56 @@ class UserController {
         status: false,
         code: 500,
         message: "An error occurred while fetching superadmins",
+        data: null,
+      });
+    }
+  }
+
+  static async createSuperadmin(req, res) {
+    try {
+      // Check if user is authorized (only superadmins can create other superadmins)
+      const { role_id } = req.user;
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can create new superadmins",
+          data: null,
+        });
+      }
+
+      const superadminData = req.body;
+
+      // Validate required fields
+      const requiredFields = [
+        "first_name",
+        "last_name",
+        "email",
+        "phone",
+        "gender"
+      ];
+
+      const missingFields = requiredFields.filter(
+        (field) => !superadminData[field]
+      );
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: `Missing required fields: ${missingFields.join(", ")}`,
+          data: null,
+        });
+      }
+
+      const result = await UserServices.createSuperadmin(superadminData);
+      return res.status(201).json(result);
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error creating superadmin",
         data: null,
       });
     }
