@@ -52,37 +52,57 @@ class CompanyReportPdfService {
         metrics[0].last_employee_joined = `${day}/${month}/${year}`;
       }
 
-      // 3. Get trend data
-      const [trends] = await db.query(
+      // 3. Get daily stress trend data
+      const [stressTrends] = await db.query(
         `SELECT 
           recorded_date as date,
-          AVG(engagement_score) as avg_engagement_score,
-          AVG(stress_level) as avg_stress_level
-        FROM employee_daily_history
+          stress_level
+        FROM company_daily_stress_history
         WHERE company_id = ? AND DATE(recorded_date) BETWEEN ? AND ?
         GROUP BY recorded_date
         ORDER BY recorded_date ASC`,
         [companyId, startDate, endDate]
       );
 
-      // 4. Prepare data for HTML template
+      console.log("Stress Trends:", stressTrends);
+
+      // 4. Get monthly engagement trend data
+      const [engagementTrends] = await db.query(
+        `SELECT 
+          DATE_FORMAT(month_year, '%Y-%m-01') as date,
+          engagement_score
+        FROM company_metrics_history
+        WHERE company_id = ? AND DATE(month_year) BETWEEN ? AND ?
+        GROUP BY DATE_FORMAT(month_year, '%Y-%m')
+        ORDER BY date ASC`,
+        [companyId, startDate, endDate]
+      );
+
+      console.log("Engagement Trends:", engagementTrends);
+
+      // 5. Prepare data for HTML template
       const reportData = {
         company: company,
         metrics: metrics[0] || {},
-        trends: trends,
+        stressTrends: stressTrends,
+        engagementTrends: engagementTrends,
         startDate: new Date(startDate).toLocaleDateString(),
         endDate: new Date(endDate).toLocaleDateString(),
         generatedDate: new Date().toLocaleDateString(),
-        chartData: this.prepareChartData(trends),
+        stressChartData: this.prepareStressChartData(stressTrends),
+        engagementChartData: this.prepareEngagementChartData(engagementTrends),
       };
 
-      // 5. Generate HTML from template
+      // console.log("Report Data:", reportData);
+
+
+      // 6. Generate HTML from template
       const html = await this.generateHtml(reportData);
 
-      // 6. Convert HTML to PDF
+      // 7. Convert HTML to PDF
       const pdfBuffer = await this.convertHtmlToPdf(html);
 
-      // 7. Upload to S3
+      // 8. Upload to S3
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, "");
       const sanitizedCompanyName = company.company_name.replace(/\s+/g, "_");
       const pdfPath = `reports/${sanitizedCompanyName}/wellbeing_report_${timestamp}.pdf`;
@@ -106,34 +126,67 @@ class CompanyReportPdfService {
     }
   }
 
-  static prepareChartData(trends) {
+  static prepareStressChartData(trends) {
     if (!trends || trends.length === 0) {
       return JSON.stringify({ labels: [], datasets: [] });
     }
 
     const dates = trends.map(t => new Date(t.date).toLocaleDateString());
-    const engagementScores = trends.map(t => {
-      const score = parseFloat(t.avg_engagement_score);
-      return isNaN(score) ? 0 : score;
-    });
     const stressLevels = trends.map(t => {
-      const level = parseFloat(t.avg_stress_level);
+      const level = parseFloat(t.stress_level);
       return isNaN(level) ? 0 : level;
     });
 
     return JSON.stringify({
       labels: dates,
       datasets: [
-        { label: 'Engagement Score', data: engagementScores, fill: true },
-        { label: 'Stress Level', data: stressLevels, fill: true }
+        { 
+          label: 'Stress Level', 
+          data: stressLevels, 
+          fill: true,
+          borderColor: 'rgb(255, 99, 132)',
+          backgroundColor: 'rgba(255, 99, 132, 0.1)',
+          tension: 0.4
+        }
+      ]
+    });
+  }
+
+  static prepareEngagementChartData(trends) {
+    if (!trends || trends.length === 0) {
+      return JSON.stringify({ labels: [], datasets: [] });
+    }
+
+    const dates = trends.map(t => {
+      const date = new Date(t.date);
+      return `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
+    });
+    
+    const engagementScores = trends.map(t => {
+      const score = parseFloat(t.engagement_score);
+      return isNaN(score) ? 0 : score;
+    });
+
+    return JSON.stringify({
+      labels: dates,
+      datasets: [
+        { 
+          label: 'Engagement Score', 
+          data: engagementScores, 
+          fill: true,
+          borderColor: 'rgb(75, 192, 192)',
+          backgroundColor: 'rgba(75, 192, 192, 0.1)',
+          tension: 0.4
+        }
       ]
     });
   }
 
   static async generateHtml(data) {
     try {
-      // Generate chart image first
-      const chartImageBase64 = await this.generateChartImage(data.chartData);
+      // Generate chart images first
+      const stressChartImageBase64 = await this.generateChartImage(data.stressChartData, 'Stress Level');
+      const engagementChartImageBase64 = await this.generateChartImage(data.engagementChartData, 'Engagement Score');
       
       // Use only the path that's working
       const templatePath = path.join(
@@ -154,18 +207,36 @@ class CompanyReportPdfService {
       // Get HTML with data
       let html = template(data);
       
-      // Replace the Chart.js implementation with our pre-rendered image
+      // Replace the Chart.js implementation with our pre-rendered images
       const chartScript = /<script>[\s\S]*?<\/script>/;
       
-      // Create an image tag with our chart
-      const chartImageHtml = `
-        <div class="chart-container" style="height: 300px; width: 100%; margin-top: 20px; text-align: center;">
-          <img src="data:image/png;base64,${chartImageBase64}" style="max-width: 100%; max-height: 300px;" alt="Engagement & Stress Level Trends" />
+      // Create image tags with our charts
+      const stressChartImageHtml = `
+        <div class="chart-container" style="height: 300px; width: 100%; margin-top: 20px; margin-bottom: 40px; text-align: center;">
+          <h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Daily Stress Level Trends</h3>
+          <img src="data:image/png;base64,${stressChartImageBase64}" style="max-width: 100%; max-height: 300px;" alt="Stress Level Trends" />
         </div>
       `;
       
-      // Replace the canvas with our chart image
-      html = html.replace(/<canvas id="trendsChart"><\/canvas>/, chartImageHtml);
+      const engagementChartImageHtml = `
+        <div class="chart-container" style="height: 300px; width: 100%; margin-top: 20px; text-align: center;">
+          <h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Monthly Engagement Score Trends</h3>
+          <img src="data:image/png;base64,${engagementChartImageBase64}" style="max-width: 100%; max-height: 300px;" alt="Engagement Score Trends" />
+        </div>
+      `;
+      
+      // Find the section title and replace the entire charts section
+      const chartsSectionRegex = /<div class="section-title">Company Performance Trends<\/div>[\s\S]*?<div class="section">/;
+      
+      const newChartsSection = `
+        <div class="section-title">Company Performance Trends</div>
+        ${stressChartImageHtml}
+        ${engagementChartImageHtml}
+        </div>
+        <div class="section">
+      `;
+      
+      html = html.replace(chartsSectionRegex, newChartsSection);
       
       // Remove the Chart.js script
       html = html.replace(chartScript, '');
@@ -187,12 +258,19 @@ class CompanyReportPdfService {
     }
   }
 
-  static async generateChartImage(chartDataString) {
+  static async generateChartImage(chartDataString, chartTitle = '') {
     try {
       // Parse chart data
       const chartData = typeof chartDataString === 'string' 
         ? JSON.parse(chartDataString) 
         : chartDataString;
+      
+      // Check if chartData is valid and has datasets
+      if (!chartData || !chartData.datasets || !chartData.labels) {
+        console.error('Invalid chart data:', chartData);
+        // Return a blank chart image
+        return this.generateBlankChartImage('No data available for this period');
+      }
       
       // Create a new ChartJSNodeCanvas instance
       const width = 800;
@@ -208,26 +286,15 @@ class CompanyReportPdfService {
         type: 'line',
         data: {
           labels: chartData.labels,
-          datasets: [
-            {
-              label: 'Engagement Score',
-              data: chartData.datasets[0].data,
-              borderColor: 'rgb(75, 192, 192)',
-              backgroundColor: 'rgba(75, 192, 192, 0.1)',
-              borderWidth: 2,
-              tension: 0.4,
-              fill: true
-            },
-            {
-              label: 'Stress Level',
-              data: chartData.datasets[1].data,
-              borderColor: 'rgb(255, 99, 132)',
-              backgroundColor: 'rgba(255, 99, 132, 0.1)',
-              borderWidth: 2,
-              tension: 0.4,
-              fill: true
-            }
-          ]
+          datasets: chartData.datasets.map(dataset => ({
+            label: dataset.label,
+            data: dataset.data,
+            borderColor: dataset.borderColor || 'rgb(75, 192, 192)',
+            backgroundColor: dataset.backgroundColor || 'rgba(75, 192, 192, 0.1)',
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true
+          }))
         },
         options: {
           responsive: true,
@@ -257,8 +324,8 @@ class CompanyReportPdfService {
               }
             },
             title: {
-              display: true,
-              text: 'Engagement & Stress Level Trends',
+              display: !!chartTitle,
+              text: chartTitle || chartData.datasets[0]?.label || 'Chart',
               font: {
                 size: 16
               }
@@ -274,7 +341,68 @@ class CompanyReportPdfService {
       return buffer.toString('base64');
     } catch (error) {
       console.error("Error generating chart image:", error);
-      throw new Error(`Failed to generate chart image: ${error.message}`);
+      return this.generateBlankChartImage('Error generating chart');
+    }
+  }
+
+  static async generateBlankChartImage(message) {
+    try {
+      // Create a new ChartJSNodeCanvas instance for blank chart
+      const width = 800;
+      const height = 400;
+      const chartJSNodeCanvas = new ChartJSNodeCanvas({ 
+        width, 
+        height,
+        backgroundColour: 'white'
+      });
+      
+      // Configure a blank chart with message
+      const configuration = {
+        type: 'line',
+        data: {
+          labels: [''],
+          datasets: [{
+            label: 'No Data',
+            data: [],
+            borderColor: 'rgb(200, 200, 200)',
+            backgroundColor: 'rgba(200, 200, 200, 0.1)'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              display: false
+            },
+            x: {
+              display: false
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            },
+            title: {
+              display: true,
+              text: message,
+              font: {
+                size: 16
+              }
+            }
+          }
+        }
+      };
+      
+      // Render the blank chart to a buffer
+      const buffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+      
+      // Convert buffer to base64
+      return buffer.toString('base64');
+    } catch (error) {
+      console.error("Error generating blank chart image:", error);
+      // Return a base64 encoded transparent 1x1 pixel as fallback
+      return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
     }
   }
 

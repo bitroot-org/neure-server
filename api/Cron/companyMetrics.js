@@ -2,29 +2,83 @@ const cron = require("node-cron");
 const db = require("../config/db");
 const { calculateMonthlyRetention } = require('../server/utils/retentionCalculator');
 
-// Function to calculate the company stress level
+// Function to calculate the company stress level and record daily history
 const calculateCompanyStressLevel = async () => {
+  const connection = await db.getConnection();
   try {
+    await connection.beginTransaction();
+    
+    // Today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
     // Query to calculate the average stress level for each company from the company_employees table
-    const [results] = await db.query(`
+    // Only include active employees
+    const [results] = await connection.query(`
       SELECT 
         company_id, 
         AVG(stress_level) as average_stress_level
       FROM 
         company_employees
+      WHERE
+        is_active = 1
       GROUP BY 
         company_id
     `);
 
+    // Prepare data for history table
+    const historyRecords = [];
+    
     // Update the company stress level in the companies table
     for (const result of results) {
-      await db.query(`UPDATE companies SET stress_level = ? WHERE id = ?`, [
+      await connection.query(`
+        UPDATE companies 
+        SET 
+          stress_level = ?,
+          updated_at = NOW()
+        WHERE id = ?
+      `, [
         result.average_stress_level,
         result.company_id,
       ]);
+      
+      // Add to history records
+      historyRecords.push([
+        result.company_id,
+        result.average_stress_level,
+        today
+      ]);
     }
+    
+    // Insert records into history table using ON DUPLICATE KEY UPDATE
+    if (historyRecords.length > 0) {
+      await connection.query(
+        `INSERT INTO company_daily_stress_history 
+          (company_id, stress_level, recorded_date) 
+        VALUES ? 
+        ON DUPLICATE KEY UPDATE 
+          stress_level = VALUES(stress_level),
+          created_at = NOW()`,
+        [historyRecords]
+      );
+      
+      console.log(`[${new Date().toISOString()}] Calculated and recorded daily stress levels for ${historyRecords.length} companies`);
+    }
+    
+    await connection.commit();
+    
+    return {
+      status: true,
+      updated_companies: results.length
+    };
   } catch (error) {
-    console.error("Error calculating company stress level:", error.message);
+    await connection.rollback();
+    console.error("Error calculating and recording company stress level:", error.message);
+    return {
+      status: false,
+      error: error.message
+    };
+  } finally {
+    connection.release();
   }
 };
 
@@ -88,22 +142,42 @@ const calculatePSI = async () => {
 
 const calculateEngagementScore = async () => {
   try {
-    // First, get total workshops scheduled for each company (excluding canceled ones)
+    // First, get all workshop schedules for each company (excluding canceled ones)
     const [companyWorkshops] = await db.query(`
       SELECT 
         company_id,
-        COUNT(DISTINCT workshop_id) as total_workshops
+        COUNT(DISTINCT id) as total_workshop_schedules
       FROM 
         workshop_schedules
       WHERE 
-        status != 'canceled'
+        status NOT IN ('cancelled', 'canceled')
       GROUP BY 
         company_id
     `);
 
-    // Create a map for quick lookup of total workshops per company
+    // Create a map for quick lookup of total workshop schedules per company
     const companyWorkshopsMap = companyWorkshops.reduce((acc, curr) => {
-      acc[curr.company_id] = curr.total_workshops;
+      acc[curr.company_id] = curr.total_workshop_schedules;
+      return acc;
+    }, {});
+
+    // For each company, get the workshop attendance for each employee
+    const [employeeAttendance] = await db.query(`
+      SELECT 
+        ce.company_id,
+        ce.user_id,
+        COUNT(DISTINCT wt.schedule_id) as workshops_attended
+      FROM 
+        company_employees ce
+      LEFT JOIN workshop_tickets wt ON ce.user_id = wt.user_id AND ce.company_id = wt.company_id AND wt.is_attended = 1
+      GROUP BY 
+        ce.company_id, ce.user_id
+    `);
+
+    // Create a map for quick lookup of workshops attended per employee
+    const employeeAttendanceMap = employeeAttendance.reduce((acc, curr) => {
+      const key = `${curr.company_id}_${curr.user_id}`;
+      acc[key] = curr.workshops_attended;
       return acc;
     }, {});
 
@@ -112,7 +186,6 @@ const calculateEngagementScore = async () => {
       SELECT 
         ce.company_id,
         ce.user_id,
-        ce.workshop_attendance_count,
         ce.content_engagement_percentage,
         ce.stress_bar_updated,
         ce.assessment_completion
@@ -123,10 +196,11 @@ const calculateEngagementScore = async () => {
     // Update the engagement score for each employee
     for (const employee of employeeResults) {
       const totalWorkshops = companyWorkshopsMap[employee.company_id] || 0;
+      const workshopsAttended = employeeAttendanceMap[`${employee.company_id}_${employee.user_id}`] || 0;
       
       // Calculate workshop attendance percentage (only for engagement score calculation)
       const workshopAttendancePercentage = totalWorkshops > 0
-        ? Math.min((employee.workshop_attendance_count / totalWorkshops) * 100, 100) // Cap at 100%
+        ? Math.min((workshopsAttended / totalWorkshops) * 100, 100) // Cap at 100%
         : 0;
 
       const engagementScore =
@@ -138,10 +212,12 @@ const calculateEngagementScore = async () => {
 
       await db.query(
         `UPDATE company_employees SET 
-          engagement_score = ? 
+          engagement_score = ?,
+          workshop_attendance_percentage = ?
         WHERE company_id = ? AND user_id = ?`,
         [
           engagementScore,
+          workshopAttendancePercentage,
           employee.company_id,
           employee.user_id
         ]
@@ -219,6 +295,93 @@ const recordEmployeeDailyHistory = async () => {
   }
 };
 
+// Function to calculate the company wellbeing score
+const calculateWellbeingScore = async () => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    
+    // Get all active companies with their metrics
+    const [companies] = await connection.query(`
+      SELECT 
+        id,
+        stress_level,
+        psychological_safety_index,
+        engagement_score
+      FROM 
+        companies
+      WHERE
+        active = 1
+    `);
+    
+    console.log(`[${new Date().toISOString()}] Calculating wellbeing scores for ${companies.length} companies`);
+    
+    // Update the wellbeing score for each company
+    for (const company of companies) {
+      // Calculate inverse stress score (100 - stress_level)
+      const inverseStressScore = company.stress_level !== null ? 
+        Math.max(0, Math.min(100, 100 - company.stress_level)) : 0;
+      
+      // Get PSI and engagement scores, defaulting to 0 if null
+      const psiScore = company.psychological_safety_index || 0;
+      const engagementScore = company.engagement_score || 0;
+      
+      // Calculate wellbeing score as average of the three components
+      // Only include components that are not null/zero in the average
+      let divisor = 0;
+      let sum = 0;
+      
+      if (inverseStressScore > 0) {
+        sum += inverseStressScore;
+        divisor++;
+      }
+      
+      if (psiScore > 0) {
+        sum += psiScore;
+        divisor++;
+      }
+      
+      if (engagementScore > 0) {
+        sum += engagementScore;
+        divisor++;
+      }
+      
+      // Calculate the average, default to 0 if no valid components
+      const wellbeingScore = divisor > 0 ? sum / divisor : 0;
+      
+      // Update the company's wellbeing score
+      await connection.query(`
+        UPDATE companies 
+        SET 
+          wellbeing_score = ?,
+          updated_at = NOW()
+        WHERE id = ?
+      `, [
+        wellbeingScore,
+        company.id
+      ]);
+      
+      console.log(`Company ${company.id} wellbeing score updated to: ${wellbeingScore}`);
+    }
+    
+    await connection.commit();
+    
+    return {
+      status: true,
+      updated_companies: companies.length
+    };
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error calculating wellbeing scores:", error.message);
+    return {
+      status: false,
+      error: error.message
+    };
+  } finally {
+    connection.release();
+  }
+};
+
 // Schedule the cron job to run every start of the day seconds for debugging
 cron.schedule("30 0 * * *", () => {
   calculateCompanyStressLevel();
@@ -262,10 +425,20 @@ cron.schedule("0 2 * * *", recordEmployeeDailyHistory, {
   timezone: "Asia/Kolkata"
 });
 
+// Schedule the wellbeing score calculation to run daily at 01:00 AM
+// This runs after stress level, PSI, and engagement score calculations
+cron.schedule("0 1 * * *", () => {
+  calculateWellbeingScore();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
+
 module.exports = {
   calculateCompanyStressLevel,
   calculateRetentionRate,
   calculatePSI,
   calculateEngagementScore,
-  recordEmployeeDailyHistory
+  recordEmployeeDailyHistory,
+  calculateWellbeingScore
 };

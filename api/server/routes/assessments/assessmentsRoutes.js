@@ -1,7 +1,6 @@
 const express = require('express');
 const AssessmentsController = require('../../controllers/assessments/assessmentsController');
 const { authorization } = require('../../../auth/tokenValidator.js');
-const { successResponse, errorResponse } = require('../../utils/responseHandler');
 
 const router = express.Router();
 

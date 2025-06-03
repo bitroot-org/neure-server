@@ -7,15 +7,27 @@ const recordCompanyMetricsHistory = async (connection) => {
     const firstDayOfMonth = new Date();
     firstDayOfMonth.setDate(1);
     firstDayOfMonth.setHours(0, 0, 0, 0);
+    
+    // Get the first day of previous month
+    const firstDayOfPrevMonth = new Date(firstDayOfMonth);
+    firstDayOfPrevMonth.setMonth(firstDayOfPrevMonth.getMonth() - 1);
+    
+    // Get the last day of previous month
+    const lastDayOfPrevMonth = new Date(firstDayOfMonth);
+    lastDayOfPrevMonth.setDate(0); // Setting to 0 gets the last day of previous month
+    
+    // Format dates for SQL
+    const prevMonthStart = firstDayOfPrevMonth.toISOString().split('T')[0];
+    const prevMonthEnd = lastDayOfPrevMonth.toISOString().split('T')[0];
 
-    // Get all active companies and their current metrics with employee and department counts
+    // Get all active companies
     const [companies] = await connection.query(`
       SELECT 
         c.id,
-        c.stress_level,
         c.retention_rate,
         c.engagement_score,
         c.psychological_safety_index,
+        c.wellbeing_score,
         COUNT(CASE WHEN u.role_id NOT IN (1, 2) THEN ce.user_id END) as total_employees,
         SUM(CASE WHEN ce.is_active = 1 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as active_employees,
         SUM(CASE WHEN ce.is_active = 0 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as inactive_employees,
@@ -29,11 +41,22 @@ const recordCompanyMetricsHistory = async (connection) => {
 
     // Insert metrics history for each company
     for (const company of companies) {
+      // Get average daily stress level for the previous month
+      const [stressData] = await connection.query(`
+        SELECT AVG(stress_level) as avg_monthly_stress_level
+        FROM company_daily_stress_history
+        WHERE company_id = ? 
+        AND recorded_date BETWEEN ? AND ?
+      `, [company.id, prevMonthStart, prevMonthEnd]);
+      
+      const avgMonthlyStressLevel = stressData[0]?.avg_monthly_stress_level || company.stress_level || 0;
+      
       await connection.query(`
         INSERT INTO company_metrics_history (
           company_id,
           month_year,
           stress_level,
+          wellbeing_score,
           retention_rate,
           engagement_score,
           psychological_safety_index,
@@ -41,11 +64,12 @@ const recordCompanyMetricsHistory = async (connection) => {
           active_employees,
           inactive_employees,
           total_departments
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         company.id,
-        firstDayOfMonth,
-        company.stress_level,
+        firstDayOfPrevMonth, // Store for previous month
+        avgMonthlyStressLevel,
+        company.wellbeing_score || 0,
         company.retention_rate,
         company.engagement_score,
         company.psychological_safety_index,
@@ -63,23 +87,23 @@ const recordCompanyMetricsHistory = async (connection) => {
   }
 };
 
-const resetStressModalTimes = async (connection) => {
-  try {
-    const [result] = await connection.query(`
-      UPDATE users 
-      SET last_stress_modal_seen_at = NULL 
-      WHERE user_id IN (
-        SELECT DISTINCT user_id 
-        FROM company_employees 
-        WHERE is_active = 1
-      )
-    `);
-    return result.affectedRows;
-  } catch (error) {
-    console.error('Error resetting stress modal times:', error);
-    throw error;
-  }
-};
+// const resetStressModalTimes = async (connection) => {
+//   try {
+//     const [result] = await connection.query(`
+//       UPDATE users 
+//       SET last_stress_modal_seen_at = NULL 
+//       WHERE user_id IN (
+//         SELECT DISTINCT user_id 
+//         FROM company_employees 
+//         WHERE is_active = 1
+//       )
+//     `);
+//     return result.affectedRows;
+//   } catch (error) {
+//     console.error('Error resetting stress modal times:', error);
+//     throw error;
+//   }
+// };
 
 const monthlyMetricsReset = async () => {
   const connection = await db.getConnection();
@@ -90,18 +114,16 @@ const monthlyMetricsReset = async () => {
     const companiesUpdated = await recordCompanyMetricsHistory(connection);
     
     // Then reset stress modal times
-    const usersReset = await resetStressModalTimes(connection);
+    // const usersReset = await resetStressModalTimes(connection);
 
     await connection.commit();
 
     console.log(`Monthly metrics reset completed successfully at ${new Date().toISOString()}`);
     console.log(`- Recorded metrics for ${companiesUpdated} companies`);
-    console.log(`- Reset stress modal times for ${usersReset} users`);
 
     return {
       status: true,
-      companiesUpdated,
-      usersReset
+      companiesUpdated
     };
   } catch (error) {
     await connection.rollback();

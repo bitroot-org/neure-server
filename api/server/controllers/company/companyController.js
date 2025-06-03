@@ -1061,7 +1061,7 @@ class CompanyController {
   static async getCompanyAnalytics(req, res) {
     try {
       const { company_id, startDate, endDate } = req.query;
-      console.log("Received request to get company analytics:", req.query);
+      // console.log("Received request to get company analytics:", req.query);
   
       // Validate company_id
       if (!company_id) {
@@ -1145,9 +1145,9 @@ class CompanyController {
   static async getCompanyStressTrends(req, res) {
     try {
       const { company_id } = req.params;
-      const months = parseInt(req.query.months) || 12;
+      const { start_date, end_date } = req.query;
 
-      const result = await getCompanyStressTrends(company_id, months);
+      const result = await getCompanyStressTrends(company_id, start_date, end_date);
       return res.status(result.status ? 200 : 404).json(result);
     } catch (error) {
       console.error("Error in getCompanyStressTrends controller:", error);

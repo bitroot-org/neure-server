@@ -650,6 +650,7 @@ class CompanyService {
           c.psychological_safety_index,
           c.retention_rate,
           c.stress_level,
+          c.wellbeing_score,
           c.engagement_score,
           COUNT(CASE WHEN u.role_id NOT IN (1, 2) THEN ce.user_id END) as total_employees,
           SUM(CASE WHEN ce.is_active = 1 AND u.role_id NOT IN (1, 2) THEN 1 ELSE 0 END) as active_employees,
@@ -735,7 +736,7 @@ class CompanyService {
             psychological_safety_index: c.psychological_safety_index || 0,
             retention_rate: c.retention_rate || 0,
             stress_level: c.stress_level || 0,
-            wellbeing_score: wellbeingScore,
+            wellbeing_score: c.wellbeing_score || 0,
             engagement_score: c.engagement_score || 0,
             
             // Employee counts with percentage changes
@@ -2236,17 +2237,28 @@ class CompanyService {
         [company_id, startDate, endDate]
       );
 
-      // Fetch engagement score and stress level trends for the company
-      const [trends] = await db.query(
+      // Fetch daily stress level trends from company_daily_stress_history
+      const [stressTrends] = await db.query(
         `
         SELECT 
-          recorded_date as date,
-          AVG(engagement_score) as avg_engagement_score,
-          AVG(stress_level) as avg_stress_level
-        FROM employee_daily_history
+          DATE_FORMAT(recorded_date, '%Y-%m-%d') as date,
+          stress_level
+        FROM company_daily_stress_history
         WHERE company_id = ? AND DATE(recorded_date) BETWEEN DATE(?) AND DATE(?)
-        GROUP BY recorded_date
         ORDER BY recorded_date ASC
+        `,
+        [company_id, startDate, endDate]
+      );
+
+      // Fetch monthly engagement score trends from company_metrics_history
+      const [engagementTrends] = await db.query(
+        `
+        SELECT 
+          DATE_FORMAT(month_year, '%Y-%m-01') as date,
+          engagement_score
+        FROM company_metrics_history
+        WHERE company_id = ? AND DATE(month_year) BETWEEN DATE(?) AND DATE(?)
+        ORDER BY month_year ASC
         `,
         [company_id, startDate, endDate]
       );
@@ -2258,11 +2270,14 @@ class CompanyService {
         data: {
           ...companyData[0],
           new_users: newUsers[0]?.new_users || 0,
-          trends: trends.map((trend) => ({
+          stressTrends: stressTrends.map(trend => ({
             date: trend.date,
-            avg_engagement_score: trend.avg_engagement_score,
-            avg_stress_level: trend.avg_stress_level,
+            stress_level: trend.stress_level
           })),
+          engagementTrends: engagementTrends.map(trend => ({
+            date: trend.date,
+            engagement_score: trend.engagement_score
+          }))
         },
       };
     } catch (error) {
@@ -2347,7 +2362,7 @@ class CompanyService {
     }
   }
 
-  static async getCompanyStressTrends(company_id, months = 12) {
+  static async getCompanyStressTrends(company_id, startDate = null, endDate = null) {
     try {
       // Verify company exists
       const [company] = await db.query(
@@ -2363,27 +2378,38 @@ class CompanyService {
         };
       }
 
-      // Fetch historical stress data
+      // If dates are not provided, use default of last 30 days
+      const currentDate = new Date();
+      const formattedEndDate = endDate || currentDate.toISOString().split('T')[0];
+      
+      // For start date, default to 30 days before end date
+      let formattedStartDate;
+      if (startDate) {
+        formattedStartDate = startDate;
+      } else {
+        const defaultStartDate = new Date(currentDate);
+        defaultStartDate.setDate(currentDate.getDate() - 30); // Last 30 days
+        formattedStartDate = defaultStartDate.toISOString().split('T')[0];
+      }
+      
+
+      // Fetch daily stress history data
       const [trends] = await db.query(
         `SELECT 
-          DATE_FORMAT(month_year, '%Y-%m') as period,
-          stress_level,
-          engagement_score,
-          psychological_safety_index
-        FROM company_metrics_history
+          DATE_FORMAT(recorded_date, '%Y-%m-%d') as period,
+          stress_level
+        FROM company_daily_stress_history
         WHERE company_id = ?
-        AND month_year >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
-        ORDER BY month_year ASC`, // This ensures ascending order by date
-        [company_id, months]
+        AND recorded_date BETWEEN ? AND ?
+        ORDER BY recorded_date ASC`,
+        [company_id, formattedStartDate, formattedEndDate]
       );
 
-      // Get current month's data
+      // Get current day's data
       const [currentMetrics] = await db.query(
         `SELECT 
-          DATE_FORMAT(CURDATE(), '%Y-%m') as period,
-          stress_level,
-          engagement_score,
-          psychological_safety_index
+          DATE_FORMAT(CURDATE(), '%Y-%m-%d') as period,
+          stress_level
         FROM companies
         WHERE id = ?`,
         [company_id]
@@ -2392,7 +2418,7 @@ class CompanyService {
       // Combine historical and current data
       const allTrends = [...trends];
       if (currentMetrics && currentMetrics[0]) {
-        // Only add current month if it's not already in the trends
+        // Only add current day if it's not already in the trends
         const currentPeriod = currentMetrics[0].period;
         if (!trends.some((trend) => trend.period === currentPeriod)) {
           allTrends.push(currentMetrics[0]);
@@ -2402,7 +2428,7 @@ class CompanyService {
       // Sort the combined data to ensure it's in ascending order
       allTrends.sort((a, b) => a.period.localeCompare(b.period));
 
-      // Calculate month-over-month changes
+      // Calculate day-over-day changes
       const trendsWithChanges = allTrends.map((trend, index) => {
         const previousTrend = index > 0 ? allTrends[index - 1] : null;
         return {
@@ -2410,15 +2436,7 @@ class CompanyService {
           stress_level: trend.stress_level || 0,
           stress_level_change: previousTrend
             ? (trend.stress_level || 0) - (previousTrend.stress_level || 0)
-            : 0,
-          // engagement_score: trend.engagement_score || 0,
-          // engagement_score_change: previousTrend
-          //   ? (trend.engagement_score || 0) - (previousTrend.engagement_score || 0)
-          //   : 0,
-          // psychological_safety_index: trend.psychological_safety_index || 0,
-          // psi_change: previousTrend
-          //   ? (trend.psychological_safety_index || 0) - (previousTrend.psychological_safety_index || 0)
-          //   : 0
+            : 0
         };
       });
 
@@ -2434,15 +2452,19 @@ class CompanyService {
             average_stress_level: Number(
               (
                 trendsWithChanges.reduce((sum, t) => sum + t.stress_level, 0) /
-                trendsWithChanges.length
+                (trendsWithChanges.length || 1)
               ).toFixed(2)
             ),
-            highest_stress_level: Math.max(
-              ...trendsWithChanges.map((t) => t.stress_level)
-            ),
-            lowest_stress_level: Math.min(
-              ...trendsWithChanges.map((t) => t.stress_level)
-            ),
+            highest_stress_level: trendsWithChanges.length 
+              ? Math.max(...trendsWithChanges.map((t) => t.stress_level))
+              : 0,
+            lowest_stress_level: trendsWithChanges.length
+              ? Math.min(...trendsWithChanges.map((t) => t.stress_level))
+              : 0,
+            date_range: {
+              start_date: formattedStartDate,
+              end_date: formattedEndDate
+            }
           },
         },
       };

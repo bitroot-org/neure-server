@@ -34,7 +34,6 @@
 
     .logo {
       text-align: center;
-      margin-bottom: 14px;
     }
 
     .logo img {
@@ -50,20 +49,15 @@
 
     .company-info {
       text-align: center;
-      margin-bottom: 10px;
       font-size: 16px;
       color: rgba(255,255,255,0.9);
-    }
-
-    .company-info p {
-      margin: 5px 0;
     }
 
     .section {
       background-color: white;
       border-radius: 12px;
       padding: 20px;
-      margin-bottom: 20px;
+      margin-bottom: 10px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       page-break-inside: avoid;
       break-inside: avoid;
@@ -75,7 +69,6 @@
       margin-bottom: 10px;
       color: #4361ee;
       border-bottom: 2px solid #f8f9fa;
-      padding-bottom: 10px;
     }
 
     .introduction, .final-remarks {
@@ -86,7 +79,6 @@
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 15px;
-      margin-bottom: 15px;
     }
 
     .metric-card {
@@ -352,52 +344,66 @@
         </tr>
       </table>
     </div>
-    
-    <!-- Charts Section -->
-    <div class="section">
-      <div class="section-title">Engagement & Stress Level Trends</div>
-      <div class="chart-container" style="height: 300px; width: 100%;">
-        <canvas id="trendsChart"></canvas>
-      </div>
-    </div>
-    
-    <!-- Employee Statistics Section -->
+
+   <!-- Employee Statistics Section -->
     <div class="section">
       <div class="section-title">Employee Statistics</div>
-      <table style="width: 100%; border-collapse: separate; border-spacing: 12px; margin-bottom: 15px;">
+      <table style="width: 100%; border-collapse: separate; border-spacing: 8px; margin-bottom: 0px;">
         <tr>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Total Employees</div>
-            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Total Employees</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
           </td>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Active Employees</div>
-            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Active Employees</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.active_employees}}</div>
           </td>
         </tr>
         <tr>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Inactive Employees</div>
-            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.inactive_employees}}</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Inactive Employees</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.inactive_employees}}</div>
           </td>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Total Departments</div>
-            <div style="font-size: 28px; font-weight: 700; color: #212529;">{{metrics.total_departments}}</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Total Departments</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.total_departments}}</div>
           </td>
         </tr>
         <tr>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">New Users</div>
-            <div style="font-size: 28px; font-weight: 700; color: #212529;">0</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">New Users</div>
+            <div style="font-size: 18px; font-weight: 700; color: #212529;">0</div>
           </td>
-          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 20px; text-align: center; border-radius: 8px;">
-            <div style="font-size: 14px; color: #6c757d; margin-bottom: 10px; font-weight: 500;">Last Employee Joined</div>
+          <td style="width: 50%; background-color: rgba(240, 242, 245, 0.6); padding: 10px; text-align: center; border-radius: 8px;">
+            <div style="font-size: 14px; color: #6c757d; margin-bottom: 4px; font-weight: 500;">Last Employee Joined</div>
             <div style="font-size: 18px; font-weight: 700; color: #212529;">{{metrics.last_employee_joined}}</div>
           </td>
         </tr>
       </table>
     </div>
+        
+    <!-- Charts Section -->
+    <div class="section" style="page-break-inside: avoid; break-inside: avoid; height: 1000px;">
+      <div class="section-title">Company Performance Trends</div>
+      
+      <!-- Stress Level Chart -->
+      <div style="margin-bottom: 30px;">
+        <h3 style="font-size: 16px; text-align: center; color: #333; margin-bottom: 15px;">Daily Stress Level Trends</h3>
+        <div class="chart-container" style="height: 300px; width: 100%;">
+          <canvas id="stressChart"></canvas>
+        </div>
+      </div>
+      
+      <!-- Engagement Score Chart -->
+      <div>
+        <h3 style="font-size: 16px; text-align: center; color: #333; margin-bottom: 15px;">Monthly Engagement Score Trends</h3>
+        <div class="chart-container" style="height: 300px; width: 100%;">
+          <canvas id="engagementChart"></canvas>
+        </div>
+      </div>
+    </div>
     
+ 
     <!-- Final Remarks Section -->
     <div class="section">
       <div class="section-title">Final Remarks</div>
@@ -410,13 +416,59 @@
   
   <script>
     // Parse the chart data from the server
-    const chartData = JSON.parse('{{{chartData}}}');
+    const stressChartData = JSON.parse('{{{stressChartData}}}');
+    const engagementChartData = JSON.parse('{{{engagementChartData}}}');
     
-    // Create the trends chart
-    const ctx = document.getElementById('trendsChart').getContext('2d');
-    new Chart(ctx, {
+    // Create the stress level chart
+    const stressCtx = document.getElementById('stressChart').getContext('2d');
+    new Chart(stressCtx, {
       type: 'line',
-      data: chartData,
+      data: stressChartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            ticks: {
+              callback: function(value) {
+                return value + '%';
+              }
+            }
+          },
+          x: {
+            grid: {
+              display: false
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              usePointStyle: true,
+              padding: 20
+            }
+          }
+        },
+        elements: {
+          line: {
+            tension: 0.4
+          },
+          point: {
+            radius: 4,
+            hoverRadius: 6
+          }
+        }
+      }
+    });
+    
+    // Create the engagement score chart
+    const engagementCtx = document.getElementById('engagementChart').getContext('2d');
+    new Chart(engagementCtx, {
+      type: 'line',
+      data: engagementChartData,
       options: {
         responsive: true,
         maintainAspectRatio: false,
