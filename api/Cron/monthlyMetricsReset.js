@@ -143,4 +143,11 @@ cron.schedule('15 0 1 * *', monthlyMetricsReset, {
   timezone: "Asia/Kolkata"
 });
 
-module.exports = monthlyMetricsReset;
+// Export a function that just initializes the scheduling
+module.exports = function initCron() {
+  console.log('Monthly metrics reset cron initialized');
+  // The cron job is already scheduled when this file is imported
+  return {
+    monthlyMetricsReset // Export the function for testing purposes
+  };
+};

@@ -34,6 +34,7 @@ class CompanyReportPdfService {
           retention_rate, 
           stress_level, 
           engagement_score,
+          wellbeing_score,
           (SELECT COUNT(*) FROM company_employees WHERE company_id = ? AND is_active = 1) as active_employees,
           (SELECT COUNT(*) FROM company_employees WHERE company_id = ? AND is_active = 0) as inactive_employees,
           (SELECT COUNT(DISTINCT department_id) FROM company_departments WHERE company_id = ?) as total_departments,
@@ -52,19 +53,18 @@ class CompanyReportPdfService {
         metrics[0].last_employee_joined = `${day}/${month}/${year}`;
       }
 
-      // 3. Get daily stress trend data
-      const [stressTrends] = await db.query(
+      // 3. Get wellbeing trend data instead of stress trend data
+      const [wellbeingTrends] = await db.query(
         `SELECT 
-          recorded_date as date,
-          stress_level
-        FROM company_daily_stress_history
-        WHERE company_id = ? AND DATE(recorded_date) BETWEEN ? AND ?
-        GROUP BY recorded_date
-        ORDER BY recorded_date ASC`,
+          DATE_FORMAT(month_year, '%Y-%m-%d') as date,
+          wellbeing_score
+        FROM company_metrics_history
+        WHERE company_id = ? AND DATE(month_year) BETWEEN ? AND ?
+        ORDER BY month_year ASC`,
         [companyId, startDate, endDate]
       );
 
-      console.log("Stress Trends:", stressTrends);
+      console.log("Wellbeing Trends:", wellbeingTrends);
 
       // 4. Get monthly engagement trend data
       const [engagementTrends] = await db.query(
@@ -84,17 +84,14 @@ class CompanyReportPdfService {
       const reportData = {
         company: company,
         metrics: metrics[0] || {},
-        stressTrends: stressTrends,
+        wellbeingTrends: wellbeingTrends,
         engagementTrends: engagementTrends,
         startDate: new Date(startDate).toLocaleDateString(),
         endDate: new Date(endDate).toLocaleDateString(),
         generatedDate: new Date().toLocaleDateString(),
-        stressChartData: this.prepareStressChartData(stressTrends),
+        wellbeingChartData: this.prepareWellbeingChartData(wellbeingTrends),
         engagementChartData: this.prepareEngagementChartData(engagementTrends),
       };
-
-      // console.log("Report Data:", reportData);
-
 
       // 6. Generate HTML from template
       const html = await this.generateHtml(reportData);
@@ -126,26 +123,26 @@ class CompanyReportPdfService {
     }
   }
 
-  static prepareStressChartData(trends) {
+  static prepareWellbeingChartData(trends) {
     if (!trends || trends.length === 0) {
       return JSON.stringify({ labels: [], datasets: [] });
     }
 
     const dates = trends.map(t => new Date(t.date).toLocaleDateString());
-    const stressLevels = trends.map(t => {
-      const level = parseFloat(t.stress_level);
-      return isNaN(level) ? 0 : level;
+    const wellbeingScores = trends.map(t => {
+      const score = parseFloat(t.wellbeing_score);
+      return isNaN(score) ? 0 : score;
     });
 
     return JSON.stringify({
       labels: dates,
       datasets: [
         { 
-          label: 'Stress Level', 
-          data: stressLevels, 
+          label: 'Wellbeing Score', 
+          data: wellbeingScores, 
           fill: true,
-          borderColor: 'rgb(255, 99, 132)',
-          backgroundColor: 'rgba(255, 99, 132, 0.1)',
+          borderColor: 'rgb(75, 192, 75)',
+          backgroundColor: 'rgba(75, 192, 75, 0.1)',
           tension: 0.4
         }
       ]
@@ -185,7 +182,7 @@ class CompanyReportPdfService {
   static async generateHtml(data) {
     try {
       // Generate chart images first
-      const stressChartImageBase64 = await this.generateChartImage(data.stressChartData, 'Stress Level');
+      const wellbeingChartImageBase64 = await this.generateChartImage(data.wellbeingChartData, 'Wellbeing Score');
       const engagementChartImageBase64 = await this.generateChartImage(data.engagementChartData, 'Engagement Score');
       
       // Use only the path that's working
@@ -211,10 +208,10 @@ class CompanyReportPdfService {
       const chartScript = /<script>[\s\S]*?<\/script>/;
       
       // Create image tags with our charts
-      const stressChartImageHtml = `
+      const wellbeingChartImageHtml = `
         <div class="chart-container" style="height: 300px; width: 100%; margin-top: 20px; margin-bottom: 40px; text-align: center;">
-          <h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Daily Stress Level Trends</h3>
-          <img src="data:image/png;base64,${stressChartImageBase64}" style="max-width: 100%; max-height: 300px;" alt="Stress Level Trends" />
+          <h3 style="font-size: 16px; color: #333; margin-bottom: 10px;">Monthly Wellbeing Score Trends</h3>
+          <img src="data:image/png;base64,${wellbeingChartImageBase64}" style="max-width: 100%; max-height: 300px;" alt="Wellbeing Score Trends" />
         </div>
       `;
       
@@ -230,7 +227,7 @@ class CompanyReportPdfService {
       
       const newChartsSection = `
         <div class="section-title">Company Performance Trends</div>
-        ${stressChartImageHtml}
+        ${wellbeingChartImageHtml}
         ${engagementChartImageHtml}
         </div>
         <div class="section">

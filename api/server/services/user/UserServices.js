@@ -1397,7 +1397,7 @@ class UserServices {
       await connection.commit();
 
       // Update company average stress level
-      await updateCompanyStressLevel(company_id);
+      // await updateCompanyStressLevel(company_id);
 
       return {
         status: true,
@@ -1670,6 +1670,53 @@ class UserServices {
     } catch (error) {
       await connection.rollback();
       throw new Error("Error creating superadmin: " + error.message);
+    } finally {
+      connection.release();
+    }
+  }
+
+  static async updateFirstAssessmentCompleted(user_id) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Check if user exists
+      const [user] = await connection.query(
+        "SELECT * FROM users WHERE user_id = ?",
+        [user_id]
+      );
+
+      if (!user || user.length === 0) {
+        await connection.rollback();
+        return {
+          status: false,
+          code: 404,
+          message: "User not found",
+          data: null,
+        };
+      }
+
+      // Update first_assessment_completed status
+      await connection.query(
+        "UPDATE users SET first_assessment_completed = 1 WHERE user_id = ?",
+        [user_id]
+      );
+
+      await connection.commit();
+
+      return {
+        status: true,
+        code: 200,
+        message: "First assessment completion status updated successfully",
+        data: {
+          user_id,
+          first_assessment_completed: true,
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      console.error("Error updating first assessment completion status:", error);
+      throw new Error(`Error updating first assessment completion status: ${error.message}`);
     } finally {
       connection.release();
     }

@@ -151,6 +151,10 @@ class EmailTemplates {
             <div style="background-color: transparent; border-image: linear-gradient(to bottom, #FFFFFF 0%, #797B87 100%) 1; border-width: 0 0 0 4px; border-style: solid; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
               <p style="margin: 15px 0; text-align: center;">Check your rewards section now and enjoy your well-earned perk!</p>
             </div>
+            
+            <p style="text-align: center; margin: 25px 0;">
+              <a href="https://main.d20xlhmrfjnx3n.amplifyapp.com/rewardsAndRecognition" style="display: inline-block; padding: 12px 28px; background: linear-gradient(180deg, #FFFFFF 0%, #797B87 100%); color: black !important; text-decoration: none; border-radius: 25px; font-weight: 600; margin: 15px 0; text-align: center; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">View Your Reward</a>
+            </p>
           </div>
           <div style="background-color: #191A20; padding: 20px; text-align: center; border-top: 1px solid #eee; color: #666; margin-top: 30px;">
             <p style="margin: 5px 0;">More wins ahead! 🚀</p>

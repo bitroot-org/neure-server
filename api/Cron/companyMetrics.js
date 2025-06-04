@@ -142,7 +142,16 @@ const calculatePSI = async () => {
 
 const calculateEngagementScore = async () => {
   try {
-    // First, get all workshop schedules for each company (excluding canceled ones)
+    // Get first and last day of previous month
+    const today = new Date();
+    const firstDayPrevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastDayPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+    
+    // Format dates for SQL
+    const prevMonthStart = firstDayPrevMonth.toISOString().split('T')[0];
+    const prevMonthEnd = lastDayPrevMonth.toISOString().split('T')[0];
+    
+    // First, get workshop schedules for each company from previous month only
     const [companyWorkshops] = await db.query(`
       SELECT 
         company_id,
@@ -151,9 +160,10 @@ const calculateEngagementScore = async () => {
         workshop_schedules
       WHERE 
         status NOT IN ('cancelled', 'canceled')
+        AND DATE(start_time) BETWEEN ? AND ?
       GROUP BY 
         company_id
-    `);
+    `, [prevMonthStart, prevMonthEnd]);
 
     // Create a map for quick lookup of total workshop schedules per company
     const companyWorkshopsMap = companyWorkshops.reduce((acc, curr) => {
@@ -161,7 +171,7 @@ const calculateEngagementScore = async () => {
       return acc;
     }, {});
 
-    // For each company, get the workshop attendance for each employee
+    // For each company, get the workshop attendance for each employee (previous month only)
     const [employeeAttendance] = await db.query(`
       SELECT 
         ce.company_id,
@@ -169,10 +179,14 @@ const calculateEngagementScore = async () => {
         COUNT(DISTINCT wt.schedule_id) as workshops_attended
       FROM 
         company_employees ce
-      LEFT JOIN workshop_tickets wt ON ce.user_id = wt.user_id AND ce.company_id = wt.company_id AND wt.is_attended = 1
+      LEFT JOIN workshop_tickets wt ON ce.user_id = wt.user_id 
+        AND ce.company_id = wt.company_id 
+        AND wt.is_attended = 1
+      LEFT JOIN workshop_schedules ws ON wt.schedule_id = ws.id
+        AND DATE(ws.start_time) BETWEEN ? AND ?
       GROUP BY 
         ce.company_id, ce.user_id
-    `);
+    `, [prevMonthStart, prevMonthEnd]);
 
     // Create a map for quick lookup of workshops attended per employee
     const employeeAttendanceMap = employeeAttendance.reduce((acc, curr) => {
@@ -420,10 +434,10 @@ cron.schedule("45 1 1 * *", () => {
 });
 
 // Employee daily history - daily at 02:00 AM
-cron.schedule("0 2 * * *", recordEmployeeDailyHistory, {
-  scheduled: true,
-  timezone: "Asia/Kolkata"
-});
+// cron.schedule("0 2 * * *", recordEmployeeDailyHistory, {
+//   scheduled: true,
+//   timezone: "Asia/Kolkata"
+// });
 
 // Schedule the wellbeing score calculation to run daily at 01:00 AM
 // This runs after stress level, PSI, and engagement score calculations
@@ -434,11 +448,15 @@ cron.schedule("0 1 * * *", () => {
   timezone: "Asia/Kolkata"
 });
 
-module.exports = {
-  calculateCompanyStressLevel,
-  calculateRetentionRate,
-  calculatePSI,
-  calculateEngagementScore,
-  recordEmployeeDailyHistory,
-  calculateWellbeingScore
+module.exports = function initCompanyMetrics() {
+  console.log('Company metrics cron jobs initialized');
+  // The cron jobs are already scheduled when this file is imported
+  return {
+    calculateCompanyStressLevel,
+    calculateRetentionRate,
+    calculatePSI,
+    calculateEngagementScore,
+    // recordEmployeeDailyHistory,
+    calculateWellbeingScore
+  };
 };

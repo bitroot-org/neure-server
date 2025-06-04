@@ -33,6 +33,7 @@ const {
   getCompanyList,
   getRetentionHistory,
   getCompanyStressTrends,
+  getCompanyWellbeingTrends,
   getDeactivationRequests,
   getDeactivatedCompanies,
   getFeedback,
@@ -1154,6 +1155,23 @@ class CompanyController {
       return res.status(500).json({
         status: false,
         message: "Error fetching company stress trends",
+        error: error.message
+      });
+    }
+  }
+
+  static async getCompanyWellbeingTrends(req, res) {
+    try {
+      const { company_id } = req.params;
+      const { start_date, end_date } = req.query;
+
+      const result = await getCompanyWellbeingTrends(company_id, start_date, end_date);
+      return res.status(result.status ? 200 : 404).json(result);
+    } catch (error) {
+      console.error("Error in getCompanyWellbeingTrends controller:", error);
+      return res.status(500).json({
+        status: false,
+        message: "Error fetching company wellbeing trends",
         error: error.message
       });
     }

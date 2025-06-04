@@ -49,6 +49,7 @@ const {
   getCompanyStressTrends,
   getDeactivationRequests,
   getDeactivatedCompanies,
+  getCompanyWellbeingTrends,
   getFeedback,
   deleteCompany,
 } = require("../../controllers/company/companyController.js");
@@ -111,6 +112,7 @@ router.get(
 );
 
 router.get("/stress-trends/:company_id", authorization, getCompanyStressTrends);
+router.get("/wellbeing-trends/:company_id", authorization, getCompanyWellbeingTrends);
 
 router.get("/deactivationRequests", authorization, getDeactivationRequests);
 

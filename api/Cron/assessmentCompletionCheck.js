@@ -101,6 +101,10 @@ cron.schedule('0 23 * * *', async () => {
   timezone: "Asia/Kolkata"
 });
 
-module.exports = {
-  checkAssessmentCompletion
+module.exports = function initAssessmentCompletionCheck() {
+  console.log('Assessment completion check cron initialized');
+  // The cron job is already scheduled when this file is imported
+  return {
+    checkAssessmentCompletion
+  };
 };

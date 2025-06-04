@@ -920,8 +920,6 @@ class CompanyService {
     const connection = await db.getConnection();
 
     try {
-      // console.log("Processing bulk employee creation for company:", company_id);
-      
       if (!company_id) {
         throw new Error("Company ID is required");
       }
@@ -955,6 +953,57 @@ class CompanyService {
 
       await connection.beginTransaction();
 
+      // Create a map of department names to IDs for quick lookup
+      const [allDepartments] = await connection.query(
+        `SELECT id, department_name FROM departments`
+      );
+      
+      const departmentNameToIdMap = {};
+      allDepartments.forEach(dept => {
+        departmentNameToIdMap[dept.department_name.toLowerCase()] = dept.id;
+      });
+
+      // Create a map of normalized department names to IDs for fuzzy matching
+      const normalizedNameToIdMap = {};
+      allDepartments.forEach(dept => {
+        const normalized = dept.department_name.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
+        normalizedNameToIdMap[normalized] = dept.id;
+      });
+
+      // Process department IDs from the input data
+      console.log("Starting department name to ID mapping...");
+      for (const employee of employees) {
+        // Check for department in either department_name or department field
+        const departmentName = employee.department_name || employee.department;
+        
+        // If department name is provided but department_id is not, try to map it
+        if (departmentName && !employee.department_id) {
+          console.log(`Employee ${employee.email}: Found department "${departmentName}" but no department_id`);
+          
+          // Clean up the department name (remove trailing commas, trim whitespace)
+          const cleanDeptName = departmentName.replace(/,+$/, '').trim().toLowerCase();
+          
+          // Try exact match first (case insensitive)
+          if (departmentNameToIdMap[cleanDeptName]) {
+            employee.department_id = departmentNameToIdMap[cleanDeptName];
+            console.log(`  ✓ Mapped "${departmentName}" to department_id: ${employee.department_id}`);
+          } else {
+            // Try normalized match
+            const normalizedInput = cleanDeptName.replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
+            if (normalizedNameToIdMap[normalizedInput]) {
+              employee.department_id = normalizedNameToIdMap[normalizedInput];
+              console.log(`  ✓ Mapped normalized "${departmentName}" to department_id: ${employee.department_id}`);
+            } else {
+              console.log(`  ✗ Failed to map "${departmentName}" to any department_id`);
+            }
+          }
+        } else if (employee.department_id) {
+          console.log(`Employee ${employee.email}: Already has department_id ${employee.department_id}`);
+        } else {
+          console.log(`Employee ${employee.email}: No department information provided`);
+        }
+      }
+
       // Get unique department IDs
       const departmentIds = [
         ...new Set(
@@ -963,8 +1012,7 @@ class CompanyService {
             .map((emp) => emp.department_id)
         ),
       ];
-
-      // console.log("Department IDs:", departmentIds);
+      console.log(`Unique department IDs after mapping: ${departmentIds.join(', ')}`);
 
       // Validate department IDs if any exist
       let validDepartmentIds = new Set();
@@ -976,7 +1024,7 @@ class CompanyService {
 
         // Create department ID validation set
         validDepartmentIds = new Set(departments.map((dept) => dept.id));
-        // console.log("Valid department IDs:", validDepartmentIds);
+        console.log(`Valid department IDs from database: ${[...validDepartmentIds].join(', ')}`);
       }
 
       // Check for duplicate emails in the database
@@ -987,7 +1035,6 @@ class CompanyService {
       );
       
       const existingEmails = new Set(existingUsers.map(user => user.email.toLowerCase()));
-      // console.log(`Found ${existingEmails.size} existing emails in the database`);
 
       for (const employee of employees) {
         try {
@@ -1063,8 +1110,6 @@ class CompanyService {
             ]
           );
 
-          // console.log(`Created user with ID: ${userResult.insertId}`);
-
           // Add subscription record for the new user
           await connection.query(
             `INSERT INTO user_subscriptions (
@@ -1085,17 +1130,21 @@ class CompanyService {
             [company_id, userResult.insertId]
           );
           
-          // console.log(`Added user ${userResult.insertId} to company ${company_id}`);
-
           // Insert department if provided
           if (employee.department_id) {
-            await connection.query(
-              `INSERT INTO user_departments (
-                user_id, department_id
-              ) VALUES (?, ?)`,
-              [userResult.insertId, employee.department_id]
-            );
-            // console.log(`Assigned user ${userResult.insertId} to department ${employee.department_id}`);
+            console.log(`Assigning user_id ${userResult.insertId} to department_id ${employee.department_id}`);
+            try {
+              await connection.query(
+                `INSERT INTO user_departments (
+                  user_id, department_id
+                ) VALUES (?, ?)`,
+                [userResult.insertId, employee.department_id]
+              );
+              console.log(`  ✓ Successfully assigned user to department`);
+            } catch (deptError) {
+              console.error(`  ✗ Error assigning department: ${deptError.message}`);
+              // Continue with the user creation even if department assignment fails
+            }
           }
 
           // Send welcome email
@@ -2204,6 +2253,7 @@ class CompanyService {
           c.psychological_safety_index as psi,
           c.retention_rate,
           c.stress_level,
+          c.wellbeing_score,
           COUNT(CASE WHEN u.role_id != 2 THEN ce.user_id END) as total_employees,
           SUM(CASE WHEN ce.is_active = 1 AND u.role_id != 2 THEN 1 ELSE 0 END) as active_employees,
           SUM(CASE WHEN ce.is_active = 0 AND u.role_id != 2 THEN 1 ELSE 0 END) as inactive_employees,
@@ -2263,6 +2313,19 @@ class CompanyService {
         [company_id, startDate, endDate]
       );
 
+      // Fetch wellbeing score trends from company_metrics_history
+      const [wellbeingTrends] = await db.query(
+        `
+        SELECT 
+          DATE_FORMAT(month_year, '%Y-%m-01') as date,
+          wellbeing_score
+        FROM company_metrics_history
+        WHERE company_id = ? AND DATE(month_year) BETWEEN DATE(?) AND DATE(?)
+        ORDER BY month_year ASC
+        `,
+        [company_id, startDate, endDate]
+      );
+
       return {
         status: true,
         code: 200,
@@ -2277,6 +2340,10 @@ class CompanyService {
           engagementTrends: engagementTrends.map(trend => ({
             date: trend.date,
             engagement_score: trend.engagement_score
+          })),
+          wellbeingTrends: wellbeingTrends.map(trend => ({
+            date: trend.date,
+            wellbeing_score: trend.wellbeing_score
           }))
         },
       };
@@ -2470,6 +2537,79 @@ class CompanyService {
       };
     } catch (error) {
       console.error("Error in getCompanyStressTrends:", error);
+      throw error;
+    }
+  }
+
+  static async getCompanyWellbeingTrends(company_id, startDate = null, endDate = null) {
+    try {
+      // Verify company exists
+      const [company] = await db.query(
+        "SELECT id FROM companies WHERE id = ? AND active = 1",
+        [company_id]
+      );
+
+      if (!company || company.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "Company not found or inactive",
+        };
+      }
+
+      // Set default date range to last 30 days if not provided
+      const currentDate = new Date();
+      const formattedEndDate = endDate || currentDate.toISOString().split('T')[0];
+      
+      // For start date, default to 30 days before end date
+      let formattedStartDate;
+      if (startDate) {
+        formattedStartDate = startDate;
+      } else {
+        const defaultStartDate = new Date(currentDate);
+        defaultStartDate.setDate(currentDate.getDate() - 30); // Last 30 days
+        formattedStartDate = defaultStartDate.toISOString().split('T')[0];
+      }
+
+      console.log(`Fetching wellbeing trends for company ${company_id} from ${formattedStartDate} to ${formattedEndDate}`);
+
+      // Fetch wellbeing trend data from company_metrics_history table only
+      const [trends] = await db.query(
+        `SELECT 
+          DATE_FORMAT(month_year, '%Y-%m-%d') as period,
+          wellbeing_score
+        FROM company_metrics_history
+        WHERE company_id = ?
+        AND DATE(month_year) BETWEEN ? AND ?
+        ORDER BY month_year ASC`,
+        [company_id, formattedStartDate, formattedEndDate]
+      );
+
+      // Calculate day-to-day changes
+      const trendsWithChanges = trends.map((item, index) => {
+        const previousValue = index > 0 ? trends[index - 1].wellbeing_score : null;
+        const change = previousValue !== null 
+          ? Number((item.wellbeing_score - previousValue).toFixed(2)) 
+          : 0;
+        
+        return {
+          period: item.period,
+          wellbeing_score: Number(item.wellbeing_score) || 0,
+          wellbeing_score_change: change
+        };
+      });
+
+      return {
+        status: true,
+        code: 200,
+        message: "Company wellbeing trends retrieved successfully",
+        data: {
+          company_id,
+          trends: trendsWithChanges
+        },
+      };
+    } catch (error) {
+      console.error("Error in getCompanyWellbeingTrends:", error);
       throw error;
     }
   }

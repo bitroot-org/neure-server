@@ -5,31 +5,21 @@ const updateCompanyPSI = async (company_id) => {
   try {
     await connection.beginTransaction();
 
-    // Get all active employees' PSI scores for the company
+    // Calculate average PSI for the company directly in the query
     const [results] = await connection.query(
       `SELECT 
-        ce.psi,
-        COUNT(*) as employee_count
+        AVG(ce.psi) as average_psi,
+        COUNT(*) as total_employees
       FROM company_employees ce
       WHERE ce.company_id = ? 
         AND ce.is_active = 1 
-        AND ce.psi IS NOT NULL
-      GROUP BY ce.psi`,
+        AND ce.psi IS NOT NULL`,
       [company_id]
     );
 
-    if (results && results.length > 0) {
-      // Calculate total score and maximum possible score
-      let totalScore = 0;
-      let totalEmployees = 0;
-
-      results.forEach(result => {
-        totalScore += (result.psi * result.employee_count);
-        totalEmployees += result.employee_count;
-      });
-
-      const maxPossibleScore = totalEmployees * 5; // 5 is the maximum score possible
-      const psiPercentage = (totalScore / maxPossibleScore) * 100;
+    if (results && results[0] && results[0].average_psi !== null) {
+      const averagePsi = results[0].average_psi;
+      const totalEmployees = results[0].total_employees;
 
       // Update the company's PSI
       await connection.query(
@@ -38,17 +28,17 @@ const updateCompanyPSI = async (company_id) => {
           psychological_safety_index = ?,
           updated_at = NOW()
         WHERE id = ?`,
-        [psiPercentage, company_id]
+        [averagePsi, company_id]
       );
 
       await connection.commit();
 
-      console.log(`Company ${company_id} PSI updated to: ${psiPercentage}%`);
+      console.log(`Company ${company_id} PSI updated to: ${averagePsi} (based on ${totalEmployees} employees)`);
 
       return {
         status: true,
         company_id,
-        psi: psiPercentage,
+        psi: averagePsi,
         total_employees: totalEmployees
       };
     }

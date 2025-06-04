@@ -21,7 +21,8 @@ const {
   submitPSI,
   updateTermsAcceptance,
   getSuperadmins,
-  createSuperadmin
+  createSuperadmin,
+  updateFirstAssessmentCompleted
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -66,5 +67,6 @@ router.post("/submitPSI", authorization, submitPSI);
 router.put("/updateTermsAcceptance", authorization, updateTermsAcceptance);
 router.get("/getSuperadmins", authorization, getSuperadmins);
 router.post("/createSuperadmin", authorization, createSuperadmin);
+router.put("/updateFirstAssessmentCompleted", authorization, updateFirstAssessmentCompleted);
 
 module.exports = router;

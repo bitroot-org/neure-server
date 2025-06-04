@@ -109,6 +109,10 @@ cron.schedule('5 0 * * *', async () => {
 });
 
 // Export the function for manual testing if needed
-module.exports = {
-  updateContentEngagementPercentage
+module.exports = function initResourceUsageMetrics() {
+  console.log('Resource usage metrics cron initialized');
+  // The cron job is already scheduled when this file is imported
+  return {
+    updateContentEngagementPercentage
+  };
 };

@@ -21,16 +21,12 @@ const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 const activityLogRoutes = require('./server/routes/logs/ActivityLogRoutes');
 const serverActive = require("./Cron/serverActive");
 
-const monthlyMetricsReset = require("./Cron/monthlyMetricsReset");
-const workshopReminder = require("./Cron/workshopReminder");
-const {
-  calculateCompanyStressLevel,
-  calculateRetentionRate,
-  calculatePSI,
-  calculateEngagementScore,
-} = require("./Cron/companyMetrics");
-const { updateContentEngagementPercentage } = require("./Cron/resourceUsageMetrics");
-const { checkAssessmentCompletion } = require("./Cron/assessmentCompletionCheck");
+const initMonthlyMetricsReset = require("./Cron/monthlyMetricsReset");
+const initWorkshopReminder = require("./Cron/workshopReminder");
+const initCompanyMetrics = require("./Cron/companyMetrics");
+const initResourceUsageMetrics = require("./Cron/resourceUsageMetrics");
+const initAssessmentCompletionCheck = require("./Cron/assessmentCompletionCheck");
+const initNewCompanyMetrics = require("./Cron/newCompanyMetrics");
 
 // Initialize environment variables
 dotenv.config();
@@ -72,15 +68,13 @@ app.listen(PORT, () => {
 // Keep the server active
 serverActive();
 
-// Initialize all cron jobs
-calculateCompanyStressLevel();
-calculateRetentionRate();
-calculatePSI();
-calculateEngagementScore();
-updateContentEngagementPercentage();
-checkAssessmentCompletion();
-monthlyMetricsReset();
-workshopReminder();
+// Initialize all cron jobs (this just sets up the schedules, doesn't run the tasks)
+initCompanyMetrics();
+initResourceUsageMetrics();
+initAssessmentCompletionCheck();
+initMonthlyMetricsReset();
+initWorkshopReminder();
+initNewCompanyMetrics();
 
 app.get("*", (req, res) =>
   res.status(200).send({

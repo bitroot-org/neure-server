@@ -706,6 +706,23 @@ class UserController {
       });
     }
   }
+
+  static async updateFirstAssessmentCompleted(req, res) {
+    try {
+      const { user_id } = req.user; // Get user_id from the authenticated token
+
+      const result = await UserServices.updateFirstAssessmentCompleted(user_id);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in updateFirstAssessmentCompleted controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error updating first assessment completion status",
+        data: null,
+      });
+    }
+  }
 }
 
 module.exports = UserController;

@@ -616,43 +616,43 @@ class AssessmentsService {
         );
         
         // Recalculate company's PSI score based on all employees with PSI scores
-        const [employeePsiScores] = await connection.query(
-          `SELECT 
-            ce.psi,
-            COUNT(*) as employee_count
-          FROM company_employees ce
-          WHERE ce.company_id = ? 
-            AND ce.is_active = 1 
-            AND ce.psi IS NOT NULL
-          GROUP BY ce.psi`,
-          [company_id]
-        );
+        // const [employeePsiScores] = await connection.query(
+        //   `SELECT 
+        //     ce.psi,
+        //     COUNT(*) as employee_count
+        //   FROM company_employees ce
+        //   WHERE ce.company_id = ? 
+        //     AND ce.is_active = 1 
+        //     AND ce.psi IS NOT NULL
+        //   GROUP BY ce.psi`,
+        //   [company_id]
+        // );
         
-        if (employeePsiScores && employeePsiScores.length > 0) {
-          // Calculate weighted average of PSI scores
-          let totalScore = 0;
-          let totalEmployees = 0;
+        // if (employeePsiScores && employeePsiScores.length > 0) {
+        //   // Calculate weighted average of PSI scores
+        //   let totalScore = 0;
+        //   let totalEmployees = 0;
           
-          employeePsiScores.forEach(result => {
-            totalScore += (result.psi * result.employee_count);
-            totalEmployees += result.employee_count;
-          });
+        //   employeePsiScores.forEach(result => {
+        //     totalScore += (result.psi * result.employee_count);
+        //     totalEmployees += result.employee_count;
+        //   });
           
-          // Calculate company PSI as average of all employee PSI scores
-          const companyPsiScore = totalEmployees > 0 ? totalScore / totalEmployees : 0;
+        //   // Calculate company PSI as average of all employee PSI scores
+        //   const companyPsiScore = totalEmployees > 0 ? totalScore / totalEmployees : 0;
           
-          // Update the company's PSI score
-          await connection.query(
-            `UPDATE companies 
-            SET 
-              psychological_safety_index = ?,
-              updated_at = NOW()
-            WHERE id = ?`,
-            [companyPsiScore, company_id]
-          );
+        //   // Update the company's PSI score
+        //   await connection.query(
+        //     `UPDATE companies 
+        //     SET 
+        //       psychological_safety_index = ?,
+        //       updated_at = NOW()
+        //     WHERE id = ?`,
+        //     [companyPsiScore, company_id]
+        //   );
           
-          console.log(`Company ${company_id} PSI updated to: ${companyPsiScore}`);
-        }
+        //   console.log(`Company ${company_id} PSI updated to: ${companyPsiScore}`);
+        // }
       }
 
       await connection.commit();
