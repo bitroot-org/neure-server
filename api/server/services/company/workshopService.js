@@ -144,7 +144,7 @@ class workshopService {
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
           WHERE wa.user_id = ? 
           AND w.is_active = 1
-          AND ws.status NOT IN ('cancelled')
+          AND ws.status NOT IN ('cancelled', 'completed')
           AND DATE(ws.start_time) >= ?
         `;
         queryParams.push(user_id, today);
@@ -160,7 +160,7 @@ class workshopService {
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
           WHERE ws.company_id = ? 
           AND w.is_active = 1 
-          AND ws.status NOT IN ('cancelled')
+          AND ws.status NOT IN ('cancelled', 'completed')
           AND DATE(ws.start_time) >= ?
         `;
         queryParams.push(company_id, today);
