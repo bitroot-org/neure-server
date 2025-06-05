@@ -1721,6 +1721,55 @@ class UserServices {
       connection.release();
     }
   }
+
+  static async deleteSuperadmin(superadminId) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Check if superadmin exists
+      const [superadmin] = await connection.query(
+        `SELECT user_id, email FROM users WHERE user_id = ? AND role_id = 1`,
+        [superadminId]
+      );
+
+      if (!superadmin || superadmin.length === 0) {
+        throw new Error("Superadmin not found");
+      }
+
+      // Delete from user_subscriptions first (maintain referential integrity)
+      await connection.query(
+        "DELETE FROM user_subscriptions WHERE user_id = ?",
+        [superadminId]
+      );
+
+      // Delete from refresh_tokens
+      await connection.query(
+        "DELETE FROM refresh_tokens WHERE user_id = ?",
+        [superadminId]
+      );
+
+      // Hard delete from users table
+      await connection.query(
+        "DELETE FROM users WHERE user_id = ? AND role_id = 1",
+        [superadminId]
+      );
+
+      await connection.commit();
+      
+      return {
+        status: true,
+        code: 200,
+        message: "Superadmin deleted successfully",
+        data: { id: superadminId },
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw new Error("Error deleting superadmin: " + error.message);
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 module.exports = UserServices;

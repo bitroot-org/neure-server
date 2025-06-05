@@ -22,6 +22,7 @@ const {
   updateTermsAcceptance,
   getSuperadmins,
   createSuperadmin,
+  deleteSuperadmin,
   updateFirstAssessmentCompleted
 } = require("../../controllers/user/UserController.js");
 const {
@@ -68,5 +69,6 @@ router.put("/updateTermsAcceptance", authorization, updateTermsAcceptance);
 router.get("/getSuperadmins", authorization, getSuperadmins);
 router.post("/createSuperadmin", authorization, createSuperadmin);
 router.put("/updateFirstAssessmentCompleted", authorization, updateFirstAssessmentCompleted);
+router.delete("/deleteSuperadmin/:superadminId", authorization, deleteSuperadmin);
 
 module.exports = router;

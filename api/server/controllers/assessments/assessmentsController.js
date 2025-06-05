@@ -314,7 +314,7 @@ class AssessmentsController {
   static async generateAssessmentPdf(req, res) {
     try {
       const { assessment_id } = req.params;
-      const { user_id, format } = req.query;
+      const { user_id, submission_id } = req.query;
       
       // Check if user_id is provided in query params, otherwise use the authenticated user's ID
       const requestedUserId = user_id ? parseInt(user_id) : req.user.user_id;
@@ -327,23 +327,23 @@ class AssessmentsController {
         return errorResponse(res, 'Unauthorized access. You can only generate PDFs for your own assessments or must be a superadmin.', null, 403);
       }
       
-      // Determine return type based on format query parameter
-      const returnType = format === 'blob' ? 'blob' : 'url';
+      // Parse submission_id if provided
+      const parsedSubmissionId = submission_id ? parseInt(submission_id) : null;
       
       // Generate the PDF
-      const result = await AssessmentsService.generateAssessmentPdf(requestedUserId, assessment_id, returnType);
+      const result = await AssessmentsService.generateAssessmentPdf(
+        requestedUserId, 
+        assessment_id, 
+        'blob',
+        parsedSubmissionId
+      );
       
-      // If blob format was requested, send the PDF buffer directly
-      if (returnType === 'blob') {
-        res.setHeader('Content-Type', result.contentType);
-        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-        return res.send(result.pdfBuffer);
-      }
-      
-      // Otherwise, return the URL as JSON
-      return successResponse(res, 'Assessment PDF generated successfully', { pdfUrl: result.pdfUrl });
+      // Send the PDF buffer directly
+      res.setHeader('Content-Type', result.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      return res.send(result.pdfBuffer);
     } catch (error) {
-      if (error.message === 'Assessment not submitted by this user') {
+      if (error.message === 'Assessment not found or not completed') {
         return errorResponse(res, error.message, null, 404);
       }
       return errorResponse(res, 'Error generating assessment PDF', error);

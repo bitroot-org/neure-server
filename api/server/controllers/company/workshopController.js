@@ -679,13 +679,13 @@ class workshopController {
     try {
       const { workshopId } = req.params;
       const { company_id, schedule_id, all, status } = req.query;
-      console.log("Received request for workshop attendance:", {
-        workshopId,
-        company_id,
-        schedule_id,
-        all,
-        status,
-      });
+      // console.log("Received request for workshop attendance:", {
+      //   workshopId,
+      //   company_id,
+      //   schedule_id,
+      //   all,
+      //   status,
+      // });
 
       const attendance_status = status || null;
 

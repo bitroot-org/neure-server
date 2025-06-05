@@ -6,25 +6,31 @@ const checkAssessmentCompletion = async () => {
   try {
     await connection.beginTransaction();
 
-    // Get all active assessments count
-    const [totalAssessments] = await connection.query(`
+    // Get all active PSI assessments count
+    const [totalPsiAssessments] = await connection.query(`
       SELECT COUNT(*) as total
       FROM assessments
-      WHERE is_active = 1
+      WHERE is_active = 1 AND is_psi_assessment = 1
     `);
 
-    // console.log(`Total active assessments: ${totalAssessments[0].total}`);
-
-    if (totalAssessments[0].total === 0) {
-      console.log('No active assessments found');
+    if (totalPsiAssessments[0].total === 0) {
+      console.log('No active PSI assessments found');
       await connection.commit();
       return {
         status: true,
-        message: "No active assessments to check"
+        message: "No active PSI assessments to check"
       };
     }
 
-    // Update assessment_completion for all employees
+    // Get current month in IST timezone (YYYY-MM format)
+    const istTimeZone = 'Asia/Kolkata';
+    const currentDate = new Date().toLocaleString('en-US', { timeZone: istTimeZone });
+    const istDate = new Date(currentDate);
+    const currentMonth = `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, '0')}`;
+
+    console.log(`[${new Date().toISOString()}] Checking PSI assessments for month: ${currentMonth} (IST)`);
+
+    // Update assessment_completion for all employees based on PSI assessments for current month in IST
     const updateQuery = `
       UPDATE company_employees ce
       SET 
@@ -32,24 +38,26 @@ const checkAssessmentCompletion = async () => {
           WHEN (
             SELECT COUNT(DISTINCT ua.assessment_id)
             FROM user_assessments ua
+            JOIN assessments a ON ua.assessment_id = a.id
             WHERE 
               ua.user_id = ce.user_id 
-              AND ua.completed_at <= LAST_DAY(CURRENT_DATE)
+              AND a.is_psi_assessment = 1
+              AND DATE_FORMAT(CONVERT_TZ(ua.completed_at, '+00:00', '+05:30'), '%Y-%m') = ?
           ) = ? THEN 1
           ELSE 0
         END,
         last_activity_date = NOW(),
-        last_activity_type = 'assessment_completion_check'
+        last_activity_type = 'psi_assessment_completion_check'
       WHERE ce.is_active = 1
     `;
 
-    const [updateResult] = await connection.query(updateQuery, [totalAssessments[0].total]);
+    const [updateResult] = await connection.query(updateQuery, [currentMonth, totalPsiAssessments[0].total]);
 
     // Get summary statistics
     const [stats] = await connection.query(`
       SELECT 
         COUNT(*) as total_employees,
-        SUM(assessment_completion) as completed_all_assessments,
+        SUM(assessment_completion) as completed_psi_assessments,
         (SUM(assessment_completion) / COUNT(*)) * 100 as completion_percentage
       FROM company_employees
       WHERE is_active = 1
@@ -57,18 +65,15 @@ const checkAssessmentCompletion = async () => {
 
     await connection.commit();
 
-    // console.log(`[${new Date().toISOString()}] Assessment completion check stats:`, stats[0]);
-
     return {
       status: true,
-      message: "Assessment completion check successful",
+      message: "PSI assessment completion check successful",
       rowsAffected: updateResult.affectedRows,
       stats: stats[0]
     };
-
   } catch (error) {
     await connection.rollback();
-    console.error(`[${new Date().toISOString()}] Error checking assessment completion:`, error);
+    console.error(`[${new Date().toISOString()}] Error checking PSI assessment completion:`, error);
     return {
       status: false,
       error: error.message

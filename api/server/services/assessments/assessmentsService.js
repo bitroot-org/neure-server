@@ -13,18 +13,30 @@ class AssessmentsService {
     try {
       const offset = (page - 1) * limit;
 
-      // Get total count of unsubmitted active assessments for the user
+      // Get total count of assessments for the user
+      // For regular assessments: only show if not submitted
+      // For PSI assessments: show if not submitted this month
       const [totalRows] = await db.query(
         `SELECT COUNT(*) as count 
          FROM assessments a 
          WHERE a.is_active = 1 
-         AND NOT EXISTS (
-           SELECT 1 
-           FROM user_assessments ua 
-           WHERE ua.assessment_id = a.id 
-           AND ua.user_id = ?
+         AND (
+           (a.is_psi_assessment = 0 AND NOT EXISTS (
+             SELECT 1 
+             FROM user_assessments ua 
+             WHERE ua.assessment_id = a.id 
+             AND ua.user_id = ?
+           ))
+           OR 
+           (a.is_psi_assessment = 1 AND NOT EXISTS (
+             SELECT 1 
+             FROM user_assessments ua 
+             WHERE ua.assessment_id = a.id 
+             AND ua.user_id = ?
+             AND DATE_FORMAT(ua.completed_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m')
+           ))
          )`,
-        [user_id]
+        [user_id, user_id]
       );
       
       // First get all assessment IDs
@@ -37,11 +49,21 @@ class AssessmentsService {
           a.is_psi_assessment
         FROM assessments a
         WHERE a.is_active = 1
-        AND NOT EXISTS (
-          SELECT 1 
-          FROM user_assessments ua 
-          WHERE ua.assessment_id = a.id 
-          AND ua.user_id = ?
+        AND (
+          (a.is_psi_assessment = 0 AND NOT EXISTS (
+            SELECT 1 
+            FROM user_assessments ua 
+            WHERE ua.assessment_id = a.id 
+            AND ua.user_id = ?
+          ))
+          OR 
+          (a.is_psi_assessment = 1 AND NOT EXISTS (
+            SELECT 1 
+            FROM user_assessments ua 
+            WHERE ua.assessment_id = a.id 
+            AND ua.user_id = ?
+            AND DATE_FORMAT(ua.completed_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m')
+          ))
         )
         ORDER BY a.created_at DESC`;
       
@@ -53,7 +75,7 @@ class AssessmentsService {
       // Get assessments
       const [assessments] = await db.query(
         assessmentQuery,
-        all ? [user_id] : [user_id, limit, offset]
+        all ? [user_id, user_id] : [user_id, user_id, limit, offset]
       );
       
       // For each assessment, get its questions, options, and interpretation ranges
@@ -473,14 +495,28 @@ class AssessmentsService {
         throw new Error("Assessment not found");
       }
 
-      // Check if user has already submitted this assessment
-      const [existingSubmission] = await connection.query(
-        "SELECT id FROM user_assessments WHERE user_id = ? AND assessment_id = ?",
-        [user_id, assessment_id]
-      );
+      // For non-PSI assessments, check if user has already submitted
+      // For PSI assessments, check if user has already submitted this month
+      if (!assessment[0].is_psi_assessment) {
+        const [existingSubmission] = await connection.query(
+          "SELECT id FROM user_assessments WHERE user_id = ? AND assessment_id = ?",
+          [user_id, assessment_id]
+        );
 
-      if (existingSubmission && existingSubmission.length > 0) {
-        throw new Error("Assessment already submitted");
+        if (existingSubmission && existingSubmission.length > 0) {
+          throw new Error("Assessment already submitted");
+        }
+      } else {
+        const [existingMonthlySubmission] = await connection.query(
+          `SELECT id FROM user_assessments 
+           WHERE user_id = ? AND assessment_id = ? 
+           AND DATE_FORMAT(completed_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m')`,
+          [user_id, assessment_id]
+        );
+
+        if (existingMonthlySubmission && existingMonthlySubmission.length > 0) {
+          throw new Error("PSI assessment already submitted this month");
+        }
       }
 
       // Get all questions and their options with points
@@ -695,27 +731,43 @@ class AssessmentsService {
   }
 
   // New method to get user assessment responses with questions and correct answers
-  static async getUserAssessmentResponses(user_id, assessment_id) {
+  static async getUserAssessmentResponses(user_id, assessment_id, submission_id = null) {
     try {
-      // First check if the user has submitted this assessment
-      const [userAssessment] = await db.query(
-        `SELECT id, score, total_points, max_possible_points, completed_at 
-         FROM user_assessments 
-         WHERE user_id = ? AND assessment_id = ?`,
-        [user_id, assessment_id]
+      // Get assessment details
+      const [assessment] = await db.query(
+        `SELECT id, title, description, is_psi_assessment FROM assessments WHERE id = ?`,
+        [assessment_id]
       );
+      
+      if (!assessment || assessment.length === 0) {
+        throw new Error("Assessment not found");
+      }
+      
+      let userAssessmentQuery = `
+        SELECT id, score, total_points, max_possible_points, completed_at 
+        FROM user_assessments 
+        WHERE user_id = ? AND assessment_id = ?
+      `;
+      
+      const queryParams = [user_id, assessment_id];
+      
+      // If submission_id is provided, get that specific submission
+      if (submission_id) {
+        userAssessmentQuery += ` AND id = ?`;
+        queryParams.push(submission_id);
+      } else {
+        // Otherwise, get the most recent submission
+        userAssessmentQuery += ` ORDER BY completed_at DESC LIMIT 1`;
+      }
+      
+      // Check if the user has submitted this assessment
+      const [userAssessment] = await db.query(userAssessmentQuery, queryParams);
 
       if (!userAssessment || userAssessment.length === 0) {
         throw new Error("Assessment not submitted by this user");
       }
 
       const userAssessmentId = userAssessment[0].id;
-
-      // Get assessment details
-      const [assessment] = await db.query(
-        `SELECT title, description FROM assessments WHERE id = ?`,
-        [assessment_id]
-      );
 
       // Get interpretation range that matches the user's score
       const [interpretationRange] = await db.query(
@@ -767,6 +819,20 @@ class AssessmentsService {
           options: options
         };
       }));
+      
+      // If this is a PSI assessment, get all submission dates for this user
+      let submissionHistory = [];
+      if (assessment[0].is_psi_assessment) {
+        const [history] = await db.query(
+          `SELECT id, DATE_FORMAT(completed_at, '%Y-%m-%d') as submission_date, 
+           score, total_points
+           FROM user_assessments 
+           WHERE user_id = ? AND assessment_id = ?
+           ORDER BY completed_at DESC`,
+          [user_id, assessment_id]
+        );
+        submissionHistory = history;
+      }
 
       return {
         status: true,
@@ -782,7 +848,8 @@ class AssessmentsService {
             interpretation: interpretationRange && interpretationRange.length > 0 ? interpretationRange[0] : null,
             completed_at: userAssessment[0].completed_at
           },
-          responses: processedQuestions
+          responses: processedQuestions,
+          submission_history: submissionHistory
         }
       };
     } catch (error) {
@@ -896,15 +963,25 @@ class AssessmentsService {
   static async getUserSubmittedAssessments(user_id) {
     try {
       // Query to get all assessments submitted by the user with scores
+      // For PSI assessments, include a flag indicating if it's the latest monthly submission
       const query = `
         SELECT 
           ua.id as submission_id,
           ua.assessment_id,
           a.title as assessment_title,
+          a.is_psi_assessment,
           ua.score,
           ua.completed_at,
           c.id as company_id,
-          c.company_name
+          c.company_name,
+          CASE 
+            WHEN a.is_psi_assessment = 1 THEN 
+              CASE 
+                WHEN DATE_FORMAT(ua.completed_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m') THEN true
+                ELSE false
+              END
+            ELSE true
+          END as is_current_submission
         FROM 
           user_assessments ua
         JOIN 
@@ -931,31 +1008,40 @@ class AssessmentsService {
     }
   }
 
-  static async generateAssessmentPdf(userId, assessmentId, returnType = 'url') {
+  static async generateAssessmentPdf(userId, assessmentId, returnType = 'blob', submissionId = null) {
     try {
-      // Check if PDF already exists and returnType is url
-      if (returnType === 'url') {
-        const [existingPdf] = await db.query(
-          `SELECT pdf_url FROM user_assessments 
-           WHERE user_id = ? AND assessment_id = ? AND pdf_url IS NOT NULL`,
-          [userId, assessmentId]
-        );
-        
-        if (existingPdf && existingPdf.length > 0 && existingPdf[0].pdf_url) {
-          return { pdfUrl: existingPdf[0].pdf_url };
-        }
+      // Get assessment data
+      let userAssessmentQuery = `SELECT ua.id, ua.total_points, ua.score, ua.completed_at
+                                FROM user_assessments ua
+                                WHERE ua.user_id = ? AND ua.assessment_id = ?`;
+      
+      let queryParams = [userId, assessmentId];
+      
+      // If submissionId is provided, use it to find the specific submission
+      if (submissionId) {
+        userAssessmentQuery += ` AND ua.id = ?`;
+        queryParams.push(submissionId);
+      } else {
+        // Otherwise get the most recent submission
+        userAssessmentQuery += ` ORDER BY ua.completed_at DESC LIMIT 1`;
       }
       
-      // Get assessment data
-      const [userAssessment] = await db.query(
-        `SELECT ua.total_points, ua.score
-         FROM user_assessments ua
-         WHERE ua.user_id = ? AND ua.assessment_id = ?`,
-        [userId, assessmentId]
-      );
+      const [userAssessment] = await db.query(userAssessmentQuery, queryParams);
       
       if (!userAssessment || userAssessment.length === 0) {
         throw new Error('Assessment not found or not completed');
+      }
+      
+      // Get the assessment details
+      const [assessmentDetails] = await db.query(
+        `SELECT title, description, is_psi_assessment 
+         FROM assessments 
+         WHERE id = ?`,
+        [assessmentId]
+      );
+      
+      if (!assessmentDetails || assessmentDetails.length === 0) {
+        throw new Error('Assessment details not found');
       }
       
       // Get the interpretation range that matches the user's score
@@ -968,9 +1054,27 @@ class AssessmentsService {
         [assessmentId, userAssessment[0].total_points]
       );
       
+      // Get user details
+      const [userDetails] = await db.query(
+        `SELECT first_name, last_name 
+         FROM users 
+         WHERE user_id = ?`,
+        [userId]
+      );
+      
+      // Format the completion date
+      const completionDate = new Date(userAssessment[0].completed_at).toLocaleDateString();
+      
       // Prepare template data
       const templateData = {
+        assessmentTitle: assessmentDetails[0].title,
+        assessmentDescription: assessmentDetails[0].description,
+        userName: userDetails.length > 0 ? `${userDetails[0].first_name} ${userDetails[0].last_name}` : 'User',
         score: userAssessment[0].total_points,
+        scorePercentage: Math.round(userAssessment[0].score),
+        completionDate: completionDate,
+        submissionId: userAssessment[0].id,
+        isPsiAssessment: assessmentDetails[0].is_psi_assessment === 1,
         interpretation: interpretationRange && interpretationRange.length > 0 
           ? interpretationRange[0].description 
           : 'No interpretation available'
@@ -980,27 +1084,12 @@ class AssessmentsService {
       const html = await this.generateAssessmentReportHtml(templateData);
       const pdfBuffer = await this.convertHtmlToPdf(html);
       
-      // If returnType is 'blob', return the buffer directly
-      if (returnType === 'blob') {
-        return { 
-          pdfBuffer,
-          contentType: 'application/pdf',
-          filename: `assessment_report_${userId}_${assessmentId}.pdf`
-        };
-      }
-      
-      // Otherwise, upload to S3 and return URL
-      const timestamp = new Date().toISOString().replace(/[^0-9]/g, '');
-      const pdfPath = `assessments/report_${userId}_${timestamp}.pdf`;
-      const pdfUrl = await this.uploadAssessmentPdfToS3(pdfBuffer, pdfPath);
-      
-      // Update database with PDF URL
-      await db.query(
-        `UPDATE user_assessments SET pdf_url = ? WHERE user_id = ? AND assessment_id = ?`,
-        [pdfUrl, userId, assessmentId]
-      );
-      
-      return { pdfUrl };
+      // Return the PDF buffer with metadata
+      return { 
+        pdfBuffer,
+        contentType: 'application/pdf',
+        filename: `assessment_report_${userId}_${assessmentId}_${userAssessment[0].id}.pdf`
+      };
     } catch (error) {
       console.error('Error generating assessment PDF:', error);
       throw error;
@@ -1073,6 +1162,56 @@ class AssessmentsService {
     await s3Client.send(command);
     
     return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${pdfPath}`;
+  }
+
+  static async getUserPsiHistory(user_id, company_id) {
+    try {
+      // Get all PSI assessments
+      const [psiAssessments] = await db.query(
+        `SELECT id, title FROM assessments WHERE is_psi_assessment = 1 AND is_active = 1`
+      );
+      
+      if (!psiAssessments || psiAssessments.length === 0) {
+        return {
+          status: true,
+          code: 200,
+          message: "No PSI assessments found",
+          data: []
+        };
+      }
+      
+      // Get all submissions for each PSI assessment
+      const psiHistory = await Promise.all(psiAssessments.map(async (assessment) => {
+        const [submissions] = await db.query(
+          `SELECT 
+            id, 
+            score, 
+            total_points, 
+            max_possible_points,
+            DATE_FORMAT(completed_at, '%Y-%m-%d') as submission_date,
+            DATE_FORMAT(completed_at, '%Y-%m') as month_year
+          FROM user_assessments 
+          WHERE user_id = ? AND assessment_id = ? AND company_id = ?
+          ORDER BY completed_at DESC`,
+          [user_id, assessment.id, company_id]
+        );
+        
+        return {
+          assessment_id: assessment.id,
+          assessment_title: assessment.title,
+          submissions: submissions
+        };
+      }));
+      
+      return {
+        status: true,
+        code: 200,
+        message: "PSI history retrieved successfully",
+        data: psiHistory
+      };
+    } catch (error) {
+      throw new Error(`Error retrieving PSI history: ${error.message}`);
+    }
   }
 }
 

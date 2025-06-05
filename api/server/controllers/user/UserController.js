@@ -1,5 +1,7 @@
 const UserServices = require("../../services/user/UserServices");
 const { uploadImage } = require("../upload/UploadController");
+const ActivityLogService = require("../../services/logs/ActivityLogService");
+const db = require('../../../config/db');
 const {
   register,
   login,
@@ -660,7 +662,7 @@ class UserController {
   static async createSuperadmin(req, res) {
     try {
       // Check if user is authorized (only superadmins can create other superadmins)
-      const { role_id } = req.user;
+      const { role_id, user_id } = req.user;
       if (role_id !== 1) {
         return res.status(403).json({
           status: false,
@@ -695,6 +697,33 @@ class UserController {
       }
 
       const result = await UserServices.createSuperadmin(superadminData);
+      
+      // Log the superadmin creation
+      if (result.status) {
+        try {
+          // Get user details for the log
+          const [userDetails] = await db.query(
+            `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+            [user_id]
+          );
+          
+          const performedBy = userDetails && userDetails.length > 0 
+            ? `${userDetails[0].first_name} ${userDetails[0].last_name}`
+            : `User ID: ${user_id}`;
+            
+          await ActivityLogService.createLog({
+            user_id: user_id,
+            performed_by: performedBy,
+            module_name: 'users',
+            action: 'create',
+            description: `Superadmin "${superadminData.first_name} ${superadminData.last_name}" (${superadminData.email}) created`
+          });
+        } catch (logError) {
+          console.error("Error creating activity log:", logError);
+          // Continue with the response even if logging fails
+        }
+      }
+      
       return res.status(201).json(result);
     } catch (error) {
       console.error(error);
@@ -719,6 +748,95 @@ class UserController {
         status: false,
         code: 500,
         message: "Error updating first assessment completion status",
+        data: null,
+      });
+    }
+  }
+
+  static async deleteSuperadmin(req, res) {
+    try {
+      const { superadminId } = req.params;
+      const { role_id, user_id } = req.user;
+      
+      // Only superadmins can delete other superadmins
+      if (role_id !== 1) {
+        return res.status(403).json({
+          status: false,
+          code: 403,
+          message: "Access denied. Only superadmins can delete superadmins",
+          data: null,
+        });
+      }
+      
+      if (!superadminId) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Superadmin ID is required",
+          data: null,
+        });
+      }
+      
+      // Prevent self-deletion
+      if (superadminId == user_id) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "You cannot delete your own account",
+          data: null,
+        });
+      }
+      
+      // Get superadmin details before deletion for logging
+      const [superadminDetails] = await db.query(
+        `SELECT first_name, last_name, email FROM users WHERE user_id = ? AND role_id = 1`,
+        [superadminId]
+      );
+      
+      if (!superadminDetails || superadminDetails.length === 0) {
+        return res.status(404).json({
+          status: false,
+          code: 404,
+          message: "Superadmin not found",
+          data: null,
+        });
+      }
+      
+      const result = await UserServices.deleteSuperadmin(superadminId);
+      
+      // Log the superadmin deletion
+      if (result.status) {
+        try {
+          // Get user details for the log
+          const [userDetails] = await db.query(
+            `SELECT first_name, last_name FROM users WHERE user_id = ?`,
+            [user_id]
+          );
+          
+          const performedBy = userDetails && userDetails.length > 0 
+            ? `${userDetails[0].first_name} ${userDetails[0].last_name}`
+            : `User ID: ${user_id}`;
+            
+          await ActivityLogService.createLog({
+            user_id: user_id,
+            performed_by: performedBy,
+            module_name: 'users',
+            action: 'delete',
+            description: `Superadmin "${superadminDetails[0].first_name} ${superadminDetails[0].last_name}" (${superadminDetails[0].email}) permanently deleted`
+          });
+        } catch (logError) {
+          console.error("Error creating activity log:", logError);
+          // Continue with the response even if logging fails
+        }
+      }
+      
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in deleteSuperadmin controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: error.message,
         data: null,
       });
     }
