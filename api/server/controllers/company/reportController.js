@@ -27,14 +27,28 @@ class ReportController {
       const finalStartDate = start_date || formattedStartDate;
       const finalEndDate = end_date || defaultEndDate;
       
-      // Generate the report
+      // Generate the report with 'blob' return type to get the buffer directly
       const result = await CompanyReportPdfService.generateWellbeingReport(
         company_id,
         finalStartDate,
-        finalEndDate
+        finalEndDate,
+        'blob' // Add this parameter to request binary data
       );
       
-      return res.status(200).json(result);
+      // Convert buffer to base64 string
+      const pdfBase64 = result.data.pdfBuffer.toString('base64');
+      
+      // Return JSON response with status and base64 data
+      return res.status(200).json({
+        status: true,
+        code: 200,
+        message: "Well-being report generated successfully",
+        data: {
+          filename: `wellbeing_report_${company_id}.pdf`,
+          contentType: 'application/pdf',
+          base64Data: pdfBase64
+        }
+      });
     } catch (error) {
       console.error('Error generating well-being report:', error);
       return res.status(500).json({

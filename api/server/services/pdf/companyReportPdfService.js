@@ -8,7 +8,7 @@ const EmailService = require("../email/emailService");
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
 class CompanyReportPdfService {
-  static async generateWellbeingReport(companyId, startDate, endDate) {
+  static async generateWellbeingReport(companyId, startDate, endDate, returnType = 'url') {
     try {
       console.log(
         "Starting well-being report generation for company:",
@@ -99,7 +99,20 @@ class CompanyReportPdfService {
       // 7. Convert HTML to PDF
       const pdfBuffer = await this.convertHtmlToPdf(html);
 
-      // 8. Upload to S3
+      // If returnType is 'blob', return the buffer directly
+      if (returnType === 'blob') {
+        return {
+          status: true,
+          message: "Well-being report generated successfully",
+          data: {
+            pdfBuffer,
+            contentType: 'application/pdf',
+            filename: `wellbeing_report_${companyId}_${new Date().toISOString().replace(/[^0-9]/g, "")}.pdf`
+          },
+        };
+      }
+
+      // Otherwise, upload to S3 and return URL as before
       const timestamp = new Date().toISOString().replace(/[^0-9]/g, "");
       const sanitizedCompanyName = company.company_name.replace(/\s+/g, "_");
       const pdfPath = `reports/${sanitizedCompanyName}/wellbeing_report_${timestamp}.pdf`;
