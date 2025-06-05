@@ -1,6 +1,6 @@
 {
   "name": "neure-server",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "main": "index.js",
   "scripts": {
     "postinstall": "node install-browser.js",
