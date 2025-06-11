@@ -1652,8 +1652,8 @@ class CompanyService {
         for (const employee of companyDetails) {
           await EmailService.sendAccountDeactivationEmail(
             employee.first_name,
-            employee.company_name,
-            employee.email
+            employee.email,
+            employee.company_name
           );
         }
 

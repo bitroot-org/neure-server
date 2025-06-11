@@ -198,6 +198,13 @@ class CompanyReportPdfService {
       const wellbeingChartImageBase64 = await this.generateChartImage(data.wellbeingChartData, 'Wellbeing Score');
       const engagementChartImageBase64 = await this.generateChartImage(data.engagementChartData, 'Engagement Score');
       
+      // Read and encode the logo image
+      const logoPath = path.join(__dirname, '../../../../public/image/neurelogo.png');
+      const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
+      
+      // Add logo to data
+      data.logoBase64 = `data:image/png;base64,${logoBase64}`;
+      
       // Use only the path that's working
       const templatePath = path.join(
         __dirname,

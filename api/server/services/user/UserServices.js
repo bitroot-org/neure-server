@@ -1,12 +1,13 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
+const EmailService = require("../email/emailService");
+
 const {
   updateCompanyStressLevel,
 } = require("../../utils/stressLevelCalculator");
 const { updateCompanyPSI } = require("../../utils/psiCalculator");
 const NotificationService = require("../notificationsAndAnnouncements/notificationService");
-const EmailService = require("../email/emailService");
 
 function calculateAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -1063,53 +1064,6 @@ class UserServices {
     }
   }
 
-  // static async claimReward(user_id, reward_id) {
-  //   try {
-  //     console.log(
-  //       `Claiming reward for user_id: ${user_id}, reward_id: ${reward_id}`
-  //     );
-
-  //     // Check if the reward is assigned to the user and not already claimed
-  //     const [reward] = await db.query(
-  //       `SELECT * FROM employee_rewards
-  //        WHERE user_id = ? AND reward_id = ? AND claimed_status = 0`,
-  //       [user_id, reward_id]
-  //     );
-
-  //     if (!reward || reward.length === 0) {
-  //       console.log(
-  //         `Reward not found or already claimed for user_id: ${user_id}, reward_id: ${reward_id}`
-  //       );
-  //       return {
-  //         status: false,
-  //         code: 404,
-  //         message: "Reward not found or already claimed",
-  //         data: null,
-  //       };
-  //     }
-
-  //     await db.query(
-  //       `UPDATE employee_rewards
-  //        SET claimed_status = 1, claimed_at = NOW()
-  //        WHERE id = ?`,
-  //       [reward[0].id]
-  //     );
-
-  //     console.log(
-  //       `Reward claimed successfully for user_id: ${user_id}, reward_id: ${reward_id}`
-  //     );
-  //     return {
-  //       status: true,
-  //       code: 200,
-  //       message: "Reward claimed successfully",
-  //       data: null,
-  //     };
-  //   } catch (error) {
-  //     console.error("Error in claimReward:", error);
-  //     throw new Error(`Error claiming reward: ${error.message}`);
-  //   }
-  // }
-
   static async claimReward(user_id, reward_id) {
     const connection = await db.getConnection();
     try {
@@ -1122,7 +1076,9 @@ class UserServices {
           er.company_id,
           r.title AS reward_name,
           u1.first_name AS employee_name,
+          u1.email AS employee_email,
           u2.first_name AS admin_name,
+          u2.last_name AS admin_last_name,
           u2.user_id AS admin_id,
           u2.email AS admin_email,
           c.contact_person_id,
@@ -1154,7 +1110,7 @@ class UserServices {
          WHERE id = ?`,
         [reward[0].id]
       );
-      
+
       // Create notification for the employee who claimed the reward
       await NotificationService.createNotification({
         title: "Reward Claimed Successfully",
@@ -1189,12 +1145,19 @@ class UserServices {
 
       await connection.commit();
 
-      // Send email notification to employee instead of admin
-      const EmailService = require("../email/emailService");
+      // Send email notification to employee
       await EmailService.sendRewardClaimConfirmationEmail(
         reward[0].employee_name,
         reward[0].reward_name,
-        reward[0].email // Employee's email
+        reward[0].employee_email
+      );
+
+      // Send email notification to admin
+      await EmailService.sendRewardRedemptionAdminEmail(
+        reward[0].admin_name,
+        reward[0].employee_name,
+        reward[0].reward_name,
+        reward[0].admin_email
       );
 
       return {
@@ -1715,8 +1678,13 @@ class UserServices {
       };
     } catch (error) {
       await connection.rollback();
-      console.error("Error updating first assessment completion status:", error);
-      throw new Error(`Error updating first assessment completion status: ${error.message}`);
+      console.error(
+        "Error updating first assessment completion status:",
+        error
+      );
+      throw new Error(
+        `Error updating first assessment completion status: ${error.message}`
+      );
     } finally {
       connection.release();
     }
@@ -1744,10 +1712,9 @@ class UserServices {
       );
 
       // Delete from refresh_tokens
-      await connection.query(
-        "DELETE FROM refresh_tokens WHERE user_id = ?",
-        [superadminId]
-      );
+      await connection.query("DELETE FROM refresh_tokens WHERE user_id = ?", [
+        superadminId,
+      ]);
 
       // Hard delete from users table
       await connection.query(
@@ -1756,7 +1723,7 @@ class UserServices {
       );
 
       await connection.commit();
-      
+
       return {
         status: true,
         code: 200,

@@ -51,7 +51,10 @@ class DashboardService {
         (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_users,
         (SELECT COUNT(*) FROM soundscapes) as total_soundscapes,
         (SELECT COUNT(*) FROM articles) as total_articles,
-        (SELECT COUNT(*) FROM workshops) as total_workshops
+        (SELECT COUNT(*) FROM workshops) as total_workshops,
+        (SELECT COUNT(*) FROM users WHERE role_id = 3 AND is_active = 1) as total_therapists,
+        (SELECT COUNT(*) FROM assessments WHERE is_active = 1) as total_assessments,
+        (SELECT COUNT(*) FROM rewards) as total_rewards
     `);
     
     return results[0];

@@ -273,18 +273,25 @@
   <div class="container">
     <!-- Header Section -->
     <div class="header">
-      <!-- Logo -->
-      <div class="logo">
-        <img src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg" alt="Neure Logo">
-      </div>
+      <!-- Logo and Title in a table for perfect centering -->
+      <table style="width: 100%; margin: 20px 0;">
+        <tr>
+          <td style="text-align: center;">
+            <div style="display: inline-block;">
+              <img src="{{logoBase64}}" alt="Neure Logo" style="width: 40px; height: 40px; vertical-align: middle;">
+              <span style="font-size: 32px; font-weight: 600; color: #191A20; vertical-align: middle; margin-left: 0px;">neure</span>
+            </div>
+          </td>
+        </tr>
+      </table>
       
       <!-- Report Title -->
-      <h1>Well-being Report</h1>
+      <h1 style="text-align: center; width: 100%; margin: 20px 0;">Well-being Report</h1>
       
       <!-- Company Info -->
-      <div class="company-info">
-        <p>For: {{company.company_name}}</p>
-        <p>Reporting Period: {{startDate}} to {{endDate}}</p>
+      <div style="text-align: center; width: 100%;">
+        <p style="margin: 5px 0;">For: {{company.company_name}}</p>
+        <p style="margin: 5px 0;">Reporting Period: {{startDate}} to {{endDate}}</p>
       </div>
     </div>
     
