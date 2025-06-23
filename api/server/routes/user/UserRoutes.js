@@ -23,7 +23,9 @@ const {
   getSuperadmins,
   createSuperadmin,
   deleteSuperadmin,
-  updateFirstAssessmentCompleted
+  updateFirstAssessmentCompleted,
+  forgotPassword,
+  resetPassword
 } = require("../../controllers/user/UserController.js");
 const {
   refreshToken,
@@ -70,5 +72,9 @@ router.get("/getSuperadmins", authorization, getSuperadmins);
 router.post("/createSuperadmin", authorization, createSuperadmin);
 router.put("/updateFirstAssessmentCompleted", authorization, updateFirstAssessmentCompleted);
 router.delete("/deleteSuperadmin/:superadminId", authorization, deleteSuperadmin);
+
+// Add these new routes for password reset functionality
+router.post("/forgotPassword", forgotPassword);
+router.post("/resetPassword", resetPassword);
 
 module.exports = router;

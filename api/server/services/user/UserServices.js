@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const db = require("../../../config/db");
 const EmailService = require("../email/emailService");
+const crypto = require('crypto');
 
 const {
   updateCompanyStressLevel,
@@ -1735,6 +1736,145 @@ class UserServices {
       throw new Error("Error deleting superadmin: " + error.message);
     } finally {
       connection.release();
+    }
+  }
+
+  static async requestPasswordReset(email) {
+    try {
+      // Check if user exists
+      const [users] = await db.query(
+        "SELECT user_id, first_name, email, role_id FROM users WHERE email = ?",
+        [email]
+      );
+
+      if (users.length === 0) {
+        return {
+          status: false,
+          code: 404,
+          message: "No account found with this email address",
+          data: null,
+        };
+      }
+
+      const user = users[0];
+      
+      // Generate a reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const tokenExpiry = new Date();
+      tokenExpiry.setHours(tokenExpiry.getHours() + 1); // Token valid for 1 hour
+
+      // Check if there's an existing token for this user and delete it
+      await db.query(
+        "DELETE FROM password_reset_tokens WHERE user_id = ?",
+        [user.user_id]
+      );
+
+      // Store token in database
+      await db.query(
+        "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+        [user.user_id, resetToken, tokenExpiry]
+      );
+
+      // Send reset email
+      await EmailService.sendPasswordResetEmail(
+        user.first_name,
+        user.email,
+        resetToken,
+        user.role_id
+      );
+
+      return {
+        status: true,
+        code: 200,
+        message: "Password reset instructions sent to your email",
+        data: null,
+      };
+    } catch (error) {
+      console.error("Error in requestPasswordReset:", error);
+      return {
+        status: false,
+        code: 500,
+        message: "Error processing password reset request",
+        data: null,
+      };
+    }
+  }
+
+  static async resetPassword(token, newPassword) {
+    try {
+      // Find valid token
+      const [tokens] = await db.query(
+        "SELECT user_id, expires_at FROM password_reset_tokens WHERE token = ? AND used = 0",
+        [token]
+      );
+
+      if (tokens.length === 0) {
+        return {
+          status: false,
+          code: 400,
+          message: "Invalid or expired reset token",
+          data: null,
+        };
+      }
+
+      const tokenRecord = tokens[0];
+
+      // Check if token is expired
+      if (new Date() > new Date(tokenRecord.expires_at)) {
+        return {
+          status: false,
+          code: 400,
+          message: "Reset token has expired",
+          data: null,
+        };
+      }
+
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update user's password
+      await db.query(
+        "UPDATE users SET password = ? WHERE user_id = ?",
+        [hashedPassword, tokenRecord.user_id]
+      );
+
+      // Mark token as used
+      await db.query(
+        "UPDATE password_reset_tokens SET used = 1 WHERE token = ?",
+        [token]
+      );
+
+      // Get user details for notification
+      const [users] = await db.query(
+        "SELECT first_name, email FROM users WHERE user_id = ?",
+        [tokenRecord.user_id]
+      );
+
+      if (users.length > 0) {
+        // Create notification
+        await NotificationService.createNotification({
+          title: "Password Reset Successfully",
+          content: `Your password was reset successfully on ${new Date().toLocaleString()}. If you didn't perform this action, please contact support immediately.`,
+          type: "ACCOUNT_UPDATE",
+          user_id: tokenRecord.user_id,
+          priority: "HIGH",
+        });
+      }
+
+      return {
+        status: true,
+        code: 200,
+        message: "Password has been reset successfully",
+        data: null,
+      };
+    } catch (error) {
+      console.error("Error in resetPassword:", error);
+      return {
+        status: false,
+        code: 500,
+        message: "Error resetting password",
+        data: null,
+      };
     }
   }
 }

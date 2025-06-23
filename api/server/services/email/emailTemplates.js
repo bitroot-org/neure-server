@@ -321,6 +321,51 @@ class EmailTemplates {
       `
     };
   }
+
+  static passwordResetTemplate(userName, resetToken, roleId) {
+    // roleId – 1: Superadmin, 2: Company Admin, 3: Employee
+    // Map role → dashboard base URL
+    const baseUrlMap = {
+      1: 'https://main.d1cczoqd1ouk3l.amplifyapp.com/login', // Superadmin_dashboard
+      2: 'https://main.d141ack5c21hha.amplifyapp.com',       // Company_admin_dashboard
+      3: 'https://main.d20xlhmrfjnx3n.amplifyapp.com'        // Employee_dashboard
+    };
+
+    const baseUrl = baseUrlMap[roleId];
+    const resetLink = `${baseUrl}/reset-password?token=${resetToken}`;
+    
+    return {
+      subject: "Reset Your Password - Neure",
+      html: `
+        <div style="max-width: 600px; margin: 20px auto; background:rgba(40, 41, 50, 0.91); border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: white;">
+          <div style="background: #191A20; color: white; padding: 30px 20px; text-align: center;">
+            <h1 style="font-size: 28px; margin: 0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);">Password Reset Request</h1>
+          </div>
+          <div style="padding: 30px;">
+            <p style="margin: 15px 0;">Hello <span style="font-weight: 600;">${userName}</span>,</p>
+            <p style="margin: 15px 0;">We received a request to reset your password. If you didn't make this request, you can safely ignore this email.</p>
+            
+            <div style="background-color: transparent; border-image: linear-gradient(to bottom, #FFFFFF 0%, #797B87 100%) 1; border-width: 0 0 0 4px; border-style: solid; padding: 20px; margin: 20px 0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
+              <p style="margin: 15px 0;">To reset your password, click the button below:</p>
+              
+              <div style="text-align: center; margin: 25px 0;">
+                <a href="${resetLink}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(180deg, #FFFFFF 0%, #797B87 100%); color: black !important; text-decoration: none; border-radius: 25px; font-weight: 600; margin: 15px 0; text-align: center; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">Reset Password</a>
+              </div>
+              
+              <p style="margin: 15px 0; font-size: 13px;">This link will expire in 1 hour for security reasons.</p>
+            </div>
+            
+            <p style="margin: 15px 0;">If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="margin: 15px 0; word-break: break-all; font-size: 13px;"><a href="${resetLink}" style="color: #FFFFFF; ">${resetLink}</a></p>
+            
+            <p style="margin-top: 30px; font-size: 14px; color: #777; text-align: center;">
+              &copy; ${new Date().getFullYear()} Neure. All rights reserved.
+            </p>
+          </div>
+        </div>
+      `
+    };
+  }
 }
 
 module.exports = EmailTemplates;

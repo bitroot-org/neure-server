@@ -156,6 +156,19 @@ class EmailService {
       html: template.html
     });
   }
+
+  static async sendPasswordResetEmail(userName, userEmail, resetToken, roleId) {
+    const template = EmailTemplates.passwordResetTemplate(
+      userName,
+      resetToken,
+      roleId
+    );
+    return this.sendEmail({
+      to: userEmail,
+      subject: template.subject,
+      html: template.html
+    });
+  }
 }
 
 module.exports = EmailService;

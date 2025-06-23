@@ -253,6 +253,85 @@ class UserController {
     }
   }
 
+  static async forgotPassword(req, res) {
+    try {
+      const { email } = req.body;
+      console.log("Received forgot password request for email:", email);
+
+      if (!email) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Email is required.",
+          data: null,
+        });
+      }
+
+      const result = await UserServices.requestPasswordReset(email);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in forgotPassword controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error processing password reset request.",
+        data: null,
+      });
+    }
+  }
+
+  static async resetPassword(req, res) {
+    try {
+      const { token, new_password } = req.body;
+      console.log("received payload", new_password)
+      console.log("Received password reset request with token");
+
+      if (!token || !new_password) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "Reset token and new password are required.",
+          data: null,
+        });
+      }
+
+      // Password strength validation
+      if (new_password.length < 8) {
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message: "New password must be at least 8 characters long.",
+          data: null,
+        });
+      }
+
+      // More complex password validation
+      const passwordRegex =
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
+      if (!passwordRegex.test(new_password)) {
+        console.log("New password does not meet complexity requirements");
+        return res.status(400).json({
+          status: false,
+          code: 400,
+          message:
+            "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.",
+          data: null,
+        });
+      }
+
+      const result = await UserServices.resetPassword(token, new_password);
+      return res.status(result.code).json(result);
+    } catch (error) {
+      console.error("Error in resetPassword controller:", error);
+      return res.status(500).json({
+        status: false,
+        code: 500,
+        message: "Error resetting password.",
+        data: null,
+      });
+    }
+  }
+
   static async getUserDetails(req, res) {
     try {
       const user_id = req.query.user_id;
