@@ -16,16 +16,25 @@
         font-size: 12px;
       }
 
-      .logo {
+      .logo-container {
         text-align: center;
-        margin-bottom: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        margin: 10px 0;
       }
 
-      .logo img {
+      .logo-img {
+        display: inline-block;
+        vertical-align: middle;
         height: 30px;
+      }
+
+      .logo-text {
+        display: inline-block;
+        vertical-align: middle;
+        margin: 0;
+        margin-left: 2px;
+        font-size: 24px;
+        font-weight: 500;
+        line-height: 1;
       }
 
       .report-title {
@@ -101,11 +110,13 @@
   </head>
   <body>
     <!-- Logo -->
-    <div class="logo">
+    <div class="logo-container" s>
       <img
-        src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg"
+        class="logo-img"
+        src="data:image/png;base64,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"
         alt="Neure Logo"
       />
+      <h1 class="logo-text">neure</h1>
     </div>
 
     <!-- Report Title -->

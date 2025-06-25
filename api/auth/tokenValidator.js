@@ -45,7 +45,7 @@ const authorization = async (req, res, next) => {
 
       // Check if the user exists and has the correct role_id
       const [user] = await db.query(
-        "SELECT role_id FROM users WHERE user_id = ? AND role_id = ?",
+        "SELECT role_id, is_active FROM users WHERE user_id = ? AND role_id = ? AND is_active = 1",
         [user_id, role_id]
       );
 
