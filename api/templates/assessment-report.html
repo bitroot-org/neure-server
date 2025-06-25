@@ -1,134 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Assessment Report</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.4;
+        color: #000;
+        margin: 0;
+        padding: 30px;
+        max-width: 800px;
+        margin: 0 auto;
+        font-size: 12px;
+      }
 
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Assessment Report</title>
-            <style>
-              body {
-                font-family: Arial, sans-serif;
-                line-height: 1.4;
-                color: #000;
-                margin: 0;
-                padding: 30px;
-                max-width: 800px;
-                margin: 0 auto;
-                font-size: 12px;
-              }
-              
-              .logo {
-                text-align: center;
-                margin-bottom: 10px;
-              }
-              
-              .logo img {
-                height: 30px;
-              }
-              
-              .report-title {
-                font-size: 24px;
-                font-weight: bold;
-                text-align: center;
-                margin-bottom: 15px;
-                text-decoration: underline;
-              }
-              
-              .section-title {
-                font-size: 18px;
-                font-weight: bold;
-                margin-bottom: 8px;
-                margin-top: 12px;
-              }
+      .logo {
+        text-align: center;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
 
-              .introduction{
-                text-align: justify;
-                hyphens: auto;
-                -webkit-hyphens: auto;
-                -ms-hyphens: auto;
-              }
-              
-              .introduction p {
-                margin-bottom: 8px;
-                font-size: 14px;
-                text-align: justify;
-                
-              }
-              
-              .score {
-                font-size: 60px;
-                font-weight: bold;
-                text-align: center;
-                margin: 20px 0;
-              }
-              
-              .scoring-range {
-                margin: 15px 0;
-              }
-              
-              .scoring-range p {
-                margin-bottom: 5px;
-                font-size: 12px;
-              }
-              
-              .interpretation {
-                margin: 15px 0;
-                padding: 10px;
-                font-size: 18px;
-                /* border: 1px solid #ccc;
+      .logo img {
+        height: 30px;
+      }
+
+      .report-title {
+        font-size: 24px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 15px;
+        text-decoration: underline;
+      }
+
+      .section-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 8px;
+        margin-top: 12px;
+      }
+
+      .introduction {
+        text-align: justify;
+        hyphens: auto;
+        -webkit-hyphens: auto;
+        -ms-hyphens: auto;
+      }
+
+      .introduction p {
+        margin-bottom: 8px;
+        font-size: 14px;
+        text-align: justify;
+      }
+
+      .score {
+        font-size: 60px;
+        font-weight: bold;
+        text-align: center;
+        margin: 20px 0;
+      }
+
+      .scoring-range {
+        margin: 15px 0;
+      }
+
+      .scoring-range p {
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .interpretation {
+        margin: 15px 0;
+        padding: 10px;
+        font-size: 18px;
+        /* border: 1px solid #ccc;
                 background-color: #f9f9f9; */
-              }
-              
-              .footer {
-                margin-top: 20px;
-                text-align: center;
-                font-size: 10px;
-                color: #666;
-              }
-              
-              /* Compact layout for html-pdf */
-              p {
-                margin: 5px 0;
-              }
-              
-              h1, h2, h3 {
-                margin: 8px 0;
-              }
-            </style>
-          </head>
-          <body>
-            <!-- Logo -->
-            <div class="logo">
-              <img src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg" alt="Neure Logo">
-            </div>
-            
-            <!-- Report Title -->
-            <div class="report-title">General Assessment Report</div>
-            
-            <!-- Introduction -->
-            <div class="section-title">Introduction</div>
-            <div class="introduction">
-              <p>Thank you for completing your assessment! This report gives you a snapshot of where you currently stand in terms of your mental and emotional wellbeing, based on your responses.</p>
-              <p>Based on your total score, we've mapped your result into a specific range below to help you understand what it means. This helps identify how you're feeling right now, whether you're doing well, feeling a bit low, or might need support.</p>
-              <p>The goal? To give you insight, not labels. So you can take the next step toward feeling better.</p>
-            </div>
-            
-            <!-- Score -->
-            <div class="score">{{score}}</div>
-            
-            <!-- Interpretation -->
-            <div class="interpretation">
-              <p><strong>Suggested Action:</strong> {{interpretation}}</p>
-            </div>
-            
-            <!-- Suggested Action -->
-            <!-- <div class="section-title">Suggested Action</div>
+      }
+
+      .footer {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 10px;
+        color: #666;
+      }
+
+      /* Compact layout for html-pdf */
+      p {
+        margin: 5px 0;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Logo -->
+    <div class="logo">
+      <img
+        src="https://neure-staging.s3.ap-south-1.amazonaws.com/logo/neure_logo.svg"
+        alt="Neure Logo"
+      />
+    </div>
+
+    <!-- Report Title -->
+    <div class="report-title">{{assessmentTitle}}</div>
+
+    <!-- Introduction -->
+    <div class="section-title">Introduction</div>
+    <div class="introduction">
+      <p>
+        Thank you for completing your assessment! This report gives you a
+        snapshot of where you currently stand in terms of your mental and
+        emotional wellbeing, based on your responses.
+      </p>
+      <p>
+        Based on your total score, we've mapped your result into a specific
+        range below to help you understand what it means. This helps identify
+        how you're feeling right now, whether you're doing well, feeling a bit
+        low, or might need support.
+      </p>
+      <p>
+        The goal? To give you insight, not labels. So you can take the next step
+        toward feeling better.
+      </p>
+    </div>
+
+    <!-- Score -->
+    <div class="score">{{score}}</div>
+
+    <!-- Interpretation -->
+    <div class="interpretation">
+      <p><strong>Suggested Action:</strong> {{interpretation}}</p>
+    </div>
+
+    <!-- Suggested Action -->
+    <!-- <div class="section-title">Suggested Action</div>
             <p>{{suggestedAction}}</p> -->
-            
-            <!-- Footer -->
-            <div class="footer">
-              © Neure Assessment System
-            </div>
-          </body>
-          </html>
-        
+
+    <!-- Footer -->
+    <div class="footer">© Neure Assessment System</div>
+  </body>
+</html>

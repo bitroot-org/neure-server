@@ -82,7 +82,7 @@ class UserServices {
 
       // Find user
       const [users] = await db.query(
-        "SELECT * FROM users WHERE email = ? AND role_id = ?",
+        "SELECT * FROM users WHERE email = ? AND role_id = ? AND is_active = 1",
         [email, role_id]
       );
 
