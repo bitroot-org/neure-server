@@ -1648,6 +1648,15 @@ class CompanyService {
           [request[0].company_id]
         );
 
+        await connection.query(
+          `UPDATE users u
+           JOIN company_employees ce ON u.user_id = ce.user_id
+           SET u.is_active = 0 
+           WHERE ce.company_id = ? AND u.is_active = 1`,
+          [request[0].company_id]
+        );
+        
+
         // Send deactivation emails to all active employees
         for (const employee of companyDetails) {
           await EmailService.sendAccountDeactivationEmail(
