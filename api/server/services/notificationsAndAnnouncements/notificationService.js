@@ -284,6 +284,33 @@ class NotificationService {
       throw new Error("Failed to fetch notification count");
     }
   }
+
+  // Log a notification delivery attempt to notification_log
+  static async logNotification({
+    user_id = null,
+    user_type = null,
+    platform = 'IN_APP',
+    status_code = null,
+    status = null,
+    type = null,
+    message = null,
+    error = null,
+    message_body = null,
+    template_name = null,
+    meta = null
+  }) {
+    try {
+      await db.query(
+        `INSERT INTO notification_log
+         (user_id, user_type, platform, status_code, status, type, message, error, message_body, template_name, meta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [user_id, user_type, platform, status_code, status, type, message, error, message_body, template_name,
+         meta ? JSON.stringify(meta) : null]
+      );
+    } catch (e) {
+      console.error("Error in logNotification:", e.message);
+    }
+  }
 }
 
 module.exports = NotificationService;

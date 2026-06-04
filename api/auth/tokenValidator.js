@@ -35,9 +35,12 @@ const authorization = async (req, res, next) => {
     // Verify the token
     jwt.verify(token, JWT_SECRET, async (err, decoded) => {
       if (err) {
-        return res.status(403).json({
+        // 401 for expired tokens so the client refresh flow triggers;
+        // 403 for truly invalid/malformed tokens.
+        const status = err.name === "TokenExpiredError" ? 401 : 403;
+        return res.status(status).json({
           success: false,
-          message: "Invalid or expired token!",
+          message: err.name === "TokenExpiredError" ? "Token expired" : "Invalid token!",
         });
       }
 
