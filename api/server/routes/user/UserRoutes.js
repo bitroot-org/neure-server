@@ -6,6 +6,7 @@ const {
   logout,
   getTherapists,
   createTherapist,
+  getProdeskTherapists,
   changePassword,
   getUserDetails,
   updateUserDetails,
@@ -51,6 +52,7 @@ const router = express.Router();
 router.post("/register", register);
 router.get("/getTherapists", authorization, getTherapists);
 router.post("/createTherapist", authorization, createTherapist);
+router.get("/getProdeskTherapists", authorization, getProdeskTherapists);
 router.post("/login", login);
 router.post("/logout", authorization, logout);
 router.post("/refresh-token", refreshToken);

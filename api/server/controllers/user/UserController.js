@@ -99,6 +99,18 @@ class UserController {
     }
   }
 
+  static async getProdeskTherapists(req, res) {
+    try {
+      const { page = 1, limit = 10, search = "" } = req.query;
+      const result = await UserServices.getProdeskTherapists({
+        page: parseInt(page), limit: parseInt(limit), search
+      });
+      return res.status(200).json({ status: true, code: 200, message: "ProDesk therapists retrieved", data: result });
+    } catch (error) {
+      return res.status(500).json({ status: false, code: 500, message: error.message, data: null });
+    }
+  }
+
   static async createTherapist(req, res) {
     try {
       const therapistData = req.body;

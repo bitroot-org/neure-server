@@ -395,6 +395,46 @@ class UserServices {
     }
   }
 
+  static async getProdeskTherapists({ page = 1, limit = 10, search = "" }) {
+    try {
+      const offset = (page - 1) * limit;
+      const searchCondition = search
+        ? `AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)`
+        : "";
+      const searchParams = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
+
+      const [totalRows] = await db.query(
+        `SELECT COUNT(*) as count FROM users u
+         JOIN therapists t ON u.user_id = t.user_id
+         WHERE u.role_id = 4 ${searchCondition}`,
+        searchParams
+      );
+
+      const [therapists] = await db.query(
+        `SELECT u.user_id, u.email, u.phone, u.username, u.first_name, u.last_name,
+                u.gender, u.profile_url, u.is_active, u.created_at,
+                t.id AS therapist_id, t.bio, t.specialization, t.years_of_experience
+         FROM users u
+         JOIN therapists t ON u.user_id = t.user_id
+         WHERE u.role_id = 4 ${searchCondition}
+         ORDER BY u.created_at DESC LIMIT ? OFFSET ?`,
+        [...searchParams, limit, offset]
+      );
+
+      return {
+        therapists,
+        pagination: {
+          total: totalRows[0].count,
+          current_page: page,
+          total_pages: Math.ceil(totalRows[0].count / limit),
+          per_page: limit,
+        },
+      };
+    } catch (error) {
+      throw new Error("Error fetching ProDesk therapists: " + error.message);
+    }
+  }
+
   static async createTherapist(therapistData) {
     const connection = await db.getConnection();
 
@@ -417,16 +457,17 @@ class UserServices {
       // Calculate age if date_of_birth provided
       const age = date_of_birth ? calculateAge(date_of_birth) : null;
 
-      // Generate random password
-      const password = Math.random().toString(36).slice(-8);
+      // Use provided password or generate one
+      const password = therapistData.password || Math.random().toString(36).slice(-8);
       const hashedPassword = await bcrypt.hash(password, 10);
+      const roleId = therapistData.role_id || 2;
 
       // Create user with age and dob
       const [userResult] = await connection.query(
         `INSERT INTO users (
           email, password, username, first_name, last_name,
-          gender, user_type, role_id, date_of_birth, age, phone
-        ) VALUES (?, ?, ?, ?, ?, ?, 'neure', 2, ?, ?, ?)`,
+          gender, role_id, date_of_birth, age, phone
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           email,
           hashedPassword,
@@ -434,6 +475,7 @@ class UserServices {
           first_name,
           last_name,
           gender,
+          roleId,
           date_of_birth,
           age,
           phone,
