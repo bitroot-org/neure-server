@@ -78,11 +78,33 @@ initMonthlyMetricsReset();
 initWorkshopReminder();
 initNewCompanyMetrics();
 
-app.get("*", (req, res) =>
-  res.status(200).send({
-    message: `Welcome to Neure API up and running and version : ${packageJson.version}`,
-  })
-);
+app.get("*", (req, res) => {
+  const currentTime = new Date().toISOString();
+  const uptime = process.uptime();
+  const uptimeFormatted = `${Math.floor(uptime / 3600)}h ${Math.floor(
+    (uptime % 3600) / 60
+  )}m ${Math.floor(uptime % 60)}s`;
+
+  const responseData = {
+    success: true,
+    message: "🚀 Welcome to Neure Apis",
+    status: "✅ Server is up and running",
+    version: packageJson.version,
+    data: {
+      service: "Neure API Server",
+      version: packageJson.version,
+      environment: process.env.NODE_ENV || "STAGING",
+      timestamp: currentTime,
+      uptime: uptimeFormatted,
+    },
+    meta: {
+      author: "Bitroot Development Team",
+    },
+  };
+
+  res.set("Content-Type", "application/json");
+  res.status(200).send(JSON.stringify(responseData, null, 3));
+});
 
 
 
