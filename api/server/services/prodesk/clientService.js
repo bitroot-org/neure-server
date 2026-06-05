@@ -45,11 +45,15 @@ const createClientService = async (payload) => {
       return { status: false, code: 400, message: 'name is required', data: null };
     }
 
+    // Normalise phone — strip all non-digits, keep country code if present
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
+
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
 
       if (email) {
+        // Check if email already exists as a client for this therapist
         const [dup] = await conn.query(
           `SELECT pc.id FROM prodesk_clients pc
            JOIN users u ON u.user_id = pc.user_id
@@ -59,6 +63,16 @@ const createClientService = async (payload) => {
         if (dup && dup.length) {
           await conn.rollback();
           return { status: false, code: 409, message: 'Client with this email already exists', data: null };
+        }
+
+        // Check if email exists in users table under any role
+        const [existingUser] = await conn.query(
+          'SELECT user_id FROM users WHERE email = ?',
+          [email]
+        );
+        if (existingUser && existingUser.length) {
+          await conn.rollback();
+          return { status: false, code: 409, message: 'A user with this email already exists in the system. Use a different email for this client.', data: null };
         }
       }
 
@@ -70,7 +84,7 @@ const createClientService = async (payload) => {
       const [userResult] = await conn.query(
         `INSERT INTO users (first_name, last_name, email, phone, password, role_id, gender)
          VALUES (?, ?, ?, ?, ?, 5, ?)`,
-        [firstName, lastName, email || null, phone || null, tempPassword, gender || null]
+        [firstName, lastName, email || null, cleanPhone || null, tempPassword, gender || null]
       );
 
       const color = avatarColor(name);

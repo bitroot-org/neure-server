@@ -138,7 +138,8 @@ const createSessionService = async (payload) => {
 
         // WhatsApp (fires once MSG91 template is approved — set templateId to activate)
         if (phone) {
-          const phone_e164 = phone.replace(/\D/g, '');
+          const digits = phone.replace(/\D/g, '');
+          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
           await NotificationService.sendWhatsAppNotification({
             to: phone_e164,
             templateName: 'session_scheduled',
