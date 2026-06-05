@@ -413,7 +413,8 @@ class UserServices {
       const [therapists] = await db.query(
         `SELECT u.user_id, u.email, u.phone, u.username, u.first_name, u.last_name,
                 u.gender, u.profile_url, u.is_active, u.created_at,
-                t.id AS therapist_id, t.bio, t.specialization, t.years_of_experience
+                t.id AS therapist_id, t.bio, t.about_me, t.specialization,
+                t.years_of_experience, t.designation, t.qualification, t.booking_slug
          FROM users u
          JOIN therapists t ON u.user_id = t.user_id
          WHERE u.role_id = 4 ${searchCondition}
@@ -494,12 +495,16 @@ class UserServices {
         [userResult.insertId]
       );
 
+      const { designation, qualification, booking_slug, about_me } = therapistData;
+
       // Create therapist profile
       await connection.query(
         `INSERT INTO therapists (
-          user_id, bio, specialization, years_of_experience
-        ) VALUES (?, ?, ?, ?)`,
-        [userResult.insertId, bio, specialization, years_of_experience]
+          user_id, bio, specialization, years_of_experience,
+          designation, qualification, booking_slug, about_me
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userResult.insertId, bio, specialization, years_of_experience,
+         designation || null, qualification || null, booking_slug || null, about_me || null]
       );
 
       await connection.commit();
@@ -539,6 +544,10 @@ class UserServices {
         specialization,
         bio,
         date_of_birth,
+        designation,
+        qualification,
+        booking_slug,
+        about_me,
       } = updateData;
 
       // Calculate age if date_of_birth provided
@@ -600,6 +609,22 @@ class UserServices {
       if (years_of_experience) {
         therapistUpdateFields.push("years_of_experience = ?");
         therapistUpdateValues.push(years_of_experience);
+      }
+      if (designation !== undefined) {
+        therapistUpdateFields.push("designation = ?");
+        therapistUpdateValues.push(designation);
+      }
+      if (qualification !== undefined) {
+        therapistUpdateFields.push("qualification = ?");
+        therapistUpdateValues.push(qualification);
+      }
+      if (booking_slug !== undefined) {
+        therapistUpdateFields.push("booking_slug = ?");
+        therapistUpdateValues.push(booking_slug);
+      }
+      if (about_me !== undefined) {
+        therapistUpdateFields.push("about_me = ?");
+        therapistUpdateValues.push(about_me);
       }
 
       if (therapistUpdateFields.length > 0) {

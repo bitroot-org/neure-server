@@ -88,13 +88,73 @@ const createSessionService = async (payload) => {
     // For video sessions, create a Google Meet space and store the link.
     // Best-effort: if Google credentials aren't configured, URL is created
     // lazily on first join via getMeetingRoomService.
+    let meetUrl = null;
     if (modality === 'video') {
       try {
-        const url = await createMeetingSpace(therapist_id);
-        await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [url, result.insertId]);
+        meetUrl = await createMeetingSpace(therapist_id);
+        await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
       } catch (e) {
         console.log('Meet room create (deferred):', e.message);
       }
+    }
+
+    // Send email + WhatsApp notifications after session is scheduled (both best-effort)
+    try {
+      const [clientRow] = await db.query(
+        `SELECT u.phone, u.email,
+                CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+                CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+                COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+         FROM prodesk_clients pc
+         JOIN users u ON u.user_id = pc.user_id
+         JOIN therapists t ON t.id = ?
+         JOIN users tu ON tu.user_id = t.user_id
+         LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+         WHERE pc.id = ?`,
+        [therapist_id, client_id]
+      );
+
+      if (clientRow && clientRow.length) {
+        const { phone, email, client_name, therapist_name, clinic_name } = clientRow[0];
+        const formattedTime = new Date(starts_at).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        });
+        const notifMeta = { session_id: result.insertId, client_id };
+
+        // Email (primary — always fires while WhatsApp template is pending)
+        if (email) {
+          await NotificationService.sendSessionScheduledEmail({
+            toEmail: email,
+            toName: client_name,
+            therapistName: therapist_name,
+            sessionTime: formattedTime,
+            meetUrl: meetUrl || null,
+            clinicName: clinic_name,
+            meta: notifMeta
+          });
+        }
+
+        // WhatsApp (fires once MSG91 template is approved — set templateId to activate)
+        if (phone) {
+          const phone_e164 = phone.replace(/\D/g, '');
+          await NotificationService.sendWhatsAppNotification({
+            to: phone_e164,
+            templateName: 'session_scheduled',
+            templateId: '',                    // Paste MSG91 template OID here to activate
+            variables: [
+              client_name,                     // {{1}} Hi *{{1}}*
+              therapist_name,                  // {{2}} session with *{{2}}*
+              formattedTime,                   // {{3}} Date & Time
+              meetUrl || 'N/A'                 // {{4}} Session Link
+            ],
+            meta: notifMeta
+          });
+        }
+      }
+    } catch (e) {
+      console.log('Notification (non-blocking):', e.message);
     }
 
     return getSessionByIdService({ therapist_id, session_id: result.insertId });
