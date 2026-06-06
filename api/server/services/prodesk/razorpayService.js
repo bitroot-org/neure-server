@@ -54,31 +54,52 @@ const createOrderService = async (payload) => {
 const createInvoiceRazorpayService = async (payload) => {
   try {
     console.log('Payload in createInvoiceRazorpayService::>>', payload);
-    const { customer, lineItems, taxAmount, totalAmount, dueBy, notes = {} } = payload;
+    const { customer, lineItems, taxAmount, totalAmount, dueBy, receipt, notes = {} } = payload;
 
-    const data = await razorpayRequest({
-      method: 'POST',
-      path: '/v1/invoices',
-      body: {
-        type: 'invoice',
-        customer,
-        line_items: lineItems.map(item => ({
-          name: item.description,
-          amount: Math.round(item.rate * 100),
-          currency: 'INR',
-          quantity: item.qty
-        })),
-        tax_amount: Math.round(taxAmount * 100),
-        sms_notify: 1,
-        email_notify: 1,
-        expire_by: dueBy ? Math.floor(new Date(dueBy).getTime() / 1000) : undefined,
-        notes
-      }
-    });
+    const body = {
+      type: 'invoice',
+      receipt,
+      customer,
+      line_items: lineItems.map(item => ({
+        name: item.description,
+        amount: Math.round(item.rate * 100),
+        currency: 'INR',
+        quantity: item.qty
+      })),
+      tax_amount: Math.round(taxAmount * 100),
+      sms_notify: 1,
+      email_notify: 1,
+      partial_payment: 0,
+      reminder_enable: 1,
+      notes
+    };
+
+    if (dueBy) {
+      body.expire_by = Math.floor(new Date(dueBy).getTime() / 1000);
+    }
+
+    const data = await razorpayRequest({ method: 'POST', path: '/v1/invoices', body });
     return data;
   } catch (error) {
     console.log('Error in createInvoiceRazorpayService::>>', error);
-    return null;
+    throw error;
+  }
+};
+
+// Resend email or SMS notification for an existing Razorpay invoice
+const notifyInvoiceService = async (payload) => {
+  try {
+    console.log('Payload in notifyInvoiceService::>>', payload);
+    const { razorpayInvoiceId, channel = 'email' } = payload;
+
+    const data = await razorpayRequest({
+      method: 'POST',
+      path: `/v1/invoices/${razorpayInvoiceId}/notify/${channel}`
+    });
+    return data;
+  } catch (error) {
+    console.log('Error in notifyInvoiceService::>>', error);
+    throw error;
   }
 };
 
@@ -91,7 +112,28 @@ const cancelInvoiceRazorpayService = async (payload) => {
     return data;
   } catch (error) {
     console.log('Error in cancelInvoiceRazorpayService::>>', error);
-    return null;
+    throw error;
+  }
+};
+
+// Initiate a refund against a captured Razorpay payment
+const createRefundService = async (payload) => {
+  try {
+    console.log('Payload in createRefundService::>>', payload);
+    const { razorpayPaymentId, amount, notes = {} } = payload;
+
+    const body = { notes };
+    if (amount) body.amount = Math.round(amount * 100); // partial refund; omit for full refund
+
+    const data = await razorpayRequest({
+      method: 'POST',
+      path: `/v1/payments/${razorpayPaymentId}/refund`,
+      body
+    });
+    return data;
+  } catch (error) {
+    console.log('Error in createRefundService::>>', error);
+    throw error;
   }
 };
 
@@ -135,20 +177,24 @@ const getKeyIdService = async () => {
   }
 };
 
-// Named exports for direct use in other services
 const RazorpayService = {
-  createOrder: (p) => createOrderService(p),
-  createInvoice: (p) => createInvoiceRazorpayService(p),
-  cancelInvoice: (razorpayInvoiceId) => cancelInvoiceRazorpayService({ razorpay_invoice_id: razorpayInvoiceId }),
-  verifyPaymentSignature: (p) => verifyPaymentSignatureService(p),
-  verifyWebhookSignature: (rawBody, signature) => verifyWebhookSignatureService({ rawBody, signature }),
-  getKeyId: () => getKeyIdService()
+  createOrder:              (p) => createOrderService(p),
+  createInvoice:            (p) => createInvoiceRazorpayService(p),
+  notifyInvoice:            (p) => notifyInvoiceService(p),
+  cancelInvoice:            (razorpayInvoiceId) => cancelInvoiceRazorpayService({ razorpay_invoice_id: razorpayInvoiceId }),
+  createRefund:             (p) => createRefundService(p),
+  verifyPaymentSignature:   (p) => verifyPaymentSignatureService(p),
+  verifyWebhookSignature:   (rawBody, signature) => verifyWebhookSignatureService({ rawBody, signature }),
+  getKeyId:                 () => getKeyIdService()
 };
 
 module.exports = RazorpayService;
 
-module.exports.createOrderService = createOrderService;
-module.exports.createInvoiceRazorpayService = createInvoiceRazorpayService;
-module.exports.verifyPaymentSignatureService = verifyPaymentSignatureService;
-module.exports.verifyWebhookSignatureService = verifyWebhookSignatureService;
-module.exports.getKeyIdService = getKeyIdService;
+module.exports.createOrderService              = createOrderService;
+module.exports.createInvoiceRazorpayService    = createInvoiceRazorpayService;
+module.exports.notifyInvoiceService            = notifyInvoiceService;
+module.exports.cancelInvoiceRazorpayService    = cancelInvoiceRazorpayService;
+module.exports.createRefundService             = createRefundService;
+module.exports.verifyPaymentSignatureService   = verifyPaymentSignatureService;
+module.exports.verifyWebhookSignatureService   = verifyWebhookSignatureService;
+module.exports.getKeyIdService                 = getKeyIdService;

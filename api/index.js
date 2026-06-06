@@ -28,11 +28,15 @@ const initCompanyMetrics = require("./Cron/companyMetrics");
 const initResourceUsageMetrics = require("./Cron/resourceUsageMetrics");
 const initAssessmentCompletionCheck = require("./Cron/assessmentCompletionCheck");
 const initNewCompanyMetrics = require("./Cron/newCompanyMetrics");
+const initProdeskOverdueInvoices = require("./Cron/prodeskOverdueInvoices");
 
 // Initialize environment variables
 dotenv.config();
 
 const app = express();
+
+// Capture raw body for Razorpay webhook HMAC verification — must come before express.json()
+app.use('/api/prodesk/razorpayWebhook', express.raw({ type: 'application/json' }));
 
 // Middleware
 app.use(express.json());
@@ -77,6 +81,7 @@ initAssessmentCompletionCheck();
 initMonthlyMetricsReset();
 initWorkshopReminder();
 initNewCompanyMetrics();
+initProdeskOverdueInvoices();
 
 app.get("*", (req, res) => {
   const currentTime = new Date().toISOString();

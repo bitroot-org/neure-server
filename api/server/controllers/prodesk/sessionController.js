@@ -8,7 +8,8 @@ const {
   completeSessionService,
   getCalendarSessionsService,
   getTodaySessionsService,
-  getMeetingRoomService
+  getMeetingRoomService,
+  sendSessionReminderService
 } = require('../../services/prodesk/sessionService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -114,6 +115,17 @@ class ProdeskSessionController {
       const { session_id } = req.body;
       if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
       const result = await getMeetingRoomService({ therapist_id: req.user.therapist_id, session_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async sendSessionReminder(req, res) {
+    try {
+      const { session_id } = req.body;
+      if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
+      const result = await sendSessionReminderService({ therapist_id: req.user.therapist_id, session_id });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

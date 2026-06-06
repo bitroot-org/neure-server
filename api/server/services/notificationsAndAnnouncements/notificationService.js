@@ -15,11 +15,10 @@ class NotificationService {
    *
    * @param {string}   to           - Recipient phone with country code, e.g. "919876543210"
    * @param {string}   templateName - MSG91 approved template name
-   * @param {string}   templateId   - MSG91 template OID (for logging)
    * @param {string[]} variables    - Values for body_1, body_2, body_3 ... in order
    * @param {object}   [meta]       - Optional extra data for notification_log
    */
-  static async sendWhatsAppNotification({ to, templateName, templateId, variables = [], meta = null }) {
+  static async sendWhatsAppNotification({ to, templateName, variables = [], meta = null }) {
     // Build body_1, body_2 ... components from the variables array
     const components = {};
     variables.forEach((val, i) => {
@@ -38,7 +37,7 @@ class NotificationService {
             code: "en",
             policy: "deterministic"
           },
-          namespace: null,
+          namespace: "a29a37a6_0359_4978_8b42_ab8d3b9f256e",
           to_and_components: [
             {
               to: [to],
@@ -77,7 +76,7 @@ class NotificationService {
       message: templateName,
       error: errorMsg,
       message_body: JSON.stringify(payload),
-      template_name: templateId,
+      template_name: templateName,
       meta
     });
 
@@ -98,102 +97,107 @@ class NotificationService {
   static async sendSessionScheduledEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null }) {
     const meetRowHtml = meetUrl ? `
       <tr>
-        <td style="padding:14px 0 14px 0;border-top:1px solid #1E2738;">
-          <span style="color:#8A9BB5;font-size:13px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">Session Link</span>
-        </td>
-        <td style="padding:14px 0 14px 0;border-top:1px solid #1E2738;text-align:right;">
-          <a href="${meetUrl}" style="color:#5EA89A;font-size:14px;font-weight:600;text-decoration:none;">Join Session &rarr;</a>
+        <td style="padding:14px 20px;border-top:1px solid #E5EAF0;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session Link</p>
+          <a href="${meetUrl}" style="font-size:15px;font-weight:600;color:#5EA89A;text-decoration:none;word-break:break-all;">Join Session &rarr;</a>
         </td>
       </tr>` : '';
 
     const htmlContent = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:40px 16px;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
+  <style>
+    @media only screen and (max-width: 600px) {
+      .email-wrapper { padding: 16px 8px !important; }
+      .email-card { border-radius: 10px !important; }
+      .card-header { padding: 20px 20px !important; border-radius: 10px 10px 0 0 !important; }
+      .card-body { padding: 24px 20px 20px !important; }
+      .heading { font-size: 20px !important; }
+      .clinic-name { font-size: 12px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;">
+  <table width="100%" cellpadding="0" cellspacing="0" class="email-wrapper" style="background:#F0F4F8;padding:32px 16px;">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
 
-        <!-- Header -->
+      <!-- Outer card -->
+      <table cellpadding="0" cellspacing="0" class="email-card" style="width:100%;max-width:540px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+
+        <!-- Dark header -->
         <tr>
-          <td style="background:#1A2332;border-radius:12px 12px 0 0;padding:28px 36px;">
+          <td class="card-header" style="background:#1A2332;padding:22px 28px;border-radius:12px 12px 0 0;">
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td>
-                  <span style="font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#5EA89A;">${clinicName}</span>
+                  <span class="clinic-name" style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#5EA89A;">${clinicName}</span>
                 </td>
                 <td align="right">
-                  <span style="font-size:11px;color:#4A6080;letter-spacing:0.05em;">Neure Prodesk</span>
+                  <span style="font-size:11px;color:#3E5470;white-space:nowrap;">Neure Prodesk</span>
                 </td>
               </tr>
             </table>
           </td>
         </tr>
 
-        <!-- Sage accent strip -->
-        <tr><td style="background:#5EA89A;height:3px;"></td></tr>
+        <!-- Sage accent line -->
+        <tr><td style="background:#5EA89A;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
 
-        <!-- White card body -->
+        <!-- White body -->
         <tr>
-          <td style="background:#FFFFFF;padding:36px 36px 32px;border-radius:0 0 12px 12px;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+          <td class="card-body" style="background:#FFFFFF;padding:28px 28px 24px;">
 
-            <!-- Heading -->
-            <p style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.3px;">Session Confirmed ✓</p>
-            <p style="margin:0 0 28px;font-size:14px;color:#5EA89A;font-weight:500;">Your upcoming session details are below</p>
+            <!-- Title -->
+            <p class="heading" style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">Session Confirmed ✓</p>
+            <p style="margin:0 0 22px;font-size:13px;color:#5EA89A;font-weight:500;">Your upcoming session details are below</p>
 
             <!-- Greeting -->
-            <p style="margin:0 0 28px;font-size:15px;color:#4B5563;line-height:1.75;">
+            <p style="margin:0 0 22px;font-size:15px;color:#4B5563;line-height:1.7;">
               Hi <strong style="color:#111827;">${toName}</strong>,<br>
               Your session with <strong style="color:#111827;">${therapistName}</strong> has been successfully scheduled.
             </p>
 
-            <!-- Details box -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:24px;">
+            <!-- Details — stacked rows, each full width (works on any screen) -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:20px;">
               <tr>
-                <td style="padding:16px 20px;border-bottom:1px solid #E5EAF0;">
-                  <table width="100%" cellpadding="0" cellspacing="0"><tr>
-                    <td style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Therapist</td>
-                    <td align="right" style="font-size:15px;font-weight:600;color:#111827;">${therapistName}</td>
-                  </tr></table>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Therapist</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${therapistName}</p>
                 </td>
               </tr>
               <tr>
-                <td style="padding:16px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
-                  <table width="100%" cellpadding="0" cellspacing="0"><tr>
-                    <td style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</td>
-                    <td align="right" style="font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</td>
-                  </tr></table>
+                <td style="padding:14px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</p>
                 </td>
               </tr>
-              ${meetUrl ? `<tr>
-                <td style="padding:16px 20px;">
-                  <table width="100%" cellpadding="0" cellspacing="0"><tr>
-                    <td style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session Link</td>
-                    <td align="right"><a href="${meetUrl}" style="font-size:14px;font-weight:600;color:#5EA89A;text-decoration:none;">Join Session &rarr;</a></td>
-                  </tr></table>
-                </td>
-              </tr>` : ''}
+              ${meetRowHtml}
             </table>
 
-            <!-- Reminder note -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+            <!-- Reminder -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr>
-                <td style="background:#F0FBF9;border-left:3px solid #5EA89A;border-radius:0 6px 6px 0;padding:14px 16px;">
-                  <span style="font-size:13px;color:#374151;line-height:1.6;">
+                <td style="background:#F0FBF9;border-left:3px solid #5EA89A;border-radius:0 6px 6px 0;padding:12px 16px;">
+                  <p style="margin:0;font-size:13px;color:#374151;line-height:1.65;">
                     Please be ready <strong style="color:#5EA89A;">5 minutes</strong> before your scheduled time.
                     Reach out to your therapist if you need to reschedule.
-                  </span>
+                  </p>
                 </td>
               </tr>
             </table>
 
             <!-- Footer -->
             <table width="100%" cellpadding="0" cellspacing="0">
-              <tr><td style="border-top:1px solid #E5EAF0;padding-top:20px;">
-                <p style="margin:0;font-size:12px;color:#9CA3AF;text-align:center;">
-                  ${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span>
-                </p>
-              </td></tr>
+              <tr>
+                <td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                  <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                    ${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span>
+                  </p>
+                </td>
+              </tr>
             </table>
 
           </td>
@@ -244,6 +248,448 @@ class NotificationService {
       error: errorMsg,
       template_name: "session_scheduled_email",
       meta
+    });
+
+    return status === "SUCCESS";
+  }
+
+  /**
+   * Send a session reminder email — same design as confirmation but with reminder messaging.
+   */
+  static async sendSessionReminderEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null }) {
+    const meetRowHtml = meetUrl ? `
+      <tr>
+        <td style="padding:14px 20px;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session Link</p>
+          <a href="${meetUrl}" style="font-size:15px;font-weight:600;color:#5EA89A;text-decoration:none;word-break:break-all;">Join Session &rarr;</a>
+        </td>
+      </tr>` : '';
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    @media only screen and (max-width: 600px) {
+      .email-wrapper { padding: 16px 8px !important; }
+      .card-header { padding: 20px 20px !important; }
+      .card-body { padding: 24px 20px 20px !important; }
+      .heading { font-size: 20px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" class="email-wrapper" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:540px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td class="card-header" style="background:#1A2332;padding:22px 28px;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#C89364;">${clinicName}</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Neure Prodesk</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:#C89364;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td class="card-body" style="background:#FFFFFF;padding:28px 28px 24px;">
+            <p class="heading" style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">Session Reminder 🔔</p>
+            <p style="margin:0 0 22px;font-size:13px;color:#C89364;font-weight:500;">Your session is coming up soon</p>
+            <p style="margin:0 0 22px;font-size:15px;color:#4B5563;line-height:1.7;">
+              Hi <strong style="color:#111827;">${toName}</strong>,<br>
+              This is a reminder for your upcoming session with <strong style="color:#111827;">${therapistName}</strong>.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:20px;">
+              <tr>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Therapist</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${therapistName}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</p>
+                </td>
+              </tr>
+              ${meetRowHtml}
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td style="background:#FFF8F0;border-left:3px solid #C89364;border-radius:0 6px 6px 0;padding:12px 16px;">
+                  <p style="margin:0;font-size:13px;color:#374151;line-height:1.65;">
+                    Please be ready <strong style="color:#C89364;">5 minutes</strong> before your scheduled time.
+                    Reach out to your therapist if you need to reschedule.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                  ${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span>
+                </p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = "SUCCESS";
+    let statusCode = 200;
+    let errorMsg = null;
+
+    try {
+      const response = await axios.post(
+        "https://api.brevo.com/v3/smtp/email",
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject: `Reminder: Your session with ${therapistName} is tomorrow`,
+          htmlContent
+        },
+        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+      );
+      statusCode = response.status;
+      console.log("Reminder email sent to", toEmail, "| status:", statusCode);
+    } catch (err) {
+      status = "FAILED";
+      statusCode = err.response?.status || 500;
+      errorMsg = err.message;
+      console.error("sendSessionReminderEmail error:", err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: "EMAIL", status_code: statusCode, status,
+      type: "SESSION_REMINDER",
+      message: `Session reminder email to ${toEmail}`,
+      error: errorMsg,
+      template_name: "session_reminder_email",
+      meta
+    });
+
+    return status === "SUCCESS";
+  }
+
+  /**
+   * Send a password reset success confirmation email.
+   */
+  static async sendPasswordResetSuccessEmail({ toEmail, toName }) {
+    const time = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td style="background:#1A2332;padding:22px 28px;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#C89364;">Neure Prodesk</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Security Alert</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:#C89364;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td style="background:#FFFFFF;padding:32px 28px 28px;">
+            <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">Password Reset Successful 🔐</p>
+            <p style="margin:0 0 24px;font-size:13px;color:#C89364;font-weight:500;">Your account password has been changed</p>
+
+            <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.75;">
+              Hi <strong style="color:#111827;">${toName}</strong>,<br>
+              Your password was successfully reset on <strong style="color:#111827;">${time} IST</strong>.
+            </p>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td style="background:#FFF8F0;border-left:3px solid #C89364;border-radius:0 6px 6px 0;padding:14px 16px;">
+                  <p style="margin:0;font-size:13px;color:#374151;line-height:1.65;">
+                    ⚠️ <strong>If you did not make this change</strong>, your account may be compromised.
+                    Please contact support immediately at <span style="color:#C89364;font-weight:600;">support@neure.co.in</span>
+                  </p>
+                </td>
+              </tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr><td align="center">
+                <a href="https://prodesk.neure.co.in/login"
+                  style="display:inline-block;background:#5EA89A;color:#0E1218;font-size:14px;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;">
+                  Sign in to your account →
+                </a>
+              </td></tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                  Neure Prodesk &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure</span>
+                </p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = "SUCCESS";
+    let statusCode = 200;
+    let errorMsg = null;
+
+    try {
+      const response = await axios.post(
+        "https://api.brevo.com/v3/smtp/email",
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject: "Your Neure Prodesk password has been reset",
+          htmlContent
+        },
+        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+      );
+      statusCode = response.status;
+      console.log("Password reset success email sent to", toEmail, "| status:", statusCode);
+    } catch (err) {
+      status = "FAILED";
+      statusCode = err.response?.status || 500;
+      errorMsg = err.message;
+      console.error("sendPasswordResetSuccessEmail error:", err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: "EMAIL", status_code: statusCode, status,
+      type: "PASSWORD_RESET_SUCCESS",
+      message: `Password reset success email to ${toEmail}`,
+      error: errorMsg,
+      template_name: "password_reset_success_email",
+      meta: { email: toEmail }
+    });
+
+    return status === "SUCCESS";
+  }
+
+  /**
+   * Send a welcome email after successful registration and email verification.
+   */
+  static async sendWelcomeEmail({ toEmail, toName, clinicName = "Neure Prodesk" }) {
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@media only screen and (max-width:600px){.card-body{padding:28px 20px 24px !important;}}</style>
+</head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td style="background:#1A2332;padding:22px 28px;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#5EA89A;">Neure Prodesk</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Welcome</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:#5EA89A;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td class="card-body" style="background:#FFFFFF;padding:32px 28px 28px;">
+
+            <p style="margin:0 0 4px;font-size:24px;font-weight:700;color:#111827;">Welcome, ${toName}! 🎉</p>
+            <p style="margin:0 0 24px;font-size:13px;color:#5EA89A;font-weight:500;">Your account is ready. Let's get started.</p>
+
+            <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.75;">
+              Your <strong style="color:#111827;">Neure Prodesk</strong> account has been successfully created and verified.
+              You can now log in and start managing your practice.
+            </p>
+
+            <!-- What you can do -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:24px;">
+              <tr><td style="padding:16px 20px 8px;">
+                <p style="margin:0 0 12px;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">What you can do with Prodesk</p>
+              </td></tr>
+              <tr><td style="padding:0 20px 16px;">
+                <table cellpadding="0" cellspacing="0">
+                  <tr><td style="padding:4px 0;font-size:14px;color:#374151;">📅 &nbsp; Schedule and manage sessions</td></tr>
+                  <tr><td style="padding:4px 0;font-size:14px;color:#374151;">👥 &nbsp; Add and track clients</td></tr>
+                  <tr><td style="padding:4px 0;font-size:14px;color:#374151;">🧾 &nbsp; Generate invoices and billing</td></tr>
+                  <tr><td style="padding:4px 0;font-size:14px;color:#374151;">📝 &nbsp; Write session notes</td></tr>
+                  <tr><td style="padding:4px 0;font-size:14px;color:#374151;">🎥 &nbsp; Video sessions via Google Meet</td></tr>
+                </table>
+              </td></tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr><td align="center">
+                <a href="https://prodesk.neure.co.in/login"
+                  style="display:inline-block;background:#5EA89A;color:#0E1218;font-size:14px;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;letter-spacing:0.01em;">
+                  Go to Dashboard →
+                </a>
+              </td></tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                  ${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure</span>
+                </p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = "SUCCESS";
+    let statusCode = 200;
+    let errorMsg = null;
+
+    try {
+      const response = await axios.post(
+        "https://api.brevo.com/v3/smtp/email",
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject: `Welcome to Neure Prodesk, ${toName}!`,
+          htmlContent
+        },
+        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+      );
+      statusCode = response.status;
+      console.log("Welcome email sent to", toEmail, "| status:", statusCode);
+    } catch (err) {
+      status = "FAILED";
+      statusCode = err.response?.status || 500;
+      errorMsg = err.message;
+      console.error("sendWelcomeEmail error:", err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: "EMAIL", status_code: statusCode, status,
+      type: "WELCOME",
+      message: `Welcome email to ${toEmail}`,
+      error: errorMsg,
+      template_name: "welcome_email",
+      meta: { email: toEmail }
+    });
+
+    return status === "SUCCESS";
+  }
+
+  /**
+   * Send a 6-digit OTP email for email verification or forgot password.
+   * @param {string} type - 'verify' | 'forgot_password'
+   */
+  static async sendOtpEmail({ toEmail, toName, otp, type }) {
+    const isVerify = type === 'verify';
+    const subject = isVerify ? 'Verify your Neure Prodesk account' : 'Your password reset OTP';
+    const heading = isVerify ? 'Verify Your Email' : 'Reset Your Password';
+    const subtext = isVerify
+      ? 'Use the OTP below to verify your email and activate your account.'
+      : 'Use the OTP below to reset your password. Valid for 10 minutes.';
+    const accentColor = isVerify ? '#5EA89A' : '#C89364';
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@media only screen and (max-width:600px){.card-body{padding:28px 20px 24px !important;}}</style>
+</head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td style="background:#1A2332;padding:22px 28px;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:${accentColor};">Neure Prodesk</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Account Security</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:${accentColor};height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td class="card-body" style="background:#FFFFFF;padding:32px 28px 28px;">
+            <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">${heading}</p>
+            <p style="margin:0 0 24px;font-size:13px;color:${accentColor};font-weight:500;">${subtext}</p>
+            <p style="margin:0 0 20px;font-size:15px;color:#4B5563;line-height:1.7;">
+              Hi <strong style="color:#111827;">${toName}</strong>,
+            </p>
+            <!-- OTP Box -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td align="center" style="background:#F8FAFB;border:2px dashed ${accentColor};border-radius:12px;padding:24px;">
+                  <p style="margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#9CA3AF;">Your OTP</p>
+                  <p style="margin:0;font-size:40px;font-weight:700;letter-spacing:12px;color:#111827;">${otp}</p>
+                  <p style="margin:8px 0 0;font-size:12px;color:#9CA3AF;">Valid for 10 minutes</p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+              <tr>
+                <td style="background:#F0FBF9;border-left:3px solid ${accentColor};border-radius:0 6px 6px 0;padding:12px 16px;">
+                  <p style="margin:0;font-size:13px;color:#374151;line-height:1.6;">
+                    Never share this OTP with anyone. Neure will never ask for your OTP.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr><td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#9CA3AF;">
+                  Neure Prodesk &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure</span>
+                </p>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = "SUCCESS";
+    let statusCode = 200;
+    let errorMsg = null;
+
+    try {
+      const response = await axios.post(
+        "https://api.brevo.com/v3/smtp/email",
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject,
+          htmlContent
+        },
+        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+      );
+      statusCode = response.status;
+      console.log("OTP email sent to", toEmail, "| type:", type, "| status:", statusCode);
+    } catch (err) {
+      status = "FAILED";
+      statusCode = err.response?.status || 500;
+      errorMsg = err.message;
+      console.error("sendOtpEmail error:", err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: "EMAIL", status_code: statusCode, status,
+      type: isVerify ? "EMAIL_VERIFY_OTP" : "FORGOT_PASSWORD_OTP",
+      message: `OTP email to ${toEmail}`,
+      error: errorMsg,
+      template_name: "otp_email",
+      meta: { email: toEmail, otp_type: type }
     });
 
     return status === "SUCCESS";

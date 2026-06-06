@@ -3,8 +3,12 @@ const {
   getInvoicesService,
   getInvoiceByIdService,
   sendInvoiceService,
+  resendInvoiceService,
+  getInvoicePaymentLinkService,
   cancelInvoiceService,
   markInvoicePaidService,
+  initiateRefundService,
+  getPaymentLogsService,
   getBillingSummaryService,
   getPaymentsService,
   handleRazorpayWebhookService
@@ -57,6 +61,28 @@ class ProdeskBillingController {
     }
   }
 
+  static async resendInvoice(req, res) {
+    try {
+      const { invoice_id, channel } = req.body;
+      if (!invoice_id) return res.status(400).json({ status: false, code: 400, message: 'invoice_id required', data: null });
+      const result = await resendInvoiceService({ therapist_id: req.user.therapist_id, invoice_id, channel });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getInvoicePaymentLink(req, res) {
+    try {
+      const { invoice_id } = req.body;
+      if (!invoice_id) return res.status(400).json({ status: false, code: 400, message: 'invoice_id required', data: null });
+      const result = await getInvoicePaymentLinkService({ therapist_id: req.user.therapist_id, invoice_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async cancelInvoice(req, res) {
     try {
       const { invoice_id } = req.body;
@@ -73,6 +99,30 @@ class ProdeskBillingController {
       const { invoice_id } = req.body;
       if (!invoice_id) return res.status(400).json({ status: false, code: 400, message: 'invoice_id required', data: null });
       const result = await markInvoicePaidService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async initiateRefund(req, res) {
+    try {
+      const { invoice_id, amount } = req.body;
+      if (!invoice_id) return res.status(400).json({ status: false, code: 400, message: 'invoice_id required', data: null });
+      const result = await initiateRefundService({ therapist_id: req.user.therapist_id, invoice_id, amount });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getPaymentLogs(req, res) {
+    try {
+      const { invoice_id, payment_id, page, limit } = req.body;
+      if (!invoice_id && !payment_id) {
+        return res.status(400).json({ status: false, code: 400, message: 'invoice_id or payment_id required', data: null });
+      }
+      const result = await getPaymentLogsService({ therapist_id: req.user.therapist_id, invoice_id, payment_id, page, limit });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
@@ -100,10 +150,13 @@ class ProdeskBillingController {
   static async razorpayWebhook(req, res) {
     try {
       const signature = req.headers['x-razorpay-signature'];
-      const rawBody = JSON.stringify(req.body);
-      const result = await handleRazorpayWebhookService({ rawBody, signature, event: req.body });
+      // req.body is a raw Buffer here (express.raw middleware applied in index.js for this route)
+      const rawBody = req.body;
+      const event = JSON.parse(rawBody.toString());
+      const result = await handleRazorpayWebhookService({ rawBody, signature, event });
       return res.status(200).json(result);
     } catch (e) {
+      console.log('Webhook handler error::>>', e.message);
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }
   }

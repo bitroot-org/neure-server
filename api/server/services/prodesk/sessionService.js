@@ -48,7 +48,7 @@ const getSessionByIdService = async (payload) => {
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
-    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location } = payload;
+    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl } = payload;
 
     if (!client_id || !starts_at || !modality) {
       return { status: false, code: 400, message: 'client_id, starts_at and modality are required', data: null };
@@ -85,16 +85,19 @@ const createSessionService = async (payload) => {
       [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null]
     );
 
-    // For video sessions, create a Google Meet space and store the link.
-    // Best-effort: if Google credentials aren't configured, URL is created
-    // lazily on first join via getMeetingRoomService.
+    // For video sessions — use manually provided URL first, else auto-generate via Google Meet.
     let meetUrl = null;
     if (modality === 'video') {
-      try {
-        meetUrl = await createMeetingSpace(therapist_id);
+      if (manualMeetUrl) {
+        meetUrl = manualMeetUrl;
         await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
-      } catch (e) {
-        console.log('Meet room create (deferred):', e.message);
+      } else {
+        try {
+          meetUrl = await createMeetingSpace(therapist_id);
+          await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
+        } catch (e) {
+          console.log('Meet room create (deferred):', e.message);
+        }
       }
     }
 
@@ -136,14 +139,13 @@ const createSessionService = async (payload) => {
           });
         }
 
-        // WhatsApp (fires once MSG91 template is approved — set templateId to activate)
+        // WhatsApp
         if (phone) {
           const digits = phone.replace(/\D/g, '');
           const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
           await NotificationService.sendWhatsAppNotification({
             to: phone_e164,
             templateName: 'session_scheduled',
-            templateId: '',                    // Paste MSG91 template OID here to activate
             variables: [
               client_name,                     // {{1}} Hi *{{1}}*
               therapist_name,                  // {{2}} session with *{{2}}*
@@ -427,6 +429,72 @@ const getMeetingRoomService = async (payload) => {
   }
 };
 
+const sendSessionReminderService = async (payload) => {
+  try {
+    const { therapist_id, session_id } = payload;
+
+    const [rows] = await db.query(
+      `SELECT ps.id, ps.starts_at, ps.modality, ps.meet_url, ps.status,
+              u.email, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name,
+              u.phone
+       FROM prodesk_sessions ps
+       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = ps.therapist_id
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE ps.id = ? AND ps.therapist_id = ?`,
+      [session_id, therapist_id]
+    );
+
+    if (!rows || !rows.length) {
+      return { status: false, code: 404, message: 'Session not found', data: null };
+    }
+
+    const s = rows[0];
+
+    if (s.status === 'cancelled') {
+      return { status: false, code: 409, message: 'Cannot send reminder for a cancelled session', data: null };
+    }
+
+    const formattedTime = new Date(s.starts_at).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
+    });
+
+    const sent = { email: false, whatsapp: false };
+
+    if (s.email) {
+      sent.email = await NotificationService.sendSessionReminderEmail({
+        toEmail: s.email,
+        toName: s.client_name,
+        therapistName: s.therapist_name,
+        sessionTime: formattedTime,
+        meetUrl: s.meet_url || null,
+        clinicName: s.clinic_name,
+        meta: { session_id, type: 'reminder' }
+      });
+    }
+
+    if (s.phone) {
+      const digits = s.phone.replace(/\D/g, '');
+      const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      sent.whatsapp = await NotificationService.sendWhatsAppNotification({
+        to: phone_e164,
+        templateName: 'session_reminder',
+        variables: [s.client_name, s.therapist_name, formattedTime, s.meet_url || 'N/A'],
+        meta: { session_id, type: 'reminder' }
+      });
+    }
+
+    return { status: true, code: 200, message: 'Reminder sent', data: sent };
+  } catch (error) {
+    console.log('Error in sendSessionReminderService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   createSessionService,
   getSessionsService,
@@ -437,5 +505,6 @@ module.exports = {
   completeSessionService,
   getCalendarSessionsService,
   getTodaySessionsService,
-  getMeetingRoomService
+  getMeetingRoomService,
+  sendSessionReminderService
 };

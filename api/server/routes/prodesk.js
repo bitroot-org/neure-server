@@ -46,10 +46,14 @@ const resourceUpload = multer({
 // ──────────────────────────────────────────────────────────────
 // AUTH (no bearer)
 // ──────────────────────────────────────────────────────────────
-router.post('/login',           AuthCtrl.login);
-router.post('/refreshToken',    AuthCtrl.refreshToken);
-router.post('/forgotPassword',  AuthCtrl.forgotPassword);
-router.post('/resetPassword',   AuthCtrl.resetPassword);
+router.post('/register',         AuthCtrl.register);
+router.post('/verifyEmail',      AuthCtrl.verifyEmail);
+router.post('/resendOtp',        AuthCtrl.resendOtp);
+router.post('/login',            AuthCtrl.login);
+router.post('/refreshToken',     AuthCtrl.refreshToken);
+router.post('/forgotPassword',   AuthCtrl.forgotPassword);
+router.post('/verifyForgotOtp',  AuthCtrl.verifyForgotOtp);
+router.post('/resetPassword',    AuthCtrl.resetPassword);
 
 // ──────────────────────────────────────────────────────────────
 // AUTH (bearer required)
@@ -97,6 +101,7 @@ router.post('/completeSession',     authorization, SessionCtrl.completeSession);
 router.post('/getCalendarSessions', authorization, SessionCtrl.getCalendarSessions);
 router.post('/getTodaySessions',    authorization, SessionCtrl.getTodaySessions);
 router.post('/getMeetingRoom',      authorization, SessionCtrl.getMeetingRoom);
+router.post('/sendSessionReminder', authorization, SessionCtrl.sendSessionReminder);
 
 // ──────────────────────────────────────────────────────────────
 // SESSION NOTES
@@ -111,15 +116,19 @@ router.post('/deleteNoteAttachment',    authorization, NoteCtrl.deleteNoteAttach
 // ──────────────────────────────────────────────────────────────
 // BILLING & INVOICES
 // ──────────────────────────────────────────────────────────────
-router.post('/createInvoice',     authorization, BillingCtrl.createInvoice);
-router.post('/getInvoices',       authorization, BillingCtrl.getInvoices);
-router.post('/getInvoiceById',    authorization, BillingCtrl.getInvoiceById);
-router.post('/sendInvoice',       authorization, BillingCtrl.sendInvoice);
-router.post('/cancelInvoice',     authorization, BillingCtrl.cancelInvoice);
-router.post('/markInvoicePaid',   authorization, BillingCtrl.markInvoicePaid);
-router.post('/getBillingSummary', authorization, BillingCtrl.getBillingSummary);
-router.post('/getPayments',       authorization, BillingCtrl.getPayments);
-router.post('/razorpayWebhook',             BillingCtrl.razorpayWebhook); // no auth — HMAC verified
+router.post('/createInvoice',          authorization, BillingCtrl.createInvoice);
+router.post('/getInvoices',            authorization, BillingCtrl.getInvoices);
+router.post('/getInvoiceById',         authorization, BillingCtrl.getInvoiceById);
+router.post('/sendInvoice',            authorization, BillingCtrl.sendInvoice);
+router.post('/resendInvoice',          authorization, BillingCtrl.resendInvoice);
+router.post('/getInvoicePaymentLink',  authorization, BillingCtrl.getInvoicePaymentLink);
+router.post('/cancelInvoice',          authorization, BillingCtrl.cancelInvoice);
+router.post('/markInvoicePaid',        authorization, BillingCtrl.markInvoicePaid);
+router.post('/initiateRefund',         authorization, BillingCtrl.initiateRefund);
+router.post('/getPaymentLogs',         authorization, BillingCtrl.getPaymentLogs);
+router.post('/getBillingSummary',      authorization, BillingCtrl.getBillingSummary);
+router.post('/getPayments',            authorization, BillingCtrl.getPayments);
+router.post('/razorpayWebhook',        BillingCtrl.razorpayWebhook); // no auth — HMAC verified
 
 // ──────────────────────────────────────────────────────────────
 // RESOURCES

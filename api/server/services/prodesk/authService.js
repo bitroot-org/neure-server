@@ -5,6 +5,39 @@ const db = require('../../../config/db');
 const EmailService = require('../email/emailService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
+const OTP_TTL_MINUTES = 10;
+
+const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
+
+const saveOtp = async (user_id, type) => {
+  const otp = generateOtp();
+  const expires_at = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
+  await db.query('DELETE FROM prodesk_otps WHERE user_id = ? AND type = ?', [user_id, type]);
+  await db.query(
+    'INSERT INTO prodesk_otps (user_id, otp, type, expires_at) VALUES (?, ?, ?, ?)',
+    [user_id, otp, type, expires_at]
+  );
+  return otp;
+};
+
+const issueTokens = async (user) => {
+  const jti = crypto.randomUUID();
+  const accessToken = jwt.sign(
+    { user_id: user.user_id, email: user.email, role_id: 4, therapist_id: user.therapist_id, jti },
+    process.env.JWT_SECRET,
+    { expiresIn: ACCESS_TTL }
+  );
+  const refreshToken = jwt.sign(
+    { user_id: user.user_id, role_id: 4 },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: `${REFRESH_TTL_DAYS}d` }
+  );
+  const expiresAt = new Date(Date.now() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
+  await db.query('INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.user_id, refreshToken, expiresAt]);
+  await db.query('INSERT INTO prodesk_device_sessions (therapist_id, jti) VALUES (?, ?)', [user.therapist_id, jti]);
+  return { accessToken, refreshToken, expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+};
+
 const ACCESS_TTL = '15m';
 const REFRESH_TTL_DAYS = 30;
 
@@ -162,6 +195,145 @@ const refreshTokenService = async (payload) => {
   }
 };
 
+const registerService = async (payload) => {
+  try {
+    console.log('Payload in registerService::>>', payload);
+    const { first_name, last_name = '', email, password, phone } = payload;
+
+    if (!first_name || !email || !password) {
+      return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
+    }
+
+    const [existing] = await db.query('SELECT user_id FROM users WHERE email = ?', [email]);
+    if (existing && existing.length) {
+      return { status: false, code: 409, message: 'An account with this email already exists', data: null };
+    }
+
+    const firstName = first_name.trim();
+    const lastName = (last_name || '').trim();
+    const hashed = await bcrypt.hash(password, 10);
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [userResult] = await conn.query(
+        'INSERT INTO users (first_name, last_name, email, phone, password, role_id, is_active) VALUES (?, ?, ?, ?, ?, 4, 0)',
+        [firstName, lastName, email, cleanPhone, hashed]
+      );
+      const userId = userResult.insertId;
+
+      const slug = `${firstName.toLowerCase()}-${lastName.toLowerCase()}-${userId}`.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      await conn.query('INSERT INTO therapists (user_id, booking_slug) VALUES (?, ?)', [userId, slug]);
+
+      await conn.commit();
+
+      const otp = await saveOtp(userId, 'email_verify');
+      await NotificationService.sendOtpEmail({ toEmail: email, toName: firstName, otp, type: 'verify' });
+
+      return { status: true, code: 201, message: 'Account created. Please verify your email with the OTP sent.', data: { email } };
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (error) {
+    console.log('Error in registerService::>>', error);
+    return null;
+  }
+};
+
+const verifyEmailService = async (payload) => {
+  try {
+    console.log('Payload in verifyEmailService::>>', payload);
+    const { email, otp } = payload;
+
+    if (!email || !otp) {
+      return { status: false, code: 400, message: 'email and otp are required', data: null };
+    }
+
+    const [users] = await db.query(
+      'SELECT user_id, first_name, email FROM users WHERE email = ? AND role_id = 4',
+      [email]
+    );
+    if (!users || !users.length) {
+      return { status: false, code: 404, message: 'Account not found', data: null };
+    }
+    const user = users[0];
+
+    const [otpRows] = await db.query(
+      'SELECT id, expires_at, used FROM prodesk_otps WHERE user_id = ? AND otp = ? AND type = ?',
+      [user.user_id, otp, 'email_verify']
+    );
+
+    if (!otpRows || !otpRows.length) {
+      return { status: false, code: 400, message: 'Invalid OTP', data: null };
+    }
+    if (otpRows[0].used) {
+      return { status: false, code: 400, message: 'OTP already used', data: null };
+    }
+    if (new Date() > new Date(otpRows[0].expires_at)) {
+      return { status: false, code: 400, message: 'OTP expired. Please request a new one.', data: null };
+    }
+
+    await db.query('UPDATE users SET is_active = 1 WHERE user_id = ?', [user.user_id]);
+    await db.query('UPDATE prodesk_otps SET used = 1 WHERE id = ?', [otpRows[0].id]);
+
+    const [fullUser] = await db.query(
+      `SELECT u.*, t.id AS therapist_id, t.booking_slug FROM users u
+       JOIN therapists t ON t.user_id = u.user_id WHERE u.user_id = ?`,
+      [user.user_id]
+    );
+
+    const tokens = await issueTokens(fullUser[0]);
+    const { password: _, ...safeUser } = fullUser[0];
+
+    // Send welcome email (best-effort)
+    try {
+      await NotificationService.sendWelcomeEmail({
+        toEmail: user.email,
+        toName: fullUser[0].first_name
+      });
+    } catch (e) {
+      console.log('Welcome email error:', e.message);
+    }
+
+    return {
+      status: true, code: 200, message: 'Email verified. Welcome to Neure Prodesk!',
+      data: { ...tokens, user: safeUser }
+    };
+  } catch (error) {
+    console.log('Error in verifyEmailService::>>', error);
+    return null;
+  }
+};
+
+const resendOtpService = async (payload) => {
+  try {
+    const { email, type } = payload;
+    if (!email || !type) return { status: false, code: 400, message: 'email and type are required', data: null };
+
+    const isActive = type === 'email_verify' ? 0 : 1;
+    const [users] = await db.query(
+      'SELECT user_id, first_name FROM users WHERE email = ? AND role_id = 4 AND is_active = ?',
+      [email, isActive]
+    );
+    if (!users || !users.length) {
+      return { status: true, code: 200, message: 'If that email exists, an OTP has been sent', data: null };
+    }
+
+    const otp = await saveOtp(users[0].user_id, type);
+    await NotificationService.sendOtpEmail({ toEmail: email, toName: users[0].first_name, otp, type });
+
+    return { status: true, code: 200, message: 'OTP resent successfully', data: null };
+  } catch (error) {
+    console.log('Error in resendOtpService::>>', error);
+    return null;
+  }
+};
+
 const forgotPasswordService = async (payload) => {
   try {
     console.log('Payload in forgotPasswordService::>>', payload);
@@ -173,28 +345,52 @@ const forgotPasswordService = async (payload) => {
     );
 
     if (!users || !users.length) {
-      return { status: true, code: 200, message: 'If that email exists, a reset link has been sent', data: null };
+      return { status: true, code: 200, message: 'If that email exists, an OTP has been sent', data: null };
     }
 
     const user = users[0];
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+    const otp = await saveOtp(user.user_id, 'forgot_password');
+    await NotificationService.sendOtpEmail({ toEmail: email, toName: user.first_name, otp, type: 'forgot_password' });
 
-    await db.query('DELETE FROM password_reset_tokens WHERE user_id = ?', [user.user_id]);
-    await db.query(
-      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.user_id, token, expiry]
-    );
-
-    try {
-      await EmailService.sendPasswordResetEmail(user.first_name, user.email, token, 4);
-    } catch (e) {
-      console.log('Forgot password email error::>>', e.message);
-    }
-
-    return { status: true, code: 200, message: 'Password reset instructions sent', data: null };
+    return { status: true, code: 200, message: 'OTP sent to your email', data: null };
   } catch (error) {
     console.log('Error in forgotPasswordService::>>', error);
+    return null;
+  }
+};
+
+const verifyForgotOtpService = async (payload) => {
+  try {
+    console.log('Payload in verifyForgotOtpService::>>', payload);
+    const { email, otp } = payload;
+
+    if (!email || !otp) return { status: false, code: 400, message: 'email and otp are required', data: null };
+
+    const [users] = await db.query(
+      'SELECT user_id FROM users WHERE email = ? AND role_id = 4 AND is_active = 1',
+      [email]
+    );
+    if (!users || !users.length) return { status: false, code: 400, message: 'Invalid OTP', data: null };
+
+    const [otpRows] = await db.query(
+      'SELECT id, expires_at, used FROM prodesk_otps WHERE user_id = ? AND otp = ? AND type = ?',
+      [users[0].user_id, otp, 'forgot_password']
+    );
+
+    if (!otpRows || !otpRows.length) return { status: false, code: 400, message: 'Invalid OTP', data: null };
+    if (otpRows[0].used) return { status: false, code: 400, message: 'OTP already used', data: null };
+    if (new Date() > new Date(otpRows[0].expires_at)) return { status: false, code: 400, message: 'OTP expired. Request a new one.', data: null };
+
+    await db.query('UPDATE prodesk_otps SET used = 1 WHERE id = ?', [otpRows[0].id]);
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiry = new Date(Date.now() + 15 * 60 * 1000);
+    await db.query('DELETE FROM password_reset_tokens WHERE user_id = ?', [users[0].user_id]);
+    await db.query('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [users[0].user_id, resetToken, expiry]);
+
+    return { status: true, code: 200, message: 'OTP verified', data: { reset_token: resetToken } };
+  } catch (error) {
+    console.log('Error in verifyForgotOtpService::>>', error);
     return null;
   }
 };
@@ -227,6 +423,19 @@ const resetPasswordService = async (payload) => {
       type: 'ACCOUNT_UPDATE',
       user_id: tokens[0].user_id
     });
+
+    // Send confirmation email (best-effort)
+    try {
+      const [userRow] = await db.query('SELECT first_name, email FROM users WHERE user_id = ?', [tokens[0].user_id]);
+      if (userRow && userRow.length) {
+        await NotificationService.sendPasswordResetSuccessEmail({
+          toEmail: userRow[0].email,
+          toName: userRow[0].first_name
+        });
+      }
+    } catch (e) {
+      console.log('Password reset success email error:', e.message);
+    }
 
     return { status: true, code: 200, message: 'Password reset successfully', data: null };
   } catch (error) {
@@ -308,11 +517,15 @@ const revokeDeviceSessionService = async (payload) => {
 };
 
 module.exports = {
+  registerService,
+  verifyEmailService,
+  resendOtpService,
   loginService,
   logoutService,
   logoutAllService,
   refreshTokenService,
   forgotPasswordService,
+  verifyForgotOtpService,
   resetPasswordService,
   changePasswordService,
   getDeviceSessionsService,

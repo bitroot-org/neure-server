@@ -1,9 +1,13 @@
 const {
+  registerService,
+  verifyEmailService,
+  resendOtpService,
   loginService,
   logoutService,
   logoutAllService,
   refreshTokenService,
   forgotPasswordService,
+  verifyForgotOtpService,
   resetPasswordService,
   changePasswordService,
   getDeviceSessionsService,
@@ -17,6 +21,50 @@ const respond = (res, result) => {
 };
 
 class ProdeskAuthController {
+  static async register(req, res) {
+    try {
+      const { first_name, last_name, email, password, phone } = req.body;
+      if (!first_name || !email || !password) return res.status(400).json({ status: false, code: 400, message: 'first_name, email and password are required', data: null });
+      const result = await registerService({ first_name, last_name, email, password, phone });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async verifyEmail(req, res) {
+    try {
+      const { email, otp } = req.body;
+      if (!email || !otp) return res.status(400).json({ status: false, code: 400, message: 'email and otp are required', data: null });
+      const result = await verifyEmailService({ email, otp });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async resendOtp(req, res) {
+    try {
+      const { email, type } = req.body;
+      if (!email || !type) return res.status(400).json({ status: false, code: 400, message: 'email and type are required', data: null });
+      const result = await resendOtpService({ email, type });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async verifyForgotOtp(req, res) {
+    try {
+      const { email, otp } = req.body;
+      if (!email || !otp) return res.status(400).json({ status: false, code: 400, message: 'email and otp are required', data: null });
+      const result = await verifyForgotOtpService({ email, otp });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async login(req, res) {
     try {
       const { email, password } = req.body;
