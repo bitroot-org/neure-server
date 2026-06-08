@@ -5,9 +5,19 @@ const MSG91_AUTH_KEY = "520733ARLmjeFtYE6a227444P1";
 const MSG91_INTEGRATED_NUMBER = "919004364096";
 const MSG91_WHATSAPP_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
 
-const BREVO_API_KEY = "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";
 const BREVO_SENDER_EMAIL = "varun@neure.co.in";
-const BREVO_SENDER_NAME = "Neure";
+const BREVO_SENDER_NAME  = "Neure";
+
+let _brevoApiKey = null;
+const getBrevoApiKey = async () => {
+  if (_brevoApiKey) return _brevoApiKey;
+  const [rows] = await db.query(
+    "SELECT secret FROM client_integration WHERE type = 'email' AND is_active = 1 LIMIT 1"
+  );
+  if (!rows || !rows.length) throw new Error('Brevo API key not configured in client_integration table');
+  _brevoApiKey = rows[0].secret;
+  return _brevoApiKey;
+};
 
 class NotificationService {
   /**
@@ -225,7 +235,7 @@ class NotificationService {
         },
         {
           headers: {
-            "api-key": BREVO_API_KEY,
+            "api-key": await getBrevoApiKey(),
             "Content-Type": "application/json"
           }
         }
@@ -352,7 +362,7 @@ class NotificationService {
           subject: `Reminder: Your session with ${therapistName} is tomorrow`,
           htmlContent
         },
-        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+        { headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" } }
       );
       statusCode = response.status;
       console.log("Reminder email sent to", toEmail, "| status:", statusCode);
@@ -455,7 +465,7 @@ class NotificationService {
           subject: "Your Neure Prodesk password has been reset",
           htmlContent
         },
-        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+        { headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" } }
       );
       statusCode = response.status;
       console.log("Password reset success email sent to", toEmail, "| status:", statusCode);
@@ -564,7 +574,7 @@ class NotificationService {
           subject: `Welcome to Neure Prodesk, ${toName}!`,
           htmlContent
         },
-        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+        { headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" } }
       );
       statusCode = response.status;
       console.log("Welcome email sent to", toEmail, "| status:", statusCode);
@@ -672,7 +682,7 @@ class NotificationService {
           subject,
           htmlContent
         },
-        { headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json" } }
+        { headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" } }
       );
       statusCode = response.status;
       console.log("OTP email sent to", toEmail, "| type:", type, "| status:", statusCode);

@@ -1,6 +1,12 @@
 const db = require('../../../config/db');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+const InvoiceEmailService = require('./invoiceEmailService');
+
+// ─── FEATURE FLAG ─────────────────────────────────────────────────────────────
+// true  → Razorpay creates + sends invoice (payment link included)
+// false → Custom PDF generated, uploaded to S3, emailed + WhatsApp'd to client
+const RAZORPAY_INVOICE_ENABLED = false;
 
 const generateInvoiceNumber = (id) => {
   const year = new Date().getFullYear();
@@ -36,10 +42,12 @@ const getInvoiceByIdService = async (payload) => {
     const { therapist_id, invoice_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT pi.*, CONCAT(u.first_name, ' ', u.last_name) AS client_name, u.email AS client_email
+      `SELECT pi.*,
+              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              u.email AS client_email
        FROM prodesk_invoices pi
-       JOIN prodesk_clients pc ON pc.id = pi.client_id
-       JOIN users u ON u.user_id = pc.user_id
+       LEFT JOIN prodesk_clients pc ON pc.id = pi.client_id
+       LEFT JOIN users u ON u.user_id = pc.user_id
        WHERE pi.id = ? AND pi.therapist_id = ?`,
       [invoice_id, therapist_id]
     );
@@ -79,8 +87,12 @@ const createInvoiceService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
-    const enriched = line_items.map(i => ({ ...i, amount: parseFloat((i.qty * i.rate).toFixed(2)) }));
-    const { subtotal, tax, total } = computeTotals(enriched, tax_percent);
+    const enriched = line_items.map(i => ({
+      ...i,
+      amount: parseFloat((i.qty * i.rate).toFixed(2))
+    }));
+    const effectiveTaxPercent = (tax_percent === 0 || tax_percent === '0') ? 0 : (tax_percent || 18);
+    const { subtotal, tax, total } = computeTotals(enriched, effectiveTaxPercent);
     const issue_date = new Date().toISOString().slice(0, 10);
 
     const [result] = await db.query(
@@ -106,6 +118,29 @@ const createInvoiceService = async (payload) => {
   }
 };
 
+// ─── HELPERS — fetch client and therapist rows ────────────────────────────────
+
+const fetchClientInfo = async (clientId) => {
+  const [rows] = await db.query(
+    `SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone
+     FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
+    [clientId]
+  );
+  return rows && rows.length ? rows[0] : null;
+};
+
+const fetchTherapistInfo = async (therapistId) => {
+  const [rows] = await db.query(
+    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name
+     FROM therapists t
+     JOIN users u ON u.user_id = t.user_id
+     LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+     WHERE t.id = ?`,
+    [therapistId]
+  );
+  return rows && rows.length ? rows[0] : { brand_name: 'NEURE INNOVATIONS LLP', email: 'support@neure.co.in' };
+};
+
 // ─── SEND INVOICE ─────────────────────────────────────────────────────────────
 
 const sendInvoiceService = async (payload) => {
@@ -121,16 +156,47 @@ const sendInvoiceService = async (payload) => {
       return { status: false, code: 409, message: 'Only draft invoices can be sent', data: null };
     }
 
-    const [clientRows] = await db.query(
-      `SELECT u.first_name, u.last_name, u.email, u.phone
-       FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
-      [invoice.client_id]
-    );
-    if (!clientRows || !clientRows.length) {
-      return { status: false, code: 404, message: 'Client not found', data: null };
+    const client = await fetchClientInfo(invoice.client_id);
+    if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    // ── PATH A: Custom invoice (PDF → S3 → Email + WhatsApp) ─────────────────
+    if (!RAZORPAY_INVOICE_ENABLED) {
+      const therapist = await fetchTherapistInfo(therapist_id);
+
+      let pdfUrl = null;
+      try {
+        pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
+      } catch (e) {
+        console.log('Custom invoice send error::>>', e.message);
+        return { status: false, code: 502, message: `Invoice delivery failed: ${e.message}`, data: null };
+      }
+
+      await db.query(
+        `UPDATE prodesk_invoices
+         SET status = 'sent', invoice_pdf_url = ?, last_sent_at = NOW()
+         WHERE id = ?`,
+        [pdfUrl, invoice_id]
+      );
+
+      const [payResult] = await db.query(
+        `INSERT INTO prodesk_payment
+         (user_id, therapist_id, invoice_id, payment_type, provider, amount, currency, status, method)
+         VALUES (?, ?, ?, 'invoice', 'offline', ?, 'INR', 'created', 'offline')`,
+        [client.user_id, therapist_id, invoice_id, invoice.total]
+      );
+
+      await writePaymentLog({
+        paymentId: payResult.insertId,
+        invoiceId: invoice_id,
+        status: 'created',
+        eventType: 'invoice.sent',
+        source: 'therapist'
+      });
+
+      return getInvoiceByIdService({ therapist_id, invoice_id });
     }
 
-    const client = clientRows[0];
+    // ── PATH B: Razorpay invoice ──────────────────────────────────────────────
     let razorpayId = null;
     let shortUrl = null;
 
@@ -162,13 +228,11 @@ const sendInvoiceService = async (payload) => {
       [razorpayId, shortUrl, invoice_id]
     );
 
-    // Create initial payment record in 'created' state
-    const [clientUser] = await db.query('SELECT user_id FROM prodesk_clients WHERE id = ?', [invoice.client_id]);
     const [payResult] = await db.query(
       `INSERT INTO prodesk_payment
        (user_id, therapist_id, invoice_id, payment_type, provider, amount, currency, status, method)
        VALUES (?, ?, ?, 'invoice', 'razorpay', ?, 'INR', 'created', 'razorpay')`,
-      [clientUser[0]?.user_id, therapist_id, invoice_id, invoice.total]
+      [client.user_id, therapist_id, invoice_id, invoice.total]
     );
 
     await writePaymentLog({
@@ -201,11 +265,7 @@ const resendInvoiceService = async (payload) => {
       return { status: false, code: 409, message: 'Invoice must be in sent/overdue state to resend', data: null };
     }
 
-    if (!invoice.razorpay_invoice_id) {
-      return { status: false, code: 409, message: 'No Razorpay invoice linked. Send the invoice first.', data: null };
-    }
-
-    // Enforce a 10-minute cooldown to avoid spamming the client
+    // 10-minute cooldown regardless of path
     if (invoice.last_sent_at) {
       const cooldownMs = 10 * 60 * 1000;
       const lastSent = new Date(invoice.last_sent_at).getTime();
@@ -215,26 +275,57 @@ const resendInvoiceService = async (payload) => {
       }
     }
 
-    let rzResponse = null;
+    const [payRow] = await db.query(
+      'SELECT id FROM prodesk_payment WHERE invoice_id = ? ORDER BY created_at DESC LIMIT 1',
+      [invoice_id]
+    );
+
+    // ── PATH A: Custom invoice resend (re-generate PDF + re-send email/WhatsApp) ─
+    if (!RAZORPAY_INVOICE_ENABLED) {
+      const client = await fetchClientInfo(invoice.client_id);
+      if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
+      const therapist = await fetchTherapistInfo(therapist_id);
+
+      let pdfUrl = invoice.invoice_pdf_url;
+      try {
+        pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
+      } catch (e) {
+        console.log('Custom invoice resend error::>>', e.message);
+        return { status: false, code: 502, message: `Resend failed: ${e.message}`, data: null };
+      }
+
+      await db.query(
+        'UPDATE prodesk_invoices SET last_sent_at = NOW(), invoice_pdf_url = ? WHERE id = ?',
+        [pdfUrl, invoice_id]
+      );
+
+      if (payRow && payRow.length) {
+        await writePaymentLog({
+          paymentId: payRow[0].id,
+          invoiceId: invoice_id,
+          status: invoice.status,
+          eventType: 'invoice.resent',
+          source: 'therapist',
+          meta: { channel }
+        });
+      }
+
+      return { status: true, code: 200, message: 'Invoice resent successfully', data: { channel } };
+    }
+
+    // ── PATH B: Razorpay resend ───────────────────────────────────────────────
+    if (!invoice.razorpay_invoice_id) {
+      return { status: false, code: 409, message: 'No Razorpay invoice linked. Send the invoice first.', data: null };
+    }
+
     try {
-      rzResponse = await RazorpayService.notifyInvoice({
-        razorpayInvoiceId: invoice.razorpay_invoice_id,
-        channel
-      });
+      await RazorpayService.notifyInvoice({ razorpayInvoiceId: invoice.razorpay_invoice_id, channel });
     } catch (e) {
       console.log('Razorpay notify error::>>', e.message);
       return { status: false, code: 502, message: `Razorpay error: ${e.message}`, data: null };
     }
 
-    await db.query(
-      'UPDATE prodesk_invoices SET last_sent_at = NOW() WHERE id = ?',
-      [invoice_id]
-    );
-
-    const [payRow] = await db.query(
-      'SELECT id FROM prodesk_payment WHERE invoice_id = ? ORDER BY created_at DESC LIMIT 1',
-      [invoice_id]
-    );
+    await db.query('UPDATE prodesk_invoices SET last_sent_at = NOW() WHERE id = ?', [invoice_id]);
 
     if (payRow && payRow.length) {
       await writePaymentLog({
@@ -303,8 +394,8 @@ const getInvoicesService = async (payload) => {
     const [rows] = await db.query(
       `SELECT pi.*, CONCAT(u.first_name, ' ', u.last_name) AS client_name
        FROM prodesk_invoices pi
-       JOIN prodesk_clients pc ON pc.id = pi.client_id
-       JOIN users u ON u.user_id = pc.user_id
+       LEFT JOIN prodesk_clients pc ON pc.id = pi.client_id
+       LEFT JOIN users u ON u.user_id = pc.user_id
        WHERE ${where} ORDER BY pi.created_at DESC LIMIT ? OFFSET ?`,
       [...vals, limit, offset]
     );

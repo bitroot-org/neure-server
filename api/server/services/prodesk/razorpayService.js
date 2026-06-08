@@ -56,17 +56,29 @@ const createInvoiceRazorpayService = async (payload) => {
     console.log('Payload in createInvoiceRazorpayService::>>', payload);
     const { customer, lineItems, taxAmount, totalAmount, dueBy, receipt, notes = {} } = payload;
 
+    const mappedItems = lineItems.map(item => ({
+      name: item.description,
+      amount: Math.round(item.rate * 100),
+      currency: 'INR',
+      quantity: item.qty
+    }));
+
+    // Razorpay does not accept a top-level tax_amount field.
+    // Add GST as a separate line item so the total matches and it shows on the invoice.
+    if (taxAmount && taxAmount > 0) {
+      mappedItems.push({
+        name: 'GST (18%)',
+        amount: Math.round(taxAmount * 100),
+        currency: 'INR',
+        quantity: 1
+      });
+    }
+
     const body = {
       type: 'invoice',
       receipt,
       customer,
-      line_items: lineItems.map(item => ({
-        name: item.description,
-        amount: Math.round(item.rate * 100),
-        currency: 'INR',
-        quantity: item.qty
-      })),
-      tax_amount: Math.round(taxAmount * 100),
+      line_items: mappedItems,
       sms_notify: 1,
       email_notify: 1,
       partial_payment: 0,
