@@ -129,6 +129,7 @@ router.post('/getPaymentLogs',         authorization, BillingCtrl.getPaymentLogs
 router.post('/getBillingSummary',      authorization, BillingCtrl.getBillingSummary);
 router.post('/getPayments',            authorization, BillingCtrl.getPayments);
 router.post('/razorpayWebhook',        BillingCtrl.razorpayWebhook); // no auth — HMAC verified
+router.get('/i/:invoice_number',       BillingCtrl.invoicePDFRedirect); // no auth — short URL redirect
 
 // ──────────────────────────────────────────────────────────────
 // RESOURCES

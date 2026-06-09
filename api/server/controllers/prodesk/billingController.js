@@ -147,6 +147,23 @@ class ProdeskBillingController {
     }
   }
 
+  static async invoicePDFRedirect(req, res) {
+    try {
+      const { invoice_number } = req.params;
+      const db = require('../../../config/db');
+      const [rows] = await db.query(
+        'SELECT invoice_pdf_url FROM prodesk_invoices WHERE invoice_number = ? LIMIT 1',
+        [invoice_number]
+      );
+      if (!rows || !rows.length || !rows[0].invoice_pdf_url) {
+        return res.status(404).send('Invoice not found');
+      }
+      return res.redirect(302, rows[0].invoice_pdf_url);
+    } catch (e) {
+      return res.status(500).send('Error');
+    }
+  }
+
   static async razorpayWebhook(req, res) {
     try {
       const signature = req.headers['x-razorpay-signature'];

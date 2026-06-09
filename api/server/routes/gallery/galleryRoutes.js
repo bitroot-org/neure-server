@@ -10,6 +10,7 @@ const {
   deleteGalleryItem,
   assignToCompany
 } = require("../../controllers/gallery/galleryController");
+const CatalogueResourceController = require("../../controllers/gallery/catalogueResourceController");
 
 const router = express.Router();
 
@@ -57,8 +58,25 @@ router.put(
 
 router.delete("/deleteGalleryItem/:itemId", authorization, deleteGalleryItem);
 
-// ...existing routes...
 router.post("/assignToCompany", authorization, assignToCompany);
 
+// ── Therapist Catalogue Resources (superadmin only) ──────────────────────────
+const catalogueUpload = multer({
+  dest: 'temp/',
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/mp4',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    cb(null, allowed.includes(file.mimetype));
+  }
+});
+
+router.get('/getCatalogueResources',      authorization, CatalogueResourceController.getCatalogueResources);
+router.post('/uploadCatalogueResource',   authorization, catalogueUpload.single('file'), CatalogueResourceController.uploadCatalogueResource);
+router.post('/deleteCatalogueResource',   authorization, CatalogueResourceController.deleteCatalogueResource);
 
 module.exports = router;

@@ -71,6 +71,33 @@ const createSessionService = async (payload) => {
       return { status: false, code: 409, message: 'Slot unavailable — overlaps with an existing session', data: null };
     }
 
+    // Check therapist availability — day must be enabled, time must be within working hours
+    const [availRows] = await db.query(
+      'SELECT * FROM therapist_availability WHERE therapist_id = ?',
+      [therapist_id]
+    );
+    if (availRows && availRows.length) {
+      const avail = availRows[0];
+      const days = Array.isArray(avail.days) ? avail.days : JSON.parse(avail.days || '[]');
+
+      const sessionDate = new Date(starts_at);
+      const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][sessionDate.getDay()];
+
+      if (!days.includes(dayName)) {
+        return { status: false, code: 422, message: `Therapist is not available on ${dayName}`, data: null };
+      }
+
+      // Check within from_time — to_time window
+      const sessionHHMM = sessionDate.toTimeString().slice(0, 5); // "HH:MM"
+      if (sessionHHMM < avail.from_time.slice(0, 5) || sessionHHMM >= avail.to_time.slice(0, 5)) {
+        return {
+          status: false, code: 422,
+          message: `Session time must be between ${avail.from_time.slice(0,5)} and ${avail.to_time.slice(0,5)}`,
+          data: null
+        };
+      }
+    }
+
     const [[{ cnt }]] = await db.query(
       'SELECT COUNT(*) AS cnt FROM prodesk_sessions WHERE client_id = ?',
       [client_id]
@@ -135,7 +162,9 @@ const createSessionService = async (payload) => {
             sessionTime: formattedTime,
             meetUrl: meetUrl || null,
             clinicName: clinic_name,
-            meta: notifMeta
+            meta: notifMeta,
+            sessionStartISO: starts_at,
+            durationMin: duration_min || 60
           });
         }
 

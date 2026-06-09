@@ -52,8 +52,10 @@ const createClientService = async (payload) => {
     try {
       await conn.beginTransaction();
 
+      let finalUserId = null;
+
       if (email) {
-        // Check if email already exists as a client for this therapist
+        // Check if this email is already a client of THIS therapist — hard block
         const [dup] = await conn.query(
           `SELECT pc.id FROM prodesk_clients pc
            JOIN users u ON u.user_id = pc.user_id
@@ -62,30 +64,33 @@ const createClientService = async (payload) => {
         );
         if (dup && dup.length) {
           await conn.rollback();
-          return { status: false, code: 409, message: 'Client with this email already exists', data: null };
+          return { status: false, code: 409, message: 'Client with this email already exists for this therapist', data: null };
         }
 
-        // Check if email exists in users table under any role
+        // If email exists in users (e.g. client of another therapist) — reuse that user_id
         const [existingUser] = await conn.query(
           'SELECT user_id FROM users WHERE email = ?',
           [email]
         );
         if (existingUser && existingUser.length) {
-          await conn.rollback();
-          return { status: false, code: 409, message: 'A user with this email already exists in the system. Use a different email for this client.', data: null };
+          finalUserId = existingUser[0].user_id;
         }
       }
 
-      const tempPassword = await bcrypt.hash(Math.random().toString(36).slice(-8), 10);
-      const nameParts = name.trim().split(/\s+/);
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ') || '';
+      if (!finalUserId) {
+        // New user — create a users row
+        const tempPassword = await bcrypt.hash(Math.random().toString(36).slice(-8), 10);
+        const nameParts = name.trim().split(/\s+/);
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(' ') || '';
 
-      const [userResult] = await conn.query(
-        `INSERT INTO users (first_name, last_name, email, phone, password, role_id, gender)
-         VALUES (?, ?, ?, ?, ?, 5, ?)`,
-        [firstName, lastName, email || null, cleanPhone || null, tempPassword, gender || null]
-      );
+        const [userResult] = await conn.query(
+          `INSERT INTO users (first_name, last_name, email, phone, password, role_id, gender)
+           VALUES (?, ?, ?, ?, ?, 5, ?)`,
+          [firstName, lastName, email || null, cleanPhone || null, tempPassword, gender || null]
+        );
+        finalUserId = userResult.insertId;
+      }
 
       const color = avatarColor(name);
       const [clientResult] = await conn.query(
@@ -94,7 +99,7 @@ const createClientService = async (payload) => {
           presenting_concerns, issues, default_fee, avatar_color)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          userResult.insertId, therapist_id, age || null, gender || null,
+          finalUserId, therapist_id, age || null, gender || null,
           city || null, emergency_contact || null,
           start_date || new Date().toISOString().slice(0, 10),
           presenting_concerns || null,

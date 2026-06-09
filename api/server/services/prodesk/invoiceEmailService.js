@@ -1,19 +1,10 @@
 const puppeteer = require('puppeteer');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const { s3Client } = require('../../../config/s3Client');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
-// Neure logo as base64 — works for both email (inline) and puppeteer PDF
-const LOGO_PATH = path.join(__dirname, '../../../..', 'public/image/neurelogo.png');
-let LOGO_BASE64 = '';
-try {
-  LOGO_BASE64 = 'data:image/png;base64,' + fs.readFileSync(LOGO_PATH).toString('base64');
-} catch (e) {
-  console.log('Logo not found at', LOGO_PATH, '— invoice will render without logo');
-}
+const LOGO_URL = 'https://neure-staging.s3.ap-south-1.amazonaws.com/prodesk/assets/neure-white-strip-logo.png';
 
 const TERMS = `
   <ul style="margin:0;padding-left:18px;list-style:disc;">
@@ -21,7 +12,6 @@ const TERMS = `
     <li>Services are billed for sessions conducted and professional services rendered.</li>
     <li>Cancellation and refund matters are governed by the practitioner's policies.</li>
     <li>Limited client information may be displayed to maintain confidentiality.</li>
-    <li>This is a computer-generated invoice and does not require a signature.</li>
   </ul>
 `;
 
@@ -79,23 +69,21 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
 
   const gstRow = hasGST ? `
     <tr>
-      <td style="${TDC}">${lineItems.length + 1}</td>
-      <td style="${TD}">GST (if applicable)</td>
+      <td style="${TDC}"></td>
+      <td style="${TD}">GST (${invoice.tax_percent}%)</td>
       <td style="${TDC}">${invoice.tax_percent}%</td>
       <td style="${TDR}">₹${formatINR(invoice.tax)}</td>
     </tr>` : '';
 
   const totalRow = `
     <tr style="background:#f9f9f9;">
-      <td style="${TDC}">${lineItems.length + (hasGST ? 2 : 1)}</td>
+      <td style="${TDC}"></td>
       <td style="${TD}font-weight:700;">Grand total</td>
       <td style="${TDC}"></td>
       <td style="${TDR}font-weight:700;font-size:14px;">₹${formatINR(invoice.total)}</td>
     </tr>`;
 
-  const logoHtml = LOGO_BASE64
-    ? `<img src="${LOGO_BASE64}" alt="Neure" style="height:36px;margin-bottom:8px;" />`
-    : `<div style="font-size:20px;font-weight:900;letter-spacing:2px;color:#222;">NEURE</div>`;
+  const logoHtml = `<img src="${LOGO_URL}" alt="Neure" style="height:64px;margin-bottom:6px;" />`;
 
   const downloadBtn = (!forPDF && invoice.invoice_pdf_url) ? `
     <div style="text-align:center;margin:24px 0 8px;">
@@ -194,7 +182,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
       ${clinicName} &nbsp;·&nbsp;
       <a href="mailto:${supportEmail}" style="color:#7c9cbf;text-decoration:none;">${supportEmail}</a>
     </div>
-    <div style="font-size:10px;color:#666;margin-top:4px;">
+    <div style="font-size:10px;color:#555;margin-top:6px;">
       This is a computer-generated invoice and does not require a signature.
     </div>
   </div>
@@ -240,6 +228,14 @@ const uploadPDFToS3 = async (pdfBuffer, invoiceNumber) => {
   return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
 };
 
+// ─── SHORT REDIRECT URL ───────────────────────────────────────────────────────
+// Builds an internal redirect URL — instant 302, no interstitial, your own domain.
+// Route: GET /api/prodesk/i/:invoice_number → redirects to S3 PDF
+
+const getInvoiceShortUrl = (invoiceNumber) => {
+  return `https://neure-api.bitroot.org/api/prodesk/i/${invoiceNumber}`;
+};
+
 // ─── EMAIL (via Brevo) ────────────────────────────────────────────────────────
 
 const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl }) => {
@@ -251,7 +247,7 @@ const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl }) => {
     const response = await axios.post(
       'https://api.brevo.com/v3/smtp/email',
       {
-        sender: BREVO_SENDER,
+        sender: { name: 'Neure Invoice', email: BREVO_SENDER.email },
         to: [{ email: client.email, name: `${client.first_name} ${client.last_name}` }],
         subject: `Invoice ${invoice.invoice_number} from ${clinicName} — INR ${formatINR(invoice.total)}`,
         htmlContent
@@ -283,6 +279,8 @@ const sendInvoiceWhatsApp = async ({ invoice, client, pdfUrl }) => {
     ? new Date(invoice.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'N/A';
 
+  const shortUrl = getInvoiceShortUrl(invoice.invoice_number);
+
   await NotificationService.sendWhatsAppNotification({
     to,
     templateName: MSG91_INVOICE_TEMPLATE,
@@ -291,31 +289,21 @@ const sendInvoiceWhatsApp = async ({ invoice, client, pdfUrl }) => {
       invoice.invoice_number,
       formatINR(invoice.total),
       dueDate,
-      pdfUrl
+      shortUrl
     ],
     meta: { invoice_id: invoice.id, invoice_number: invoice.invoice_number }
   });
 };
 
 // ─── MAIN ORCHESTRATOR ────────────────────────────────────────────────────────
-// 1. Generate PDF from HTML
-// 2. Upload to S3 → get pdfUrl
-// 3. Send email with pdfUrl button
-// 4. Send WhatsApp with pdfUrl link (non-fatal)
-// Returns: pdfUrl (S3 link)
 
 const sendCustomInvoice = async ({ invoice, client, therapist }) => {
-  // Build PDF HTML (no download button — the PDF itself is the download)
-  const pdfHtml = buildInvoiceHTML({ invoice, client, therapist, forPDF: true });
-
-  // Generate PDF and upload to S3
+  const pdfHtml   = buildInvoiceHTML({ invoice, client, therapist, forPDF: true });
   const pdfBuffer = await generatePDF(pdfHtml);
-  const pdfUrl = await uploadPDFToS3(pdfBuffer, invoice.invoice_number);
+  const pdfUrl    = await uploadPDFToS3(pdfBuffer, invoice.invoice_number);
 
-  // Send email (PDF URL goes into the button)
   await sendInvoiceEmail({ invoice, client, therapist, pdfUrl });
 
-  // Send WhatsApp — failure does not block invoice send
   try {
     await sendInvoiceWhatsApp({ invoice, client, pdfUrl });
   } catch (e) {

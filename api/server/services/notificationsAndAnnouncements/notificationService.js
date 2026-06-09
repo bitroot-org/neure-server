@@ -6,7 +6,7 @@ const MSG91_INTEGRATED_NUMBER = "919004364096";
 const MSG91_WHATSAPP_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
 
 const BREVO_SENDER_EMAIL = "varun@neure.co.in";
-const BREVO_SENDER_NAME  = "Neure";
+const BREVO_SENDER_NAME  = "Neure Sessions"; // used for session emails only — see per-function overrides below
 
 let _brevoApiKey = null;
 const getBrevoApiKey = async () => {
@@ -93,18 +93,57 @@ class NotificationService {
     return status === "SUCCESS";
   }
 
+  // ─── ICS CALENDAR FILE GENERATOR ─────────────────────────────────────────
+  // Generates a .ics file content string for a session.
+  // Gmail shows "Add to Calendar", iPhone Mail shows "Add to Calendar" banner.
+  static generateICS({ summary, description, startISO, durationMin, location = '' }) {
+    const pad  = (n) => String(n).padStart(2, '0');
+    const toICSDate = (iso) => {
+      const d = new Date(iso);
+      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
+             `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    };
+    const start = toICSDate(startISO);
+    const endDate = new Date(new Date(startISO).getTime() + durationMin * 60000);
+    const end = toICSDate(endDate.toISOString());
+    const uid = `session-${Date.now()}@neure.co.in`;
+    const now = toICSDate(new Date().toISOString());
+
+    return [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Neure Prodesk//Session//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:REQUEST',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${start}`,
+      `DTEND:${end}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
+      location ? `LOCATION:${location}` : '',
+      'STATUS:CONFIRMED',
+      'SEQUENCE:0',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].filter(Boolean).join('\r\n');
+  }
+
   /**
    * Send session scheduled email via Brevo transactional API.
    *
-   * @param {string} toEmail       - Recipient email
-   * @param {string} toName        - Recipient full name (client)
-   * @param {string} therapistName - Therapist full name
-   * @param {string} sessionTime   - Formatted date & time string (IST)
-   * @param {string} meetUrl       - Google Meet URL or null for in-person
-   * @param {string} clinicName    - Therapist brand/clinic name
-   * @param {object} [meta]        - Optional extra data for notification_log
+   * @param {string} toEmail         - Recipient email
+   * @param {string} toName          - Recipient full name (client)
+   * @param {string} therapistName   - Therapist full name
+   * @param {string} sessionTime     - Formatted date & time string (IST)
+   * @param {string} meetUrl         - Google Meet URL or null for in-person
+   * @param {string} clinicName      - Therapist brand/clinic name
+   * @param {object} [meta]          - Optional extra data for notification_log
+   * @param {string} [sessionStartISO] - ISO datetime of session start (for ICS)
+   * @param {number} [durationMin]   - Session duration in minutes (for ICS)
    */
-  static async sendSessionScheduledEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null }) {
+  static async sendSessionScheduledEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null, sessionStartISO = null, durationMin = 60 }) {
     const meetRowHtml = meetUrl ? `
       <tr>
         <td style="padding:14px 20px;border-top:1px solid #E5EAF0;">
@@ -224,15 +263,40 @@ class NotificationService {
     let statusCode = 200;
     let errorMsg = null;
 
+    // Build ICS attachment if session datetime is provided
+    const attachments = [];
+    if (sessionStartISO) {
+      try {
+        const icsContent = NotificationService.generateICS({
+          summary: `Session with ${therapistName}`,
+          description: meetUrl
+            ? `Your therapy session with ${therapistName}.\nJoin: ${meetUrl}`
+            : `Your therapy session with ${therapistName}.`,
+          startISO: sessionStartISO,
+          durationMin,
+          location: meetUrl || ''
+        });
+        attachments.push({
+          content: Buffer.from(icsContent).toString('base64'),
+          name: 'session.ics'
+        });
+      } catch (e) {
+        console.log('ICS generation failed (non-fatal):', e.message);
+      }
+    }
+
     try {
+      const payload = {
+        sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+        to: [{ email: toEmail, name: toName }],
+        subject: `Your session with ${therapistName} is confirmed`,
+        htmlContent
+      };
+      if (attachments.length) payload.attachment = attachments;
+
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
-        {
-          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
-          to: [{ email: toEmail, name: toName }],
-          subject: `Your session with ${therapistName} is confirmed`,
-          htmlContent
-        },
+        payload,
         {
           headers: {
             "api-key": await getBrevoApiKey(),
@@ -460,7 +524,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject: "Your Neure Prodesk password has been reset",
           htmlContent
@@ -569,7 +633,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject: `Welcome to Neure Prodesk, ${toName}!`,
           htmlContent
@@ -677,7 +741,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject,
           htmlContent
