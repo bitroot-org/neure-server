@@ -199,7 +199,6 @@ const generatePDF = async (html) => {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      cacheDirectory: process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
     });
     const page = await browser.newPage();
