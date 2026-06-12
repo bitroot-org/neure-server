@@ -5,7 +5,7 @@ const MSG91_AUTH_KEY = "520733ARLmjeFtYE6a227444P1";
 const MSG91_INTEGRATED_NUMBER = "919004364096";
 const MSG91_WHATSAPP_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
 
-const BREVO_SENDER_EMAIL = "varun@neure.co.in";
+const BREVO_SENDER_EMAIL = "prodesk@neure.co.in";
 const BREVO_SENDER_NAME  = "Neure Sessions"; // used for session emails only — see per-function overrides below
 
 let _brevoApiKey = null;

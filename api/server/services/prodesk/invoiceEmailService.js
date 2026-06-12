@@ -17,7 +17,7 @@ const TERMS = `
 
 const MSG91_INVOICE_TEMPLATE = 'neure_invoice1';
 
-const BREVO_SENDER = { name: 'Neure', email: 'varun@neure.co.in' };
+const BREVO_SENDER = { name: 'Neure Invoice', email: 'prodesk@neure.co.in' };
 
 const db = require('../../../config/db');
 let _brevoApiKey = null;
