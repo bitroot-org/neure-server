@@ -14,7 +14,11 @@ const ResourceCtrl  = require('../controllers/prodesk/resourceController');
 const BookingCtrl   = require('../controllers/prodesk/bookingController');
 const DashboardCtrl = require('../controllers/prodesk/dashboardController');
 const TeamCtrl      = require('../controllers/prodesk/teamController');
-const GoogleCtrl    = require('../controllers/prodesk/googleController');
+const GoogleCtrl         = require('../controllers/prodesk/googleController');
+const SubscriptionCtrl   = require('../controllers/prodesk/subscriptionController');
+const OfferCtrl          = require('../controllers/prodesk/offerController');
+const ReferralCtrl       = require('../controllers/prodesk/referralController');
+const FeedbackCtrl       = require('../controllers/prodesk/feedbackController');
 
 // Multer — image uploads (profile, logo, documents)
 const imageUpload = multer({
@@ -179,5 +183,36 @@ router.post('/getTeam',      authorization, TeamCtrl.getTeam);
 router.post('/inviteStaff',  authorization, TeamCtrl.inviteStaff);
 router.post('/updateStaff',  authorization, TeamCtrl.updateStaff);
 router.post('/removeStaff',  authorization, TeamCtrl.removeStaff);
+
+// ──────────────────────────────────────────────────────────────
+// PLANS
+// ──────────────────────────────────────────────────────────────
+router.post('/plans/get',                    authorization, SubscriptionCtrl.getPlans);
+
+// ──────────────────────────────────────────────────────────────
+// SUBSCRIPTION
+// ──────────────────────────────────────────────────────────────
+router.post('/subscription/get',             authorization, SubscriptionCtrl.getSubscription);
+router.post('/subscription/activate-free',   authorization, SubscriptionCtrl.activateFree);
+router.post('/subscription/create-order',    authorization, SubscriptionCtrl.createOrder);
+router.post('/subscription/confirm-payment', authorization, SubscriptionCtrl.confirmPayment);
+router.post('/subscription/renew',           authorization, SubscriptionCtrl.renewOrder);
+router.post('/subscription/confirm-renewal', authorization, SubscriptionCtrl.confirmRenewal);
+
+// ──────────────────────────────────────────────────────────────
+// OFFERS
+// ──────────────────────────────────────────────────────────────
+router.post('/offers/validate',              authorization, OfferCtrl.validateOffer);
+
+// ──────────────────────────────────────────────────────────────
+// REFERRAL PROGRAM
+// ──────────────────────────────────────────────────────────────
+router.post('/referral/get',                 authorization, ReferralCtrl.getReferral);
+router.post('/referral/get-history',         authorization, ReferralCtrl.getReferralHistory);
+
+// ──────────────────────────────────────────────────────────────
+// FEEDBACK
+// ──────────────────────────────────────────────────────────────
+router.post('/feedback/submit',              authorization, FeedbackCtrl.submitFeedback);
 
 module.exports = router;

@@ -195,10 +195,16 @@ const refreshTokenService = async (payload) => {
   }
 };
 
+const generateReferralCode = (firstName, userId) => {
+  const name = firstName.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4).padEnd(4, 'X');
+  const rand = Math.random().toString(36).toUpperCase().slice(2, 6);
+  return `DR-${name}-${rand}`;
+};
+
 const registerService = async (payload) => {
   try {
     console.log('Payload in registerService::>>', payload);
-    const { first_name, last_name = '', email, password, phone } = payload;
+    const { first_name, last_name = '', email, password, phone, referral_code } = payload;
 
     if (!first_name || !email || !password) {
       return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
@@ -207,6 +213,16 @@ const registerService = async (payload) => {
     const [existing] = await db.query('SELECT user_id FROM users WHERE email = ?', [email]);
     if (existing && existing.length) {
       return { status: false, code: 409, message: 'An account with this email already exists', data: null };
+    }
+
+    // Validate referral code if provided
+    let referrerTherapistId = null;
+    if (referral_code) {
+      const [[referrer]] = await db.query('SELECT id FROM therapists WHERE referral_code = ?', [referral_code.trim().toUpperCase()]);
+      if (!referrer) {
+        return { status: false, code: 400, message: 'Invalid referral code', data: null };
+      }
+      referrerTherapistId = referrer.id;
     }
 
     const firstName = first_name.trim();
@@ -225,7 +241,38 @@ const registerService = async (payload) => {
       const userId = userResult.insertId;
 
       const slug = `${firstName.toLowerCase()}-${lastName.toLowerCase()}-${userId}`.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      await conn.query('INSERT INTO therapists (user_id, booking_slug) VALUES (?, ?)', [userId, slug]);
+      let uniqueReferralCode = generateReferralCode(firstName, userId);
+      // Ensure uniqueness
+      let attempts = 0;
+      while (attempts < 5) {
+        const [[codeExists]] = await conn.query('SELECT id FROM therapists WHERE referral_code = ?', [uniqueReferralCode]);
+        if (!codeExists) break;
+        uniqueReferralCode = generateReferralCode(firstName, userId + attempts + 1);
+        attempts++;
+      }
+
+      const [therapistResult] = await conn.query(
+        'INSERT INTO therapists (user_id, booking_slug, referral_code) VALUES (?, ?, ?)',
+        [userId, slug, uniqueReferralCode]
+      );
+      const therapistId = therapistResult.insertId;
+
+      // Create referral wallet for this new therapist
+      await conn.query(
+        'INSERT INTO prodesk_referral_wallet (therapist_id) VALUES (?)', [therapistId]
+      );
+
+      // Store pending referral record if referral code was used
+      if (referrerTherapistId) {
+        // Self-referral guard
+        if (referrerTherapistId !== therapistId) {
+          await conn.query(
+            `INSERT INTO prodesk_referrals (referrer_therapist_id, referred_therapist_id, referral_code_used, status)
+             VALUES (?,?,?,'pending')`,
+            [referrerTherapistId, therapistId, referral_code.trim().toUpperCase()]
+          );
+        }
+      }
 
       await conn.commit();
 

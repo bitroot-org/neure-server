@@ -20,6 +20,7 @@ const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackin
 const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 const activityLogRoutes = require('./server/routes/logs/ActivityLogRoutes');
 const prodeskRoutes = require('./server/routes/prodesk');
+const prodeskAdminRoutes = require('./server/routes/prodeskAdmin');
 const serverActive = require("./Cron/serverActive");
 
 const initMonthlyMetricsReset = require("./Cron/monthlyMetricsReset");
@@ -29,6 +30,8 @@ const initResourceUsageMetrics = require("./Cron/resourceUsageMetrics");
 const initAssessmentCompletionCheck = require("./Cron/assessmentCompletionCheck");
 const initNewCompanyMetrics = require("./Cron/newCompanyMetrics");
 const initProdeskOverdueInvoices = require("./Cron/prodeskOverdueInvoices");
+// NOTE: Inactive — uncomment to activate renewal reminders
+// const initProdeskSubscriptionRenewal = require("./Cron/prodeskSubscriptionRenewal");
 
 // Initialize environment variables
 dotenv.config();
@@ -62,6 +65,7 @@ app.use('/api/tracking', resourceTrackingRoutes);
 app.use("/api/qna", qnaRoutes);
 app.use('/api/logs', activityLogRoutes);
 app.use('/api/prodesk', prodeskRoutes);
+app.use('/api/prodesk-admin', prodeskAdminRoutes);
 
 // Start server
 const PORT = process.env.PORT || 3000;
@@ -82,6 +86,7 @@ initMonthlyMetricsReset();
 initWorkshopReminder();
 initNewCompanyMetrics();
 initProdeskOverdueInvoices();
+// initProdeskSubscriptionRenewal(); // INACTIVE — uncomment to enable renewal reminders
 
 app.get("*", (req, res) => {
   const currentTime = new Date().toISOString();
