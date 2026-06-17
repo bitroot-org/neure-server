@@ -242,6 +242,7 @@ const confirmPaymentService = async ({ therapist_id, subscription_id, razorpay_o
         await conn.query(`UPDATE prodesk_offers SET total_used = total_used + 1 WHERE id = ?`, [sub.offer_id]);
       }
       // Handle referral reward
+      let referralRewardData = null;
       const [[referral]] = await conn.query(
         `SELECT * FROM prodesk_referrals WHERE referred_therapist_id = ? AND status = 'pending'`, [therapist_id]
       );
@@ -267,9 +268,32 @@ const confirmPaymentService = async ({ therapist_id, subscription_id, razorpay_o
              VALUES (?,'credit',?,?,?,'referral',?)`,
             [referral.referrer_therapist_id, reward, `Referral reward — therapist_id ${therapist_id} signup`, referral.id, wallet.pending_balance]
           );
+          referralRewardData = { referrer_therapist_id: referral.referrer_therapist_id, reward, wallet_balance: wallet.pending_balance };
         }
       }
       await conn.commit();
+
+      // Send referral reward email to referrer (outside transaction)
+      if (referralRewardData) {
+        try {
+          const [[referrerRow]] = await db.query(
+            `SELECT u.email, u.first_name FROM therapists t JOIN users u ON t.user_id = u.user_id WHERE t.id = ?`,
+            [referralRewardData.referrer_therapist_id]
+          );
+          if (referrerRow) {
+            await NotificationService.sendEmail({
+              toEmail: referrerRow.email, toName: referrerRow.first_name,
+              template: 'prodesk_referral_reward_credited',
+              data: {
+                referrer_name: referrerRow.first_name,
+                referred_name: `${therapistRow.first_name}`,
+                reward_amount: referralRewardData.reward,
+                wallet_balance: referralRewardData.wallet_balance
+              }
+            });
+          }
+        } catch (_) {}
+      }
     } catch (e) {
       await conn.rollback();
       throw e;
@@ -287,6 +311,24 @@ const confirmPaymentService = async ({ therapist_id, subscription_id, razorpay_o
         data: { therapist_name: therapistRow.first_name, plan_name: sub.plan_name, billing_cycle: sub.billing_cycle, period_end: periodEnd }
       });
     } catch (_) {}
+
+    // Send offer redeemed email if offer was applied
+    if (sub.offer_id) {
+      try {
+        const [[offerRow]] = await db.query(`SELECT code, name FROM prodesk_offers WHERE id = ?`, [sub.offer_id]);
+        if (offerRow) {
+          await NotificationService.sendEmail({
+            toEmail: therapistRow.email, toName: therapistRow.first_name,
+            template: 'prodesk_offer_redeemed',
+            data: {
+              therapist_name: therapistRow.first_name, offer_code: offerRow.code,
+              offer_name: offerRow.name, plan_name: sub.plan_name,
+              final_amount: amount
+            }
+          });
+        }
+      } catch (_) {}
+    }
 
     return {
       status: true, code: 200, message: 'Payment confirmed. Subscription activated.',

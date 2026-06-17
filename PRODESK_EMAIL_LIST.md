@@ -34,7 +34,7 @@ Template files live in `api/templates/`.
 
 | # | Trigger | Template Name | Recipient | Subject |
 |---|---------|--------------|-----------|---------|
-| 10 | Offer code validated and applied at purchase | `prodesk_offer_redeemed` | Therapist | Your ProDesk offer code has been applied |
+| 10 | Payment confirmed with offer code applied | `prodesk_offer_redeemed` | Therapist | Your offer code "EARLY30" has been applied |
 
 ---
 

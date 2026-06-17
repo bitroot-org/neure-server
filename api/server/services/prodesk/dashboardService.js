@@ -25,14 +25,51 @@ const getDashboardService = async (payload) => {
   }
 };
 
+const getPeriodRange = (period) => {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  let start, prevStart, prevEnd;
+
+  if (period === 'day') {
+    start = today;
+    const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+    prevStart = prevEnd = yesterday.toISOString().slice(0, 10);
+  } else if (period === 'week') {
+    const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 6);
+    start = weekAgo.toISOString().slice(0, 10);
+    const prevWeekEnd = new Date(weekAgo); prevWeekEnd.setDate(prevWeekEnd.getDate() - 1);
+    const prevWeekStart = new Date(prevWeekEnd); prevWeekStart.setDate(prevWeekStart.getDate() - 6);
+    prevStart = prevWeekStart.toISOString().slice(0, 10);
+    prevEnd = prevWeekEnd.toISOString().slice(0, 10);
+  } else if (period === 'year') {
+    start = `${now.getFullYear()}-01-01`;
+    prevStart = `${now.getFullYear() - 1}-01-01`;
+    prevEnd = `${now.getFullYear() - 1}-12-31`;
+  } else {
+    // month (default)
+    start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    prevStart = prevMonthStart.toISOString().slice(0, 10);
+    prevEnd = prevMonthEnd.toISOString().slice(0, 10);
+  }
+
+  return { start, end: today, prevStart, prevEnd: prevEnd || today };
+};
+
 const getMetricsService = async (payload) => {
   try {
     console.log('Payload in getMetricsService::>>', payload);
-    const { therapist_id, from, to } = payload;
+    const { therapist_id, period = 'month', from, to } = payload;
 
-    const startDate = from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    const endDate = to || new Date().toISOString().slice(0, 10);
+    // Allow manual from/to override, else derive from period
+    const range = getPeriodRange(period);
+    const startDate = from || range.start;
+    const endDate   = to   || range.end;
+    const prevStart = range.prevStart;
+    const prevEnd   = range.prevEnd;
 
+    // ── Current period ────────────────────────────────────────────────────
     const [[sessionStats]] = await db.query(
       `SELECT COUNT(*) AS total_sessions,
               COALESCE(SUM(duration_min) / 60, 0) AS therapy_hours
@@ -58,32 +95,64 @@ const getMetricsService = async (payload) => {
       [therapist_id, startDate, endDate]
     );
 
-    const prevStart = new Date(startDate);
-    prevStart.setMonth(prevStart.getMonth() - 1);
-    const prevEnd = new Date(endDate);
-    prevEnd.setMonth(prevEnd.getMonth() - 1);
-
-    const [[prevRevenue]] = await db.query(
-      `SELECT COALESCE(SUM(total), 0) AS revenue FROM prodesk_invoices
-       WHERE therapist_id = ? AND status = 'paid'
-       AND DATE(paid_at) BETWEEN ? AND ?`,
-      [therapist_id, prevStart.toISOString().slice(0, 10), prevEnd.toISOString().slice(0, 10)]
+    // ── Previous period (for change calculations) ─────────────────────────
+    const [[prevSession]] = await db.query(
+      `SELECT COUNT(*) AS total_sessions, COUNT(DISTINCT client_id) AS lives_impacted
+       FROM prodesk_sessions
+       WHERE therapist_id = ? AND status = 'completed'
+       AND DATE(starts_at) BETWEEN ? AND ?`,
+      [therapist_id, prevStart, prevEnd]
     );
 
-    const mom = prevRevenue.revenue > 0
-      ? parseFloat(((revenueStats.revenue - prevRevenue.revenue) / prevRevenue.revenue * 100).toFixed(1))
-      : 0;
+    const [[prevRevenue]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS revenue
+       FROM prodesk_invoices
+       WHERE therapist_id = ? AND status = 'paid'
+       AND DATE(paid_at) BETWEEN ? AND ?`,
+      [therapist_id, prevStart, prevEnd]
+    );
+
+    // ── Unpaid invoices (payments_due + overdue_count) ────────────────────
+    const [[unpaidStats]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS payments_due,
+              SUM(CASE WHEN status = 'overdue' THEN 1 ELSE 0 END) AS overdue_count
+       FROM prodesk_invoices
+       WHERE therapist_id = ? AND status IN ('sent','overdue')`,
+      [therapist_id]
+    );
+
+    // ── Calculate change values ────────────────────────────────────────────
+    const curRevenue  = Number(revenueStats.revenue)         || 0;
+    const prevRev     = Number(prevRevenue.revenue)          || 0;
+    const curSessions = Number(sessionStats.total_sessions)  || 0;
+    const prevSess    = Number(prevSession.total_sessions)   || 0;
+    const curClients  = Number(clientStats.lives_impacted)   || 0;
+    const prevClients = Number(prevSession.lives_impacted)   || 0;
+
+    const pct = (cur, prev) => prev > 0
+      ? parseFloat(((cur - prev) / prev * 100).toFixed(1))
+      : cur > 0 ? 100 : 0;
 
     return {
       status: true, code: 200, message: 'Metrics fetched',
       data: {
-        period: startDate.slice(0, 7),
-        therapy_hours: Math.round((Number(sessionStats.therapy_hours) || 0) * 10) / 10,
-        lives_impacted: Number(clientStats.lives_impacted) || 0,
-        revenue: Number(revenueStats.revenue) || 0,
-        sessions: Number(sessionStats.total_sessions) || 0,
-        month_over_month_percent: mom,
-        currency: 'INR'
+        period,
+        period_start: startDate,
+        period_end: endDate,
+        // Core metrics
+        therapy_hours:         Math.round((Number(sessionStats.therapy_hours) || 0) * 10) / 10,
+        lives_impacted:        curClients,
+        revenue:               curRevenue,
+        sessions:              curSessions,
+        currency:              'INR',
+        // Change vs previous period
+        revenue_change_percent:   pct(curRevenue, prevRev),
+        sessions_change_percent:  pct(curSessions, prevSess),
+        clients_change:           curClients - prevClients,
+        month_over_month_percent: pct(curRevenue, prevRev),
+        // Unpaid invoices
+        payments_due:   parseFloat(Number(unpaidStats.payments_due).toFixed(2)),
+        overdue_count:  Number(unpaidStats.overdue_count) || 0
       }
     };
   } catch (error) {

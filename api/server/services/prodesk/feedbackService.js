@@ -40,4 +40,29 @@ const submitFeedbackService = async ({ therapist_id, subject, message, rating })
   }
 };
 
-module.exports = { submitFeedbackService };
+const getFaqService = async ({ search = '', page = 1, limit = 50 }) => {
+  try {
+    const offset = (page - 1) * limit;
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (search) {
+      where += ' AND (question LIKE ? OR answer LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM qna ${where}`, params);
+    const [rows] = await db.query(
+      `SELECT id, question, answer, created_at FROM qna ${where} ORDER BY id ASC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset]
+    );
+    return {
+      status: true, code: 200, message: 'FAQ fetched',
+      data: rows,
+      meta: { total, page: parseInt(page), limit: parseInt(limit) }
+    };
+  } catch (error) {
+    console.log('Error in getFaqService::>>', error);
+    return null;
+  }
+};
+
+module.exports = { submitFeedbackService, getFaqService };

@@ -213,6 +213,11 @@ router.post('/referral/get',                 authorization, ReferralCtrl.getRefe
 router.post('/referral/get-history',         authorization, ReferralCtrl.getReferralHistory);
 
 // ──────────────────────────────────────────────────────────────
+// FAQ
+// ──────────────────────────────────────────────────────────────
+router.post('/getFaq', authorization, FeedbackCtrl.getFaq);
+
+// ──────────────────────────────────────────────────────────────
 // FEEDBACK
 // ──────────────────────────────────────────────────────────────
 router.post('/feedback/submit',              authorization, FeedbackCtrl.submitFeedback);

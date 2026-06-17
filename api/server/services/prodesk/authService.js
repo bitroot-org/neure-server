@@ -275,17 +275,22 @@ const registerService = async (payload) => {
       }
 
       await conn.commit();
-
-      const otp = await saveOtp(userId, 'email_verify');
-      await NotificationService.sendOtpEmail({ toEmail: email, toName: firstName, otp, type: 'verify' });
-
-      return { status: true, code: 201, message: 'Account created. Please verify your email with the OTP sent.', data: { email } };
     } catch (e) {
       await conn.rollback();
       throw e;
     } finally {
       conn.release();
     }
+
+    // OTP + email are outside the transaction — failure here does not affect DB entries
+    try {
+      const otp = await saveOtp(userId, 'email_verify');
+      await NotificationService.sendOtpEmail({ toEmail: email, toName: firstName, otp, type: 'verify' });
+    } catch (emailErr) {
+      console.log('Warning: OTP email failed after account creation::>>', emailErr.message);
+    }
+
+    return { status: true, code: 201, message: 'Account created. Please verify your email with the OTP sent.', data: { email } };
   } catch (error) {
     console.log('Error in registerService::>>', error);
     return null;
