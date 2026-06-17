@@ -45,6 +45,29 @@ const createClientService = async (payload) => {
       return { status: false, code: 400, message: 'name is required', data: null };
     }
 
+    // Plan limit check
+    const [[subRow]] = await db.query(
+      `SELECT pp.client_limit, pp.plan_type FROM prodesk_subscriptions ps
+       JOIN prodesk_plans pp ON ps.plan_id = pp.id
+       WHERE ps.therapist_id = ? AND ps.status = 'active'
+       ORDER BY ps.created_at DESC LIMIT 1`,
+      [therapist_id]
+    );
+
+    if (subRow && subRow.client_limit !== null) {
+      const [[{ active_clients }]] = await db.query(
+        `SELECT COUNT(*) AS active_clients FROM prodesk_clients WHERE therapist_id = ? AND status = 'active'`,
+        [therapist_id]
+      );
+      if (active_clients >= subRow.client_limit) {
+        return {
+          status: false, code: 403,
+          message: `Your ${subRow.plan_type === 'starter' ? 'Starter (Free)' : ''} plan allows a maximum of ${subRow.client_limit} active clients. Please upgrade to Professional to add unlimited clients.`,
+          data: { client_limit: subRow.client_limit, current_count: active_clients, upgrade_required: true }
+        };
+      }
+    }
+
     // Normalise phone — strip all non-digits, keep country code if present
     const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
 

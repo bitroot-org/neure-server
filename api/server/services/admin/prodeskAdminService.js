@@ -489,7 +489,13 @@ const getReferralsService = async ({ page = 1, limit = 20, search = '' }) => {
        ORDER BY prw.total_earned DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), offset]
     );
-    return { status: true, code: 200, message: 'Referrals fetched', data: rows, meta: { total, page: parseInt(page), limit: parseInt(limit) } };
+    const data = rows.map(r => ({
+      ...r,
+      total_earned: parseFloat(r.total_earned),
+      pending_balance: parseFloat(r.pending_balance),
+      total_paid: parseFloat(r.total_paid)
+    }));
+    return { status: true, code: 200, message: 'Referrals fetched', data, meta: { total, page: parseInt(page), limit: parseInt(limit) } };
   } catch (error) {
     console.log('Error in getReferralsService::>>', error);
     return null;
@@ -541,7 +547,8 @@ const getPendingPayoutsService = async () => {
        JOIN users u ON t.user_id = u.user_id
        WHERE prw.pending_balance > 0 ORDER BY prw.pending_balance DESC`
     );
-    return { status: true, code: 200, message: 'Pending payouts fetched', data: rows, meta: { total: rows.length } };
+    const data = rows.map(r => ({ ...r, pending_balance: parseFloat(r.pending_balance) }));
+    return { status: true, code: 200, message: 'Pending payouts fetched', data, meta: { total: data.length } };
   } catch (error) {
     console.log('Error in getPendingPayoutsService::>>', error);
     return null;
@@ -791,6 +798,131 @@ const getPaymentDetailService = async ({ payment_id }) => {
   }
 };
 
+const getOfferEmailsService = async ({ offer_id, page = 1, limit = 20, search = '', is_used = null }) => {
+  try {
+    // ── No offer_id → return all emails flat, each row has offer info ────
+    if (!offer_id) {
+      const offset = (page - 1) * limit;
+      const params = [];
+      let where = `WHERE 1=1`;
+      if (is_used !== null && is_used !== '') { where += ` AND poe.is_used = ?`; params.push(is_used); }
+      if (search) { where += ` AND poe.email LIKE ?`; params.push(`%${search}%`); }
+
+      const [[{ total }]] = await db.query(
+        `SELECT COUNT(*) AS total FROM prodesk_offer_emails poe ${where}`, params
+      );
+      const [rows] = await db.query(
+        `SELECT poe.id, poe.offer_id, po.code AS offer_code, po.name AS offer_name,
+                poe.email, poe.is_used, poe.used_at,
+                poe.used_by_therapist_id,
+                CONCAT(u.first_name,' ',u.last_name) AS used_by_name,
+                poe.created_at
+         FROM prodesk_offer_emails poe
+         JOIN prodesk_offers po ON poe.offer_id = po.id
+         LEFT JOIN therapists t ON poe.used_by_therapist_id = t.id
+         LEFT JOIN users u ON t.user_id = u.user_id
+         ${where} ORDER BY poe.offer_id ASC, poe.is_used ASC, poe.email ASC LIMIT ? OFFSET ?`,
+        [...params, parseInt(limit), offset]
+      );
+      return {
+        status: true, code: 200, message: 'All offer emails fetched',
+        data: rows,
+        meta: { total, page: parseInt(page), limit: parseInt(limit) }
+      };
+    }
+
+    // ── offer_id passed → return emails for that specific offer (paginated) ─
+    const offset = (page - 1) * limit;
+    const params = [offer_id];
+    let where = `WHERE poe.offer_id = ?`;
+    if (is_used !== null && is_used !== '') { where += ` AND poe.is_used = ?`; params.push(is_used); }
+    if (search) { where += ` AND poe.email LIKE ?`; params.push(`%${search}%`); }
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM prodesk_offer_emails poe ${where}`, params
+    );
+    const [rows] = await db.query(
+      `SELECT poe.id, poe.offer_id, poe.email, poe.is_used, poe.used_at,
+              poe.used_by_therapist_id,
+              CONCAT(u.first_name,' ',u.last_name) AS used_by_name,
+              poe.created_at
+       FROM prodesk_offer_emails poe
+       LEFT JOIN therapists t ON poe.used_by_therapist_id = t.id
+       LEFT JOIN users u ON t.user_id = u.user_id
+       ${where} ORDER BY poe.is_used ASC, poe.email ASC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset]
+    );
+    return {
+      status: true, code: 200, message: 'Offer emails fetched',
+      data: rows,
+      meta: { total, page: parseInt(page), limit: parseInt(limit) }
+    };
+  } catch (error) {
+    console.log('Error in getOfferEmailsService::>>', error);
+    return null;
+  }
+};
+
+const editOfferEmailService = async ({ email_id, email }) => {
+  try {
+    if (!email_id || !email) return { status: false, code: 400, message: 'email_id and email are required', data: null };
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) return { status: false, code: 400, message: 'Invalid email format', data: null };
+
+    const [[existing]] = await db.query(`SELECT id, is_used FROM prodesk_offer_emails WHERE id = ?`, [email_id]);
+    if (!existing) return { status: false, code: 404, message: 'Email entry not found', data: null };
+    if (existing.is_used) return { status: false, code: 400, message: 'Cannot edit an email that has already been used', data: null };
+
+    await db.query(`UPDATE prodesk_offer_emails SET email = ? WHERE id = ?`, [email.trim().toLowerCase(), email_id]);
+    return { status: true, code: 200, message: 'Email updated', data: null };
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return { status: false, code: 409, message: 'This email is already in the whitelist for this offer', data: null };
+    console.log('Error in editOfferEmailService::>>', error);
+    return null;
+  }
+};
+
+const addOfferEmailsService = async ({ offer_id, emails }) => {
+  try {
+    if (!offer_id || !emails || !emails.length) {
+      return { status: false, code: 400, message: 'offer_id and emails array are required', data: null };
+    }
+    const [[offer]] = await db.query(`SELECT id FROM prodesk_offers WHERE id = ?`, [offer_id]);
+    if (!offer) return { status: false, code: 404, message: 'Offer not found', data: null };
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalid = [];
+    const valid = [];
+    emails.forEach(e => {
+      const trimmed = e.trim().toLowerCase();
+      if (!trimmed) return;
+      if (!emailRegex.test(trimmed)) { invalid.push(trimmed); return; }
+      valid.push(trimmed);
+    });
+
+    if (!valid.length) return { status: false, code: 400, message: 'No valid emails provided', data: { invalid_emails: invalid } };
+
+    let inserted = 0;
+    let skipped = 0;
+    for (const email of valid) {
+      try {
+        await db.query(`INSERT INTO prodesk_offer_emails (offer_id, email) VALUES (?,?)`, [offer_id, email]);
+        inserted++;
+      } catch (e) {
+        if (e.code === 'ER_DUP_ENTRY') { skipped++; } else { throw e; }
+      }
+    }
+    return {
+      status: true, code: 200, message: 'Emails added',
+      data: { inserted, skipped_duplicates: skipped, invalid_emails: invalid }
+    };
+  } catch (error) {
+    console.log('Error in addOfferEmailsService::>>', error);
+    return null;
+  }
+};
+
 const getTherapistByIdService = async ({ therapist_id }) => {
   try {
     if (!therapist_id) return { status: false, code: 400, message: 'therapist_id is required', data: null };
@@ -864,5 +996,6 @@ module.exports = {
   getReferralsService, getReferralDetailService, getPendingPayoutsService, processPayoutService,
   getSessionsAdminService, getSubscriptionsAdminService,
   getSubscriptionDetailService, getPaymentsService, getPaymentDetailService,
+  getOfferEmailsService, editOfferEmailService, addOfferEmailsService,
   getTherapistByIdService
 };

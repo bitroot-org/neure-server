@@ -157,13 +157,21 @@ const updateAvailabilityService = async (payload) => {
   }
 };
 
+const VALID_ACCENTS          = ['sage','slate','plum','bronze','clay'];
+const VALID_GRADIENTS        = ['mist','linen','tide','dusk','mono'];
+const VALID_WALLPAPERS       = ['misty_peaks','warm_dusk','ocean_calm','forest_fog'];
+const VALID_THEMES           = ['dark','light'];
+const VALID_BG_TYPES         = ['gradient','preset_wallpaper','custom_wallpaper'];
+
 const getBrandingService = async (payload) => {
   try {
     console.log('Payload in getBrandingService::>>', payload);
     const { therapist_id } = payload;
 
     const [rows] = await db.query(
-      'SELECT * FROM therapist_branding WHERE therapist_id = ?',
+      `SELECT brand_name, theme, accent, background_type, background_preset,
+              wallpaper_id, wallpaper_url, logo_url, invoice_prefix
+       FROM therapist_branding WHERE therapist_id = ?`,
       [therapist_id]
     );
 
@@ -177,29 +185,56 @@ const getBrandingService = async (payload) => {
 const updateBrandingService = async (payload) => {
   try {
     console.log('Payload in updateBrandingService::>>', payload);
-    const { therapist_id, ...data } = payload;
+    const { therapist_id, brand_name, theme, accent, background_type,
+            background_preset, wallpaper_id, wallpaper_url, logo_url, invoice_prefix } = payload;
 
-    const fields = ['brand_name', 'theme', 'accent', 'background_preset', 'logo_url', 'custom_background_url'];
-    const setClause = []; const vals = [];
-    for (const f of fields) {
-      if (data[f] !== undefined) { setClause.push(`${f} = ?`); vals.push(data[f]); }
-    }
+    // Validations
+    if (theme && !VALID_THEMES.includes(theme))
+      return { status: false, code: 400, message: `Invalid theme. Allowed: ${VALID_THEMES.join(', ')}`, data: null };
+    if (accent && !VALID_ACCENTS.includes(accent))
+      return { status: false, code: 400, message: `Invalid accent. Allowed: ${VALID_ACCENTS.join(', ')}`, data: null };
+    if (background_type && !VALID_BG_TYPES.includes(background_type))
+      return { status: false, code: 400, message: `Invalid background_type. Allowed: ${VALID_BG_TYPES.join(', ')}`, data: null };
+    if (background_type === 'gradient' && background_preset && !VALID_GRADIENTS.includes(background_preset))
+      return { status: false, code: 400, message: `Invalid background_preset. Allowed: ${VALID_GRADIENTS.join(', ')}`, data: null };
+    if (background_type === 'preset_wallpaper' && wallpaper_id && !VALID_WALLPAPERS.includes(wallpaper_id))
+      return { status: false, code: 400, message: `Invalid wallpaper_id. Allowed: ${VALID_WALLPAPERS.join(', ')}`, data: null };
 
-    if (!setClause.length) {
+    // Enforce background_type exclusivity — null out unused fields
+    let finalPreset     = background_preset || null;
+    let finalWallpaperId  = wallpaper_id || null;
+    let finalWallpaperUrl = wallpaper_url || null;
+
+    if (background_type === 'gradient')         { finalWallpaperId = null; finalWallpaperUrl = null; }
+    if (background_type === 'preset_wallpaper') { finalPreset = null; finalWallpaperUrl = null; }
+    if (background_type === 'custom_wallpaper') { finalPreset = null; finalWallpaperId = null; }
+
+    const setClause = [];
+    const vals = [];
+    const addField = (col, val) => { setClause.push(`${col} = ?`); vals.push(val); };
+
+    if (brand_name      !== undefined) addField('brand_name',        brand_name);
+    if (theme           !== undefined) addField('theme',             theme);
+    if (accent          !== undefined) addField('accent',            accent);
+    if (background_type !== undefined) addField('background_type',   background_type);
+    if (background_type !== undefined) addField('background_preset', finalPreset);
+    if (background_type !== undefined) addField('wallpaper_id',      finalWallpaperId);
+    if (background_type !== undefined) addField('wallpaper_url',     finalWallpaperUrl);
+    if (logo_url        !== undefined) addField('logo_url',          logo_url);
+    if (invoice_prefix  !== undefined) addField('invoice_prefix',    invoice_prefix);
+
+    if (!setClause.length)
       return { status: false, code: 400, message: 'No fields to update', data: null };
-    }
 
     const insertFields = setClause.map(s => s.split(' = ')[0]);
-    const insertVals = [...vals];
-
     await db.query(
       `INSERT INTO therapist_branding (therapist_id, ${insertFields.join(', ')})
        VALUES (?, ${insertFields.map(() => '?').join(', ')})
        ON DUPLICATE KEY UPDATE ${setClause.join(', ')}`,
-      [therapist_id, ...insertVals, ...vals]
+      [therapist_id, ...vals, ...vals]
     );
 
-    return getBrandingService({ therapist_id });
+    return { status: true, code: 200, message: 'Branding updated', data: null };
   } catch (error) {
     console.log('Error in updateBrandingService::>>', error);
     return null;
@@ -220,6 +255,24 @@ const uploadLogoService = async (payload) => {
     return { status: true, code: 200, message: 'Logo uploaded', data: { logo_url } };
   } catch (error) {
     console.log('Error in uploadLogoService::>>', error);
+    return null;
+  }
+};
+
+const uploadWallpaperService = async (payload) => {
+  try {
+    console.log('Payload in uploadWallpaperService::>>', payload);
+    const { therapist_id, wallpaper_url } = payload;
+
+    await db.query(
+      `INSERT INTO therapist_branding (therapist_id, wallpaper_url) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE wallpaper_url = ?`,
+      [therapist_id, wallpaper_url, wallpaper_url]
+    );
+
+    return { status: true, code: 200, message: 'Wallpaper uploaded', data: { wallpaper_url } };
+  } catch (error) {
+    console.log('Error in uploadWallpaperService::>>', error);
     return null;
   }
 };
@@ -329,6 +382,7 @@ module.exports = {
   getBrandingService,
   updateBrandingService,
   uploadLogoService,
+  uploadWallpaperService,
   getDocumentsService,
   uploadDocumentService,
   deleteDocumentService,

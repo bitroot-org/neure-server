@@ -102,10 +102,19 @@ const createOrderService = async ({ therapist_id, plan_id, billing_cycle, offer_
   try {
     if (!plan_id || !billing_cycle) return { status: false, code: 400, message: 'plan_id and billing_cycle are required', data: null };
 
+    // Check existing active subscription
     const [[existing]] = await db.query(
-      `SELECT id FROM prodesk_subscriptions WHERE therapist_id = ? AND status = 'active'`, [therapist_id]
+      `SELECT ps.id, pp.plan_type FROM prodesk_subscriptions ps
+       JOIN prodesk_plans pp ON ps.plan_id = pp.id
+       WHERE ps.therapist_id = ? AND ps.status = 'active'`, [therapist_id]
     );
-    if (existing) return { status: false, code: 409, message: 'Active subscription already exists', data: null };
+
+    if (existing) {
+      // Block only if already on a paid plan — starter can upgrade
+      if (existing.plan_type !== 'starter') {
+        return { status: false, code: 409, message: 'Active paid subscription already exists. Use renew to extend.', data: null };
+      }
+    }
 
     const [[plan]] = await db.query(`SELECT * FROM prodesk_plans WHERE id = ? AND is_active = 1`, [plan_id]);
     if (!plan) return { status: false, code: 404, message: 'Plan not found', data: null };
@@ -208,6 +217,15 @@ const confirmPaymentService = async ({ therapist_id, subscription_id, razorpay_o
       await conn.query(
         `UPDATE prodesk_subscriptions SET status='active', current_period_start=?, current_period_end=? WHERE id=?`,
         [periodStart, periodEnd, subscription_id]
+      );
+
+      // Cancel old Starter subscription if upgrading
+      await conn.query(
+        `UPDATE prodesk_subscriptions ps
+         JOIN prodesk_plans pp ON ps.plan_id = pp.id
+         SET ps.status = 'cancelled'
+         WHERE ps.therapist_id = ? AND ps.id != ? AND ps.status = 'active' AND pp.plan_type = 'starter'`,
+        [therapist_id, subscription_id]
       );
       if (sub.offer_id) {
         const [[therapistRow]] = await conn.query(

@@ -6,6 +6,7 @@ const {
   getBrandingService,
   updateBrandingService,
   uploadLogoService,
+  uploadWallpaperService,
   getDocumentsService,
   uploadDocumentService,
   deleteDocumentService,
@@ -82,11 +83,24 @@ class ProdeskProfileController {
 
   static async uploadBrandingLogo(req, res) {
     try {
-      if (!req.file) return res.status(400).json({ status: false, code: 400, message: 'file is required', data: null });
+      if (!req.file) return res.status(400).json({ status: false, code: 400, message: 'logo file is required', data: null });
       req.body.type = 'profile';
       const uploadResult = await uploadImage(req);
       if (!uploadResult?.url) return res.status(500).json({ status: false, code: 500, message: 'Upload failed', data: null });
       const result = await uploadLogoService({ therapist_id: req.user.therapist_id, logo_url: uploadResult.url });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async uploadWallpaper(req, res) {
+    try {
+      if (!req.file) return res.status(400).json({ status: false, code: 400, message: 'wallpaper file is required', data: null });
+      req.body.type = 'profile';
+      const uploadResult = await uploadImage(req);
+      if (!uploadResult?.url) return res.status(500).json({ status: false, code: 500, message: 'Upload failed', data: null });
+      const result = await uploadWallpaperService({ therapist_id: req.user.therapist_id, wallpaper_url: uploadResult.url });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

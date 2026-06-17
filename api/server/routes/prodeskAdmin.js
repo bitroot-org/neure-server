@@ -38,6 +38,9 @@ router.post('/get-offer-detail',        authorization, Ctrl.getOfferDetail);
 router.post('/update-offer',            authorization, Ctrl.updateOffer);
 router.post('/upload-offer-emails',     authorization, csvUpload.single('file'), Ctrl.uploadOfferEmails);
 router.post('/get-sample-csv',          authorization, Ctrl.getSampleCsv);
+router.post('/get-offer-emails',        authorization, Ctrl.getOfferEmails);
+router.post('/edit-offer-email',        authorization, Ctrl.editOfferEmail);
+router.post('/add-offer-emails',        authorization, Ctrl.addOfferEmails);
 
 // ── REFERRAL PROGRAM ──────────────────────────────────────────
 router.post('/get-referrals',           authorization, Ctrl.getReferrals);

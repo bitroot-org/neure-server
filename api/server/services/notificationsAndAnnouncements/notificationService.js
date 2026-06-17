@@ -494,7 +494,7 @@ class NotificationService {
 
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr><td align="center">
-                <a href="https://prodesk.neure.co.in/login"
+                <a href="https://prodesk-stag.neure.co.in/login"
                   style="display:inline-block;background:#5EA89A;color:#0E1218;font-size:14px;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;">
                   Sign in to your account →
                 </a>
@@ -603,7 +603,7 @@ class NotificationService {
 
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
               <tr><td align="center">
-                <a href="https://prodesk.neure.co.in/login"
+                <a href="https://prodesk-stag.neure.co.in/login"
                   style="display:inline-block;background:#5EA89A;color:#0E1218;font-size:14px;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;letter-spacing:0.01em;">
                   Go to Dashboard →
                 </a>

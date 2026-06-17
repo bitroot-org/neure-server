@@ -9,6 +9,7 @@ const {
   getReferralsService, getReferralDetailService, getPendingPayoutsService, processPayoutService,
   getSessionsAdminService, getSubscriptionsAdminService,
   getSubscriptionDetailService, getPaymentsService, getPaymentDetailService,
+  getOfferEmailsService, editOfferEmailService, addOfferEmailsService,
   getTherapistByIdService
 } = require('../../services/admin/prodeskAdminService');
 
@@ -228,6 +229,30 @@ class ProdeskAdminController {
   static async getPaymentDetail(req, res) {
     try {
       return respond(res, await getPaymentDetailService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getOfferEmails(req, res) {
+    try {
+      return respond(res, await getOfferEmailsService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async editOfferEmail(req, res) {
+    try {
+      return respond(res, await editOfferEmailService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async addOfferEmails(req, res) {
+    try {
+      return respond(res, await addOfferEmailsService(req.body));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }
