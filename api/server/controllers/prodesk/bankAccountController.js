@@ -14,6 +14,15 @@ const respond = (res, result) => {
   return res.status(result.code).json(result);
 };
 
+// x-forwarded-for is set by nginx/load balancer in production (real client IP)
+// req.ip is ::1 on localhost — strip IPv6 prefix if present
+const getClientIP = (req) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  return ip.replace(/^::ffff:/, ''); // strip IPv6-mapped IPv4 prefix
+};
+
 class BankAccountController {
 
   // ── Therapist-facing ──────────────────────────────────────────────────────
@@ -37,7 +46,7 @@ class BankAccountController {
         therapist_id: req.user.therapist_id,
         account_holder, account_number, ifsc_code, bank_name, branch_name, account_type,
         user_id: req.user.user_id,
-        ip: req.ip || req.headers['x-forwarded-for'],
+        ip: getClientIP(req),
         user_agent: req.headers['user-agent'],
       }));
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
@@ -53,7 +62,7 @@ class BankAccountController {
         therapist_id: req.user.therapist_id,
         account_holder, account_number, ifsc_code, bank_name, branch_name, account_type,
         user_id: req.user.user_id,
-        ip: req.ip || req.headers['x-forwarded-for'],
+        ip: getClientIP(req),
         user_agent: req.headers['user-agent'],
       }));
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
@@ -64,7 +73,7 @@ class BankAccountController {
       return respond(res, await deleteBankAccountService({
         therapist_id: req.user.therapist_id,
         user_id: req.user.user_id,
-        ip: req.ip || req.headers['x-forwarded-for'],
+        ip: getClientIP(req),
         user_agent: req.headers['user-agent'],
       }));
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
