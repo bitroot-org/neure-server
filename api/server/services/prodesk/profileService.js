@@ -28,7 +28,8 @@ const getProfileService = async (payload) => {
               u.accepted_terms, u.has_seen_dashboard_tour, u.last_login,
               t.id AS therapist_id, t.bio, t.specialization, t.years_of_experience,
               t.designation, t.qualification, t.booking_slug, t.about_me,
-              t.experience_years, t.registration_number, t.rating, t.is_active
+              t.experience_years, t.registration_number, t.rating, t.is_active,
+              t.onboarding_completed
        FROM users u
        JOIN therapists t ON t.user_id = u.user_id
        WHERE t.id = ?`,
@@ -414,6 +415,19 @@ const getBookingLinkService = async (payload) => {
   }
 };
 
+const completeOnboardingService = async ({ therapist_id }) => {
+  try {
+    await db.query(
+      'UPDATE therapists SET onboarding_completed = 1 WHERE id = ?',
+      [therapist_id]
+    );
+    return { status: true, code: 200, message: 'Onboarding marked complete', data: null };
+  } catch (error) {
+    console.log('Error in completeOnboardingService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   getProfileService,
   updateProfileService,
@@ -426,5 +440,6 @@ module.exports = {
   getDocumentsService,
   uploadDocumentService,
   deleteDocumentService,
-  getBookingLinkService
+  getBookingLinkService,
+  completeOnboardingService
 };

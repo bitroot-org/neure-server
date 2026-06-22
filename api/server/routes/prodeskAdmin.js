@@ -2,7 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const router = express.Router();
 const { authorization } = require('../../auth/tokenValidator');
-const Ctrl = require('../controllers/admin/prodeskAdminController');
+const Ctrl            = require('../controllers/admin/prodeskAdminController');
+const BankAccountCtrl = require('../controllers/prodesk/bankAccountController');
 
 const csvUpload = multer({
   dest: 'temp/',
@@ -61,5 +62,10 @@ router.post('/get-payment-detail',      authorization, Ctrl.getPaymentDetail);
 
 // ── THERAPIST BY ID ───────────────────────────────────────────
 router.post('/get-therapist-by-id',     authorization, Ctrl.getTherapistById);
+
+// ── BANK ACCOUNT DETAILS ──────────────────────────────────────
+router.post('/getBankAccountList',      authorization, BankAccountCtrl.adminGetAllBankAccounts);
+router.post('/getBankAccountById',      authorization, BankAccountCtrl.adminGetBankAccountById);
+router.post('/getBankAccountLogs',      authorization, BankAccountCtrl.adminGetBankAccountLogs);
 
 module.exports = router;

@@ -14,6 +14,7 @@ const ResourceCtrl  = require('../controllers/prodesk/resourceController');
 const BookingCtrl   = require('../controllers/prodesk/bookingController');
 const DashboardCtrl = require('../controllers/prodesk/dashboardController');
 const TeamCtrl      = require('../controllers/prodesk/teamController');
+const BankAccountCtrl    = require('../controllers/prodesk/bankAccountController');
 const GoogleCtrl         = require('../controllers/prodesk/googleController');
 const SubscriptionCtrl   = require('../controllers/prodesk/subscriptionController');
 const OfferCtrl          = require('../controllers/prodesk/offerController');
@@ -83,7 +84,8 @@ router.post('/uploadWallpaper',     authorization, imageUpload.single('wallpaper
 router.post('/getDocuments',        authorization, ProfileCtrl.getDocuments);
 router.post('/uploadDocument',      authorization, imageUpload.single('file'), ProfileCtrl.uploadDocument);
 router.post('/deleteDocument',      authorization, ProfileCtrl.deleteDocument);
-router.post('/getBookingLink',      authorization, ProfileCtrl.getBookingLink);
+router.post('/getBookingLink',        authorization, ProfileCtrl.getBookingLink);
+router.post('/completeOnboarding',   authorization, ProfileCtrl.completeOnboarding);
 
 // ──────────────────────────────────────────────────────────────
 // CLIENTS
@@ -227,5 +229,14 @@ router.post('/getFaq', authorization, FeedbackCtrl.getFaq);
 // FEEDBACK
 // ──────────────────────────────────────────────────────────────
 router.post('/feedback/submit',              authorization, FeedbackCtrl.submitFeedback);
+
+// ──────────────────────────────────────────────────────────────
+// BANK ACCOUNT / PAYOUT DETAILS
+// ──────────────────────────────────────────────────────────────
+router.post('/getBankAccount',       authorization, BankAccountCtrl.getBankAccount);
+router.post('/createBankAccount',    authorization, BankAccountCtrl.createBankAccount);
+router.post('/updateBankAccount',    authorization, BankAccountCtrl.updateBankAccount);
+router.post('/deleteBankAccount',    authorization, BankAccountCtrl.deleteBankAccount);
+router.post('/verifyIFSC',           authorization, BankAccountCtrl.verifyIFSC);
 
 module.exports = router;
