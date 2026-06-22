@@ -11,7 +11,8 @@ const {
   getPaymentLogsService,
   getBillingSummaryService,
   getPaymentsService,
-  handleRazorpayWebhookService
+  handleRazorpayWebhookService,
+  updateInvoiceService
 } = require('../../services/prodesk/billingService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -161,6 +162,17 @@ class ProdeskBillingController {
       return res.redirect(302, rows[0].invoice_pdf_url);
     } catch (e) {
       return res.status(500).send('Error');
+    }
+  }
+
+  static async updateInvoice(req, res) {
+    try {
+      const { invoice_id } = req.body;
+      if (!invoice_id) return res.status(400).json({ status: false, code: 400, message: 'invoice_id required', data: null });
+      const result = await updateInvoiceService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }
   }
 

@@ -71,28 +71,24 @@ const createSessionService = async (payload) => {
       return { status: false, code: 409, message: 'Slot unavailable — overlaps with an existing session', data: null };
     }
 
-    // Check therapist availability — day must be enabled, time must be within working hours
-    const [availRows] = await db.query(
-      'SELECT * FROM therapist_availability WHERE therapist_id = ?',
-      [therapist_id]
+    // Check therapist availability — day must have at least one block, time must fall within a block
+    const sessionDate = new Date(starts_at);
+    const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][sessionDate.getDay()];
+    const sessionHHMM = sessionDate.toTimeString().slice(0, 5);
+
+    const [dayBlocks] = await db.query(
+      'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ?',
+      [therapist_id, dayName]
     );
-    if (availRows && availRows.length) {
-      const avail = availRows[0];
-      const days = Array.isArray(avail.days) ? avail.days : JSON.parse(avail.days || '[]');
 
-      const sessionDate = new Date(starts_at);
-      const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][sessionDate.getDay()];
-
-      if (!days.includes(dayName)) {
-        return { status: false, code: 422, message: `Therapist is not available on ${dayName}`, data: null };
-      }
-
-      // Check within from_time — to_time window
-      const sessionHHMM = sessionDate.toTimeString().slice(0, 5); // "HH:MM"
-      if (sessionHHMM < avail.from_time.slice(0, 5) || sessionHHMM >= avail.to_time.slice(0, 5)) {
+    if (dayBlocks && dayBlocks.length) {
+      const inWindow = dayBlocks.some(b =>
+        sessionHHMM >= b.from_time.slice(0, 5) && sessionHHMM < b.to_time.slice(0, 5)
+      );
+      if (!inWindow) {
         return {
           status: false, code: 422,
-          message: `Session time must be between ${avail.from_time.slice(0,5)} and ${avail.to_time.slice(0,5)}`,
+          message: `Session time is outside the therapist's availability blocks for ${dayName}`,
           data: null
         };
       }
@@ -199,40 +195,53 @@ const createSessionService = async (payload) => {
 const getSessionsService = async (payload) => {
   try {
     console.log('Payload in getSessionsService::>>', payload);
-    const { therapist_id, client_id, status, from, to, page = 1, limit = 20 } = payload;
+    const { therapist_id, client_id, status, from, to, search = '', sort = 'date', order = 'desc', page = 1, limit = 20 } = payload;
 
     const offset = (page - 1) * limit;
     const conditions = ['ps.therapist_id = ?'];
     const vals = [therapist_id];
 
     if (client_id) { conditions.push('ps.client_id = ?'); vals.push(client_id); }
-    if (status) { conditions.push('ps.status = ?'); vals.push(status); }
-    if (from) { conditions.push('ps.starts_at >= ?'); vals.push(from); }
-    if (to) { conditions.push('ps.starts_at <= ?'); vals.push(to); }
+    if (status)    { conditions.push('ps.status = ?'); vals.push(status); }
+    if (from)      { conditions.push('ps.starts_at >= ?'); vals.push(from); }
+    if (to)        { conditions.push('ps.starts_at <= ?'); vals.push(to); }
+    if (search) {
+      conditions.push(`(CONCAT(u.first_name,' ',u.last_name) LIKE ? OR ps.title LIKE ?)`);
+      vals.push(`%${search}%`, `%${search}%`);
+    }
 
     const where = conditions.join(' AND ');
+
+    // Sort column
+    const sortCol = sort === 'date' ? 'ps.starts_at'
+                  : sort === 'client' ? 'client_name'
+                  : sort === 'status' ? 'ps.status'
+                  : 'ps.starts_at';
+    const sortDir = order === 'asc' ? 'ASC' : 'DESC';
+
+    const joins = `JOIN prodesk_clients pc ON pc.id = ps.client_id
+                   JOIN users u ON u.user_id = pc.user_id`;
+
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM prodesk_sessions ps WHERE ${where}`,
+      `SELECT COUNT(*) AS total FROM prodesk_sessions ps ${joins} WHERE ${where}`,
       vals
     );
 
     const [rows] = await db.query(
       `SELECT ps.*,
-              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(u.first_name,' ',u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color,
-              CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
-       FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
-       JOIN users u ON u.user_id = pc.user_id
+              CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials
+       FROM prodesk_sessions ps ${joins}
        WHERE ${where}
-       ORDER BY ps.starts_at DESC LIMIT ? OFFSET ?`,
-      [...vals, limit, offset]
+       ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`,
+      [...vals, parseInt(limit), offset]
     );
 
     return {
       status: true, code: 200, message: 'Sessions fetched',
       data: rows || [],
-      pagination: { total, current_page: page, per_page: limit, total_pages: Math.ceil(total / limit) }
+      pagination: { total, current_page: parseInt(page), per_page: parseInt(limit), total_pages: Math.ceil(total / limit) }
     };
   } catch (error) {
     console.log('Error in getSessionsService::>>', error);
@@ -276,30 +285,80 @@ const rescheduleSessionService = async (payload) => {
     console.log('Payload in rescheduleSessionService::>>', payload);
     const { therapist_id, session_id, starts_at, duration_min } = payload;
 
-    const [check] = await db.query(
-      'SELECT id, status, duration_min AS cur_dur FROM prodesk_sessions WHERE id = ? AND therapist_id = ?',
+    const [[session]] = await db.query(
+      `SELECT ps.id, ps.status, ps.duration_min AS cur_dur, ps.client_id, ps.title,
+              ps.modality, ps.meet_url,
+              CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
+              tb.brand_name AS clinic_name
+       FROM prodesk_sessions ps
+       JOIN therapists t ON ps.therapist_id = t.id
+       JOIN users tu ON t.user_id = tu.user_id
+       LEFT JOIN therapist_branding tb ON t.id = tb.therapist_id
+       WHERE ps.id = ? AND ps.therapist_id = ?`,
       [session_id, therapist_id]
     );
-    if (!check || !check.length) {
-      return { status: false, code: 404, message: 'Session not found', data: null };
-    }
-    if (check[0].status === 'cancelled') {
+    if (!session) return { status: false, code: 404, message: 'Session not found', data: null };
+    if (session.status === 'cancelled') {
       return { status: false, code: 409, message: 'Cannot reschedule a cancelled session', data: null };
     }
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'New time cannot be in the past', data: null };
     }
 
-    const dur = duration_min || check[0].cur_dur;
+    const dur = duration_min || session.cur_dur;
     const overlap = await checkOverlap(therapist_id, starts_at, dur, session_id);
-    if (overlap) {
-      return { status: false, code: 409, message: 'Slot unavailable', data: null };
+    if (overlap) return { status: false, code: 409, message: 'Slot unavailable', data: null };
+
+    // For video sessions — keep existing meet_url, create new one if missing
+    let meetUrl = session.meet_url || null;
+    if (session.modality === 'video' && !meetUrl) {
+      try {
+        meetUrl = await createMeetingSpace(therapist_id);
+        await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, session_id]);
+      } catch (e) {
+        console.log('Meet room create on reschedule (deferred):', e.message);
+      }
     }
 
     await db.query(
       'UPDATE prodesk_sessions SET starts_at = ?, duration_min = ? WHERE id = ?',
       [starts_at, dur, session_id]
     );
+
+    // Send email + in-app notification to client
+    try {
+      const [[clientRow]] = await db.query(
+        `SELECT u.email, u.first_name, u.user_id, u.phone
+         FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
+         WHERE pc.id = ?`, [session.client_id]
+      );
+      if (clientRow) {
+        const sessionTime = new Date(starts_at).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
+        });
+        if (clientRow.email) {
+          await NotificationService.sendEmail({
+            toEmail: clientRow.email,
+            toName: clientRow.first_name,
+            template: 'prodesk_session_rescheduled',
+            data: {
+              client_name: clientRow.first_name,
+              therapist_name: session.therapist_name,
+              session_time: sessionTime,
+              meet_url: meetUrl || null,
+              clinic_name: session.clinic_name || 'Neure ProDesk'
+            }
+          });
+        }
+        await NotificationService.createNotification({
+          title: 'Session Rescheduled',
+          content: `Your session with ${session.therapist_name} has been rescheduled to ${sessionTime}.`,
+          type: 'SESSION_RESCHEDULED',
+          user_id: clientRow.user_id
+        });
+      }
+    } catch (_) {}
+
     return getSessionByIdService({ therapist_id, session_id });
   } catch (error) {
     console.log('Error in rescheduleSessionService::>>', error);
@@ -312,28 +371,52 @@ const cancelSessionService = async (payload) => {
     console.log('Payload in cancelSessionService::>>', payload);
     const { therapist_id, session_id, reason } = payload;
 
-    const [check] = await db.query(
-      'SELECT id, client_id FROM prodesk_sessions WHERE id = ? AND therapist_id = ?',
+    const [[session]] = await db.query(
+      `SELECT ps.id, ps.client_id, ps.starts_at, ps.title,
+              CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
+              tb.brand_name AS clinic_name
+       FROM prodesk_sessions ps
+       JOIN therapists t ON ps.therapist_id = t.id
+       JOIN users tu ON t.user_id = tu.user_id
+       LEFT JOIN therapist_branding tb ON t.id = tb.therapist_id
+       WHERE ps.id = ? AND ps.therapist_id = ?`,
       [session_id, therapist_id]
     );
-    if (!check || !check.length) {
-      return { status: false, code: 404, message: 'Session not found', data: null };
-    }
+    if (!session) return { status: false, code: 404, message: 'Session not found', data: null };
 
     await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE id = ?", [session_id]);
 
-    const [clientUser] = await db.query(
-      'SELECT u.user_id FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?',
-      [check[0].client_id]
-    );
-    if (clientUser && clientUser.length) {
-      await NotificationService.createNotification({
-        title: 'Session Cancelled',
-        content: reason || 'Your session has been cancelled.',
-        type: 'SESSION_CANCELLED',
-        user_id: clientUser[0].user_id
-      });
-    }
+    // Send email + in-app notification to client
+    try {
+      const [[clientRow]] = await db.query(
+        `SELECT u.email, u.first_name, u.user_id
+         FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
+         WHERE pc.id = ?`, [session.client_id]
+      );
+      if (clientRow) {
+        const sessionTime = new Date(session.starts_at).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
+        });
+        await NotificationService.sendEmail({
+          toEmail: clientRow.email,
+          toName: clientRow.first_name,
+          template: 'prodesk_session_cancelled',
+          data: {
+            client_name: clientRow.first_name,
+            therapist_name: session.therapist_name,
+            session_time: sessionTime,
+            reason: reason || 'Your session has been cancelled.',
+            clinic_name: session.clinic_name || 'ProDesk'
+          }
+        });
+        await NotificationService.createNotification({
+          title: 'Session Cancelled',
+          content: reason || `Your session with ${session.therapist_name} has been cancelled.`,
+          type: 'SESSION_CANCELLED',
+          user_id: clientRow.user_id
+        });
+      }
+    } catch (_) {}
 
     return getSessionByIdService({ therapist_id, session_id });
   } catch (error) {
@@ -375,6 +458,7 @@ const getCalendarSessionsService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id, ps.starts_at, ps.duration_min, ps.modality, ps.status, ps.title,
+              ps.meet_url, ps.session_number,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
@@ -524,6 +608,138 @@ const sendSessionReminderService = async (payload) => {
   }
 };
 
+const getSlotsService = async ({ therapist_id, date, session_duration }) => {
+  try {
+    if (!therapist_id || !date || !session_duration) {
+      return { status: false, code: 400, message: 'therapist_id, date and session_duration are required', data: null };
+    }
+
+    const duration = parseInt(session_duration);
+    if (![30, 45, 60, 90, 120].includes(duration)) {
+      return { status: false, code: 400, message: 'session_duration must be 30, 45, 60, 90 or 120 minutes', data: null };
+    }
+
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayName = DAY_NAMES[dateObj.getDay()];
+
+    // Get blocks for this day
+    const [[settings]] = await db.query(
+      'SELECT buffer_minutes FROM therapist_availability WHERE therapist_id = ?',
+      [therapist_id]
+    );
+    const buffer = settings?.buffer_minutes || 0;
+
+    const [dayBlocks] = await db.query(
+      'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
+      [therapist_id, dayName]
+    );
+
+    if (!dayBlocks || dayBlocks.length === 0) {
+      return {
+        status: true, code: 200, message: 'No availability on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
+
+    // Generate all possible slots across all blocks for the day
+    const step = duration + buffer;
+    const allSlots = [];
+    for (const block of dayBlocks) {
+      const [fromH, fromM] = block.from_time.slice(0, 5).split(':').map(Number);
+      const [toH, toM]     = block.to_time.slice(0, 5).split(':').map(Number);
+      const fromMins = fromH * 60 + fromM;
+      const toMins   = toH * 60 + toM;
+      for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        const h = Math.floor(mins / 60).toString().padStart(2, '0');
+        const m = (mins % 60).toString().padStart(2, '0');
+        allSlots.push({ time: `${h}:${m}`, mins });
+      }
+    }
+    allSlots.sort((a, b) => a.mins - b.mins);
+
+    // Get booked sessions for this therapist on this date
+    const [booked] = await db.query(
+      `SELECT starts_at, duration_min FROM prodesk_sessions
+       WHERE therapist_id = ? AND DATE(starts_at) = ? AND status NOT IN ('cancelled')`,
+      [therapist_id, date]
+    );
+
+    const now = new Date();
+    const isToday = date === now.toISOString().slice(0, 10);
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+
+    const bookedSlotTimes = booked.map(sess => {
+      const d = new Date(sess.starts_at);
+      return { start_mins: d.getHours() * 60 + d.getMinutes(), duration_min: sess.duration_min };
+    });
+
+    const availableSlots = [];
+    for (const slot of allSlots) {
+      if (isToday && slot.mins <= nowMins + 30) continue;
+      let blocked = false;
+      for (const b of bookedSlotTimes) {
+        if (slot.mins < b.start_mins + b.duration_min + buffer && slot.mins + duration > b.start_mins) {
+          blocked = true; break;
+        }
+      }
+      if (!blocked) availableSlots.push({
+        time: slot.time,
+        datetime: `${date}T${slot.time}:00`,
+        label: formatSlotLabel(slot.time)
+      });
+    }
+
+    return {
+      status: true, code: 200, message: 'Slots fetched',
+      data: {
+        date, day: dayName, is_working_day: true, session_duration,
+        blocks: dayBlocks.map(b => ({ from: b.from_time.slice(0,5), to: b.to_time.slice(0,5) })),
+        buffer_minutes: buffer,
+        available_slots: availableSlots,
+        booked_slots: bookedSlotTimes.map(b => {
+          const h = Math.floor(b.start_mins/60).toString().padStart(2,'0');
+          const m = (b.start_mins%60).toString().padStart(2,'0');
+          return `${h}:${m}`;
+        }),
+        available_count: availableSlots.length
+      }
+    };
+  } catch (error) {
+    console.log('Error in getSlotsService::>>', error);
+    return null;
+  }
+};
+
+const formatSlotLabel = (time) => {
+  const [h, m] = time.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour   = h % 12 || 12;
+  return `${hour}:${m.toString().padStart(2, '0')} ${period}`;
+};
+
+const deleteSessionService = async ({ therapist_id, session_id }) => {
+  try {
+    if (!session_id) return { status: false, code: 400, message: 'session_id is required', data: null };
+
+    const [[session]] = await db.query(
+      `SELECT id, status, starts_at FROM prodesk_sessions WHERE id = ? AND therapist_id = ?`,
+      [session_id, therapist_id]
+    );
+    if (!session) return { status: false, code: 404, message: 'Session not found', data: null };
+
+    if (session.status === 'completed') {
+      return { status: false, code: 409, message: 'Cannot delete a completed session', data: null };
+    }
+
+    await db.query(`DELETE FROM prodesk_sessions WHERE id = ?`, [session_id]);
+    return { status: true, code: 200, message: 'Session deleted', data: null };
+  } catch (error) {
+    console.log('Error in deleteSessionService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   createSessionService,
   getSessionsService,
@@ -535,5 +751,7 @@ module.exports = {
   getCalendarSessionsService,
   getTodaySessionsService,
   getMeetingRoomService,
-  sendSessionReminderService
+  sendSessionReminderService,
+  getSlotsService,
+  deleteSessionService
 };

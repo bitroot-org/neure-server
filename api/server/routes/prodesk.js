@@ -103,6 +103,8 @@ router.post('/getSessionById',      authorization, SessionCtrl.getSessionById);
 router.post('/updateSession',       authorization, SessionCtrl.updateSession);
 router.post('/rescheduleSession',   authorization, SessionCtrl.rescheduleSession);
 router.post('/cancelSession',       authorization, SessionCtrl.cancelSession);
+router.post('/getSlots',            authorization, SessionCtrl.getSlots);
+router.post('/deleteSession',       authorization, SessionCtrl.deleteSession);
 router.post('/completeSession',     authorization, SessionCtrl.completeSession);
 router.post('/getCalendarSessions', authorization, SessionCtrl.getCalendarSessions);
 router.post('/getTodaySessions',    authorization, SessionCtrl.getTodaySessions);
@@ -123,6 +125,7 @@ router.post('/deleteNoteAttachment',    authorization, NoteCtrl.deleteNoteAttach
 // BILLING & INVOICES
 // ──────────────────────────────────────────────────────────────
 router.post('/createInvoice',          authorization, BillingCtrl.createInvoice);
+router.post('/updateInvoice',          authorization, BillingCtrl.updateInvoice);
 router.post('/getInvoices',            authorization, BillingCtrl.getInvoices);
 router.post('/getInvoiceById',         authorization, BillingCtrl.getInvoiceById);
 router.post('/sendInvoice',            authorization, BillingCtrl.sendInvoice);
@@ -155,6 +158,9 @@ router.post('/getAvailableSlots',     BookingCtrl.getAvailableSlots);
 router.post('/holdSlot',              BookingCtrl.holdSlot);
 router.post('/confirmBooking',        BookingCtrl.confirmBooking);
 router.post('/verifyBookingPayment',  BookingCtrl.verifyBookingPayment);
+router.post('/getBookingSlots',       BookingCtrl.getBookingSlots);
+router.post('/lookupBookingClient',   BookingCtrl.lookupBookingClient);
+router.post('/createBookingSession',  BookingCtrl.createBookingSession);
 
 // ──────────────────────────────────────────────────────────────
 // NOTIFICATIONS

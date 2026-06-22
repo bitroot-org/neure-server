@@ -120,35 +120,75 @@ const getAvailabilityService = async (payload) => {
     console.log('Payload in getAvailabilityService::>>', payload);
     const { therapist_id } = payload;
 
-    const [rows] = await db.query(
-      'SELECT * FROM therapist_availability WHERE therapist_id = ?',
+    const [[settings]] = await db.query(
+      'SELECT slot_minutes, buffer_minutes FROM therapist_availability WHERE therapist_id = ?',
       [therapist_id]
     );
 
-    return { status: true, code: 200, message: 'Availability fetched', data: rows[0] || null };
+    const [blockRows] = await db.query(
+      'SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time',
+      [therapist_id]
+    );
+
+    // Group blocks by day: { Mon: [{from:"09:00",to:"11:00"}, ...], ... }
+    const blocks = {};
+    for (const row of (blockRows || [])) {
+      if (!blocks[row.day]) blocks[row.day] = [];
+      blocks[row.day].push({ from: row.from_time.slice(0, 5), to: row.to_time.slice(0, 5) });
+    }
+
+    return {
+      status: true, code: 200, message: 'Availability fetched',
+      data: {
+        blocks,
+        slot_minutes: settings?.slot_minutes ?? 60,
+        buffer_minutes: settings?.buffer_minutes ?? 0
+      }
+    };
   } catch (error) {
     console.log('Error in getAvailabilityService::>>', error);
     return null;
   }
 };
 
+const VALID_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 const updateAvailabilityService = async (payload) => {
   try {
     console.log('Payload in updateAvailabilityService::>>', payload);
-    const { therapist_id, days, from_time, to_time, slot_minutes = 60, buffer_minutes = 0 } = payload;
+    const { therapist_id, blocks, slot_minutes = 60, buffer_minutes = 0 } = payload;
 
-    if (!days || !from_time || !to_time) {
-      return { status: false, code: 400, message: 'days, from_time, to_time are required', data: null };
+    if (!blocks || typeof blocks !== 'object') {
+      return { status: false, code: 400, message: 'blocks object is required', data: null };
     }
 
+    // Upsert therapist-level settings (slot_minutes, buffer_minutes)
     await db.query(
-      `INSERT INTO therapist_availability (therapist_id, days, from_time, to_time, slot_minutes, buffer_minutes)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         days = VALUES(days), from_time = VALUES(from_time), to_time = VALUES(to_time),
-         slot_minutes = VALUES(slot_minutes), buffer_minutes = VALUES(buffer_minutes)`,
-      [therapist_id, JSON.stringify(days), from_time, to_time, slot_minutes, buffer_minutes]
+      `INSERT INTO therapist_availability (therapist_id, slot_minutes, buffer_minutes)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE slot_minutes = VALUES(slot_minutes), buffer_minutes = VALUES(buffer_minutes)`,
+      [therapist_id, slot_minutes, buffer_minutes]
     );
+
+    // Replace all blocks for this therapist
+    await db.query('DELETE FROM therapist_availability_blocks WHERE therapist_id = ?', [therapist_id]);
+
+    const insertRows = [];
+    for (const [day, dayBlocks] of Object.entries(blocks)) {
+      if (!VALID_DAYS.includes(day)) continue;
+      for (const block of (dayBlocks || [])) {
+        if (block.from && block.to && block.from < block.to) {
+          insertRows.push([therapist_id, day, block.from, block.to]);
+        }
+      }
+    }
+
+    if (insertRows.length) {
+      await db.query(
+        'INSERT IGNORE INTO therapist_availability_blocks (therapist_id, day, from_time, to_time) VALUES ?',
+        [insertRows]
+      );
+    }
 
     return getAvailabilityService({ therapist_id });
   } catch (error) {

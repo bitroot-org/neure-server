@@ -1069,6 +1069,52 @@ const handleRazorpayWebhookService = async (payload) => {
   }
 };
 
+const updateInvoiceService = async (payload) => {
+  try {
+    const { therapist_id, invoice_id, title, due_date, notes, items } = payload;
+    if (!invoice_id) return { status: false, code: 400, message: 'invoice_id is required', data: null };
+
+    const [[inv]] = await db.query(
+      `SELECT id, status FROM prodesk_invoices WHERE id = ? AND therapist_id = ?`,
+      [invoice_id, therapist_id]
+    );
+    if (!inv) return { status: false, code: 404, message: 'Invoice not found', data: null };
+    if (inv.status !== 'draft') return { status: false, code: 403, message: 'Only draft invoices can be edited', data: null };
+
+    const fields = [];
+    const vals = [];
+
+    if (title !== undefined)    { fields.push('title = ?');    vals.push(title); }
+    if (due_date !== undefined) { fields.push('due_date = ?'); vals.push(due_date); }
+    if (notes !== undefined)    { fields.push('notes = ?');    vals.push(notes); }
+
+    if (items && items.length) {
+      // items = [{ description, amount }] — qty defaults to 1, rate = amount
+      const lineItems = items.map(i => ({
+        description: i.description,
+        qty: i.qty || 1,
+        rate: i.amount,
+        amount: (i.qty || 1) * i.amount
+      }));
+      const { subtotal, tax, total } = computeTotals(
+        lineItems.map(i => ({ qty: i.qty, rate: i.rate }))
+      );
+      fields.push('line_items = ?', 'subtotal = ?', 'tax = ?', 'total = ?');
+      vals.push(JSON.stringify(lineItems), subtotal, tax, total);
+    }
+
+    if (!fields.length) return { status: false, code: 400, message: 'No fields to update', data: null };
+
+    vals.push(invoice_id);
+    await db.query(`UPDATE prodesk_invoices SET ${fields.join(', ')} WHERE id = ?`, vals);
+
+    return getInvoiceByIdService({ therapist_id, invoice_id });
+  } catch (error) {
+    console.log('Error in updateInvoiceService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   createInvoiceService,
   getInvoicesService,
@@ -1083,5 +1129,6 @@ module.exports = {
   getBillingSummaryService,
   getPaymentsService,
   flagOverdueInvoicesService,
-  handleRazorpayWebhookService
+  handleRazorpayWebhookService,
+  updateInvoiceService
 };

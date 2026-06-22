@@ -3,7 +3,10 @@ const {
   getAvailableSlotsService,
   holdSlotService,
   confirmBookingService,
-  verifyBookingPaymentService
+  verifyBookingPaymentService,
+  getBookingSlotsService,
+  lookupBookingClientService,
+  createBookingSessionService
 } = require('../../services/prodesk/bookingService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -66,6 +69,45 @@ class ProdeskBookingController {
         return res.status(400).json({ status: false, code: 400, message: 'hold_token, razorpay_order_id, razorpay_payment_id, razorpay_signature are required', data: null });
       }
       const result = await verifyBookingPaymentService(req.body);
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getBookingSlots(req, res) {
+    try {
+      const { slug, date, session_duration } = req.body;
+      if (!slug || !date || !session_duration) {
+        return res.status(400).json({ status: false, code: 400, message: 'slug, date and session_duration are required', data: null });
+      }
+      const result = await getBookingSlotsService({ slug, date, session_duration });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async lookupBookingClient(req, res) {
+    try {
+      const { slug, email } = req.body;
+      if (!slug || !email) {
+        return res.status(400).json({ status: false, code: 400, message: 'slug and email are required', data: null });
+      }
+      const result = await lookupBookingClientService({ slug, email });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async createBookingSession(req, res) {
+    try {
+      const { slug, date, time, duration_min, modality, email, name, phone, concern } = req.body;
+      if (!slug || !date || !time || !modality || !email) {
+        return res.status(400).json({ status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null });
+      }
+      const result = await createBookingSessionService({ slug, date, time, duration_min, modality, email, name, phone, concern });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

@@ -13,38 +13,24 @@ const avatarColor = (name) => {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 };
 
-const generateSlots = (availability, takenSet, from, to) => {
-  if (!availability) return [];
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const days = Array.isArray(availability.days) ? availability.days
-    : (typeof availability.days === 'string' ? JSON.parse(availability.days) : []);
-  const { from_time, to_time, slot_minutes, buffer_minutes } = availability;
-
-  const results = [];
-  const startD = new Date(from + 'T00:00:00Z');
-  const endD = new Date(to + 'T23:59:59Z');
-
-  for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
-    const dayName = dayNames[d.getUTCDay()];
-    if (!days.includes(dayName)) continue;
-
-    const dateStr = d.toISOString().slice(0, 10);
-    const slots = [];
-    let [h, m] = from_time.split(':').map(Number);
-    const [eh, em] = to_time.split(':').map(Number);
+// Generates slots for a single day from multiple time blocks
+const generateSlotsFromBlocks = (blocks, slotMins, bufferMins, takenSet, dateStr) => {
+  const step = slotMins + bufferMins;
+  const slots = [];
+  for (const block of blocks) {
+    let [h, m] = block.from_time.slice(0, 5).split(':').map(Number);
+    const [eh, em] = block.to_time.slice(0, 5).split(':').map(Number);
     const endMins = eh * 60 + em;
-
-    while (h * 60 + m + slot_minutes <= endMins) {
+    while (h * 60 + m + slotMins <= endMins) {
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      const key = `${dateStr}T${timeStr}`;
-      if (!takenSet.has(key)) slots.push(timeStr);
-      const totalMins = h * 60 + m + slot_minutes + buffer_minutes;
+      if (!takenSet.has(`${dateStr}T${timeStr}`)) slots.push(timeStr);
+      const totalMins = h * 60 + m + step;
       h = Math.floor(totalMins / 60);
       m = totalMins % 60;
     }
-    results.push({ date: dateStr, day: dayName, slots });
   }
-  return results;
+  slots.sort();
+  return slots;
 };
 
 const getPublicProfileService = async (payload) => {
@@ -56,7 +42,8 @@ const getPublicProfileService = async (payload) => {
       `SELECT t.id, t.booking_slug, t.about_me, t.specialization, t.rating,
               t.experience_years, t.registration_number,
               u.first_name, u.last_name, u.profile_url,
-              b.brand_name, b.theme, b.accent, b.background_preset, b.logo_url, b.custom_background_url
+              b.brand_name, b.theme, b.accent, b.background_type, b.background_preset,
+              b.logo_url, b.wallpaper_id, b.wallpaper_url
        FROM therapists t
        JOIN users u ON u.user_id = t.user_id
        LEFT JOIN therapist_branding b ON b.therapist_id = t.id
@@ -86,8 +73,8 @@ const getPublicProfileService = async (payload) => {
         profile_url: t.profile_url,
         branding: {
           brand_name: t.brand_name, theme: t.theme, accent: t.accent,
-          background_preset: t.background_preset, logo_url: t.logo_url,
-          custom_background_url: t.custom_background_url
+          background_type: t.background_type, background_preset: t.background_preset,
+          logo_url: t.logo_url, wallpaper_id: t.wallpaper_id, wallpaper_url: t.wallpaper_url
         },
         documents: docs || []
       }
@@ -107,29 +94,39 @@ const getAvailableSlotsService = async (payload) => {
       return { status: false, code: 400, message: 'from and to are required', data: null };
     }
 
-    const [therapist] = await db.query(
-      'SELECT id FROM therapists WHERE booking_slug = ? AND is_active = 1',
+    const [[therapist]] = await db.query(
+      'SELECT t.id FROM therapists t JOIN users u ON u.user_id = t.user_id WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1',
       [slug]
     );
-    if (!therapist || !therapist.length) {
-      return { status: false, code: 404, message: 'Therapist not found', data: null };
-    }
-    const therapistId = therapist[0].id;
+    if (!therapist) return { status: false, code: 404, message: 'Therapist not found', data: null };
+    const therapistId = therapist.id;
 
-    const [avail] = await db.query(
-      'SELECT * FROM therapist_availability WHERE therapist_id = ?',
+    const [[settings]] = await db.query(
+      'SELECT slot_minutes, buffer_minutes FROM therapist_availability WHERE therapist_id = ?',
       [therapistId]
     );
-    if (!avail || !avail.length) {
+    const slotMins   = settings?.slot_minutes   || 60;
+    const bufferMins = settings?.buffer_minutes || 0;
+
+    const [allBlocks] = await db.query(
+      'SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY from_time',
+      [therapistId]
+    );
+    if (!allBlocks || !allBlocks.length) {
       return { status: true, code: 200, message: 'No availability set', data: { days: [] } };
     }
 
+    // Group blocks by day
+    const blocksByDay = {};
+    for (const b of allBlocks) {
+      if (!blocksByDay[b.day]) blocksByDay[b.day] = [];
+      blocksByDay[b.day].push(b);
+    }
+
     const [booked] = await db.query(
-      `SELECT DATE_FORMAT(starts_at, '%Y-%m-%d') AS date,
-              DATE_FORMAT(starts_at, '%H:%i') AS time_slot
+      `SELECT DATE_FORMAT(starts_at, '%Y-%m-%d') AS date, DATE_FORMAT(starts_at, '%H:%i') AS time_slot
        FROM prodesk_sessions
-       WHERE therapist_id = ? AND status != 'cancelled'
-       AND DATE(starts_at) BETWEEN ? AND ?`,
+       WHERE therapist_id = ? AND status != 'cancelled' AND DATE(starts_at) BETWEEN ? AND ?`,
       [therapistId, from, to]
     );
 
@@ -140,11 +137,24 @@ const getAvailableSlotsService = async (payload) => {
 
     const takenSet = new Set([
       ...(booked || []).map(r => `${r.date}T${r.time_slot}`),
-      ...(holds || []).map(r => `${r.date}T${r.time_slot}`)
+      ...(holds  || []).map(r => `${r.date}T${r.time_slot}`)
     ]);
 
-    const days = generateSlots(avail[0], takenSet, from, to);
-    return { status: true, code: 200, message: 'Available slots fetched', data: { days } };
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const results = [];
+    const startD = new Date(from + 'T00:00:00Z');
+    const endD   = new Date(to   + 'T23:59:59Z');
+
+    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+      const dayName = DAY_NAMES[d.getUTCDay()];
+      const dateStr = d.toISOString().slice(0, 10);
+      const blocks  = blocksByDay[dayName];
+      if (!blocks || !blocks.length) continue;
+      const slots = generateSlotsFromBlocks(blocks, slotMins, bufferMins, takenSet, dateStr);
+      results.push({ date: dateStr, day: dayName, slots });
+    }
+
+    return { status: true, code: 200, message: 'Available slots fetched', data: { days: results } };
   } catch (error) {
     console.log('Error in getAvailableSlotsService::>>', error);
     return null;
@@ -386,10 +396,327 @@ const verifyBookingPaymentService = async (payload) => {
   }
 };
 
+// ─── Public direct-booking APIs ──────────────────────────────────────────────
+
+const getBookingSlotsService = async ({ slug, date, session_duration }) => {
+  try {
+    if (!slug || !date || !session_duration) {
+      return { status: false, code: 400, message: 'slug, date and session_duration are required', data: null };
+    }
+
+    const duration = parseInt(session_duration);
+    if (![30, 45, 60, 90, 120].includes(duration)) {
+      return { status: false, code: 400, message: 'session_duration must be 30, 45, 60, 90 or 120', data: null };
+    }
+
+    const [[therapist]] = await db.query(
+      'SELECT t.id AS therapist_id FROM therapists t JOIN users u ON u.user_id = t.user_id WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1',
+      [slug]
+    );
+    if (!therapist) return { status: false, code: 404, message: 'Therapist not found', data: null };
+    const therapist_id = therapist.therapist_id;
+
+    const [[settings]] = await db.query(
+      'SELECT buffer_minutes FROM therapist_availability WHERE therapist_id = ?',
+      [therapist_id]
+    );
+    const buffer = settings?.buffer_minutes || 0;
+
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayName = DAY_NAMES[new Date(date + 'T00:00:00').getDay()];
+
+    const [dayBlocks] = await db.query(
+      'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
+      [therapist_id, dayName]
+    );
+
+    if (!dayBlocks || !dayBlocks.length) {
+      return {
+        status: true, code: 200, message: 'No availability on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
+
+    // Build taken set from bookings
+    const [booked] = await db.query(
+      `SELECT starts_at, duration_min FROM prodesk_sessions
+       WHERE therapist_id = ? AND DATE(starts_at) = ? AND status NOT IN ('cancelled')`,
+      [therapist_id, date]
+    );
+
+    const now = new Date();
+    const isToday = date === now.toISOString().slice(0, 10);
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+
+    const bookedSlotTimes = booked.map(sess => {
+      const d = new Date(sess.starts_at);
+      return { start_mins: d.getHours() * 60 + d.getMinutes(), duration_min: sess.duration_min };
+    });
+
+    // Generate slots across all blocks
+    const step = duration + buffer;
+    const allSlots = [];
+    for (const block of dayBlocks) {
+      const [fromH, fromM] = block.from_time.slice(0,5).split(':').map(Number);
+      const [toH, toM]     = block.to_time.slice(0,5).split(':').map(Number);
+      const fromMins = fromH * 60 + fromM;
+      const toMins   = toH * 60 + toM;
+      for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        const h = Math.floor(mins/60).toString().padStart(2,'0');
+        const m = (mins%60).toString().padStart(2,'0');
+        allSlots.push({ time: `${h}:${m}`, mins });
+      }
+    }
+    allSlots.sort((a, b) => a.mins - b.mins);
+
+    const available_slots = [];
+    for (const slot of allSlots) {
+      if (isToday && slot.mins <= nowMins + 30) continue;
+      let blocked = false;
+      for (const b of bookedSlotTimes) {
+        if (slot.mins < b.start_mins + b.duration_min + buffer && slot.mins + duration > b.start_mins) {
+          blocked = true; break;
+        }
+      }
+      if (!blocked) available_slots.push({ time: slot.time, datetime: `${date}T${slot.time}:00` });
+    }
+
+    return {
+      status: true, code: 200, message: 'Slots fetched',
+      data: { date, day: dayName, is_working_day: true, session_duration: duration, available_slots, available_count: available_slots.length }
+    };
+  } catch (error) {
+    console.log('Error in getBookingSlotsService::>>', error);
+    return null;
+  }
+};
+
+const lookupBookingClientService = async ({ slug, email }) => {
+  try {
+    if (!slug || !email) return { status: false, code: 400, message: 'slug and email are required', data: null };
+
+    const [[therapist]] = await db.query(
+      'SELECT t.id AS therapist_id FROM therapists t JOIN users u ON u.user_id = t.user_id WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1',
+      [slug]
+    );
+    if (!therapist) return { status: false, code: 404, message: 'Therapist not found', data: null };
+
+    const [[user]] = await db.query('SELECT user_id, first_name, last_name, phone FROM users WHERE email = ?', [email]);
+    if (!user) return { status: true, code: 200, message: 'Client not found', data: { found: false } };
+
+    const [[client]] = await db.query(
+      'SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
+      [user.user_id, therapist.therapist_id]
+    );
+
+    return {
+      status: true, code: 200, message: 'Client found',
+      data: {
+        found: true,
+        already_client: !!client,
+        name: `${user.first_name} ${user.last_name}`.trim(),
+        phone: user.phone || ''
+      }
+    };
+  } catch (error) {
+    console.log('Error in lookupBookingClientService::>>', error);
+    return null;
+  }
+};
+
+const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern }) => {
+  try {
+    if (!slug || !date || !time || !modality || !email) {
+      return { status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null };
+    }
+
+    const [[therapistRow]] = await db.query(
+      `SELECT t.id AS therapist_id,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              tu.email AS therapist_email,
+              tu.phone AS therapist_phone,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM therapists t
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE t.booking_slug = ? AND t.is_active = 1 AND tu.is_active = 1`,
+      [slug]
+    );
+    if (!therapistRow) return { status: false, code: 404, message: 'Therapist not found', data: null };
+
+    const { therapist_id, therapist_name, therapist_email, therapist_phone, clinic_name } = therapistRow;
+    const fee = 0;
+    const starts_at = `${date}T${time}:00`;
+
+    if (new Date(starts_at) < new Date()) {
+      return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
+    }
+
+    // Overlap check
+    const [overlap] = await db.query(
+      `SELECT id FROM prodesk_sessions
+       WHERE therapist_id = ? AND status NOT IN ('cancelled')
+       AND starts_at < DATE_ADD(?, INTERVAL ? MINUTE)
+       AND DATE_ADD(starts_at, INTERVAL duration_min MINUTE) > ?
+       LIMIT 1`,
+      [therapist_id, starts_at, duration_min, starts_at]
+    );
+    if (overlap && overlap.length) return { status: false, code: 409, message: 'That slot was just taken. Please pick another.', data: null };
+
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Find or create user
+      let [[existingUser]] = await conn.query('SELECT user_id, first_name, last_name, phone FROM users WHERE email = ?', [email]);
+      let userId;
+      let clientName = name;
+
+      if (existingUser) {
+        userId = existingUser.user_id;
+        clientName = `${existingUser.first_name} ${existingUser.last_name}`.trim();
+      } else {
+        if (!name) { await conn.rollback(); return { status: false, code: 400, message: 'name is required for new clients', data: null }; }
+        const nameParts = name.trim().split(/\s+/);
+        const tempPwd = await bcrypt.hash(Math.random().toString(36).slice(-8), 10);
+        const [userRes] = await conn.query(
+          'INSERT INTO users (first_name, last_name, email, phone, password, role_id) VALUES (?, ?, ?, ?, ?, 5)',
+          [nameParts[0], nameParts.slice(1).join(' ') || '', email, phone ? phone.replace(/\D/g, '') : null, tempPwd]
+        );
+        userId = userRes.insertId;
+      }
+
+      // Find or create prodesk_clients record for this therapist
+      let [[clientRow]] = await conn.query(
+        'SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
+        [userId, therapist_id]
+      );
+      if (!clientRow) {
+        const color = avatarColor(clientName || email);
+        const [cRes] = await conn.query(
+          `INSERT INTO prodesk_clients (user_id, therapist_id, presenting_concerns, default_fee, avatar_color, start_date)
+           VALUES (?, ?, ?, ?, ?, CURDATE())`,
+          [userId, therapist_id, concern || null, fee || 0, color]
+        );
+        clientRow = { id: cRes.insertId };
+      }
+
+      const client_id = clientRow.id;
+
+      // Session number
+      const [[{ cnt }]] = await conn.query('SELECT COUNT(*) AS cnt FROM prodesk_sessions WHERE client_id = ?', [client_id]);
+      const sessionNum = cnt + 1;
+
+      const [sessRes] = await conn.query(
+        `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
+        [therapist_id, client_id, sessionNum, `Session ${sessionNum}`, starts_at, duration_min, modality, fee || 0]
+      );
+      const session_id = sessRes.insertId;
+
+      await conn.commit();
+
+      // Auto-create Google Meet for video sessions
+      let meetUrl = null;
+      if (modality === 'video') {
+        try {
+          const { createMeetingSpace } = require('./googleMeetService');
+          meetUrl = await createMeetingSpace(therapist_id);
+          await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, session_id]);
+        } catch (e) {
+          console.log('Meet create (non-blocking):', e.message);
+        }
+      }
+
+      // Formatted time for emails
+      const formattedTime = new Date(starts_at).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
+      });
+
+      // Email to client
+      try {
+        await NotificationService.sendSessionScheduledEmail({
+          toEmail: email,
+          toName: clientName,
+          therapistName: therapist_name,
+          sessionTime: formattedTime,
+          meetUrl,
+          clinicName: clinic_name,
+          sessionStartISO: starts_at,
+          durationMin: duration_min
+        });
+      } catch (e) { console.log('Client email (non-blocking):', e.message); }
+
+      // Email to therapist
+      try {
+        await NotificationService.sendBookingNotificationToTherapist({
+          toEmail: therapist_email,
+          toName: therapist_name,
+          clientName,
+          clientEmail: email,
+          clientPhone: phone || '',
+          sessionTime: formattedTime,
+          modality,
+          durationMin: duration_min,
+          meetUrl,
+          clinicName: clinic_name
+        });
+      } catch (e) { console.log('Therapist email (non-blocking):', e.message); }
+
+      // WhatsApp to therapist
+      if (therapist_phone) {
+        try {
+          const digits = therapist_phone.replace(/\D/g, '');
+          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+          const formatLabel = modality === 'video' ? 'Video' : 'In Person';
+          await NotificationService.sendWhatsAppNotification({
+            to: phone_e164,
+            templateName: 'booking_new_therapist',
+            variables: [
+              therapist_name,                             // {{1}} Hi *{{1}}*
+              clientName,                                 // {{2}} Client
+              `${email}${phone ? ' / ' + phone : ''}`,   // {{3}} Contact
+              formattedTime,                              // {{4}} Date & Time
+              `${formatLabel} · ${duration_min} min`,    // {{5}} Format
+              meetUrl || 'N/A'                            // {{6}} Session Link
+            ],
+            meta: { session_id }
+          });
+        } catch (e) { console.log('Therapist WhatsApp (non-blocking):', e.message); }
+      }
+
+      return {
+        status: true, code: 200, message: 'Session booked successfully',
+        data: {
+          session_id,
+          therapist_name,
+          client_name: clientName,
+          starts_at,
+          duration_min,
+          modality,
+          meet_url: meetUrl,
+          formatted_time: formattedTime
+        }
+      };
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
+    }
+  } catch (error) {
+    console.log('Error in createBookingSessionService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   getPublicProfileService,
   getAvailableSlotsService,
   holdSlotService,
   confirmBookingService,
-  verifyBookingPaymentService
+  verifyBookingPaymentService,
+  getBookingSlotsService,
+  lookupBookingClientService,
+  createBookingSessionService
 };

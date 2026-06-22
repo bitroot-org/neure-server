@@ -153,6 +153,15 @@ Template files live in `api/templates/`.
 
 ---
 
-## Total Emails: 13
+## 6. Sessions
+
+| # | Trigger | Template Name | Recipient | Subject |
+|---|---------|--------------|-----------|---------|
+| 14 | Session rescheduled by therapist | `prodesk_session_rescheduled` | Client | Your session with Dr. X has been rescheduled |
+| 15 | Session cancelled by therapist | `prodesk_session_cancelled` | Client | Your session has been cancelled |
+
+---
+
+## Total Emails: 15
 - **Active (triggered by app events):** 1–6, 10–13
 - **Inactive (cron-based, not activated):** 7, 8, 9

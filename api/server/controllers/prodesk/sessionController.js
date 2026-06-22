@@ -9,7 +9,9 @@ const {
   getCalendarSessionsService,
   getTodaySessionsService,
   getMeetingRoomService,
-  sendSessionReminderService
+  sendSessionReminderService,
+  getSlotsService,
+  deleteSessionService
 } = require('../../services/prodesk/sessionService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -126,6 +128,26 @@ class ProdeskSessionController {
       const { session_id } = req.body;
       if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
       const result = await sendSessionReminderService({ therapist_id: req.user.therapist_id, session_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+  static async getSlots(req, res) {
+    try {
+      const { therapist_id, date, session_duration } = req.body;
+      const result = await getSlotsService({ therapist_id, date, session_duration });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async deleteSession(req, res) {
+    try {
+      const { session_id } = req.body;
+      if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
+      const result = await deleteSessionService({ therapist_id: req.user.therapist_id, session_id });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

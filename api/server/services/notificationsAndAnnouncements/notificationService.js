@@ -1340,6 +1340,51 @@ class NotificationService {
       `);
     }
 
+    else if (template === 'prodesk_session_rescheduled') {
+      subject = `Your session with ${data.therapist_name} has been rescheduled`;
+      const clinicLabel = data.clinic_name || 'Neure ProDesk';
+      htmlContent = shell(clinicLabel, `
+        ${heading('Session Rescheduled', 'Your session time has been updated.')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.client_name}</strong>, your session with
+          <strong>${data.therapist_name}</strong> has been rescheduled to a new time. Please see the updated details below.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FC;border:1px solid #E8EDF4;border-radius:12px;margin-bottom:24px;overflow:hidden;">
+          <tr><td style="padding:16px 20px;border-bottom:1px solid #E8EDF4;">
+            <p style="margin:0 0 4px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#9CA3AF;">Therapist</p>
+            <p style="margin:0;font-size:15px;font-weight:600;color:#0F1C2E;">${data.therapist_name}</p>
+          </td></tr>
+          <tr><td style="padding:16px 20px;${data.meet_url ? 'border-bottom:1px solid #E8EDF4;' : ''}">
+            <p style="margin:0 0 4px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#9CA3AF;">New Date &amp; Time</p>
+            <p style="margin:0;font-size:15px;font-weight:600;color:#0F1C2E;">${data.session_time} IST</p>
+          </td></tr>
+          ${data.meet_url ? `<tr><td style="padding:16px 20px;">
+            <p style="margin:0 0 4px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#9CA3AF;">Session Link</p>
+            <a href="${data.meet_url}" style="font-size:15px;font-weight:600;color:#5EA89A;text-decoration:none;">Join Session &rarr;</a>
+          </td></tr>` : ''}
+        </table>
+        ${note('Please be ready 5 minutes before your scheduled time. Contact your therapist if you have any questions.')}
+      `);
+    }
+
+    else if (template === 'prodesk_session_cancelled') {
+      subject = `Your session with ${data.therapist_name} has been cancelled`;
+      htmlContent = shell('Session Cancelled', `
+        ${heading('Session Cancelled', `Your upcoming session has been cancelled.`, '#C89364')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.client_name}</strong>, we're writing to let you know that
+          your session with <strong>${data.therapist_name}</strong> scheduled for
+          <strong>${data.session_time}</strong> has been cancelled.
+        </p>
+        ${infoBox([
+          ['Therapist', data.therapist_name],
+          ['Scheduled Time', data.session_time],
+          ['Reason', data.reason || 'No reason provided'],
+        ])}
+        ${note('Please contact your therapist directly to reschedule or book a new session at a convenient time.')}
+      `);
+    }
+
     else {
       console.warn(`sendEmail: unknown template "${template}"`);
       return false;
@@ -1352,7 +1397,7 @@ class NotificationService {
       const response = await axios.post(
         'https://api.brevo.com/v3/smtp/email',
         {
-          sender: { name: 'Neure ProDesk', email: BREVO_SENDER_EMAIL },
+          sender: { name: template.startsWith('prodesk_session') ? BREVO_SENDER_NAME : 'Neure ProDesk', email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject,
           htmlContent
@@ -1375,6 +1420,106 @@ class NotificationService {
     });
 
     return status === 'SUCCESS';
+  }
+
+  static async sendBookingNotificationToTherapist({ toEmail, toName, clientName, clientEmail, clientPhone, sessionTime, modality, durationMin = 60, meetUrl = null, clinicName = 'Neure Prodesk' }) {
+    const meetRowHtml = meetUrl ? `
+      <tr>
+        <td style="padding:14px 20px;border-top:1px solid #E5EAF0;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session Link</p>
+          <a href="${meetUrl}" style="font-size:15px;font-weight:600;color:#5EA89A;text-decoration:none;word-break:break-all;">${meetUrl}</a>
+        </td>
+      </tr>` : '';
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:540px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td style="background:#1A2332;padding:22px 28px;border-radius:12px 12px 0 0;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#5EA89A;">${clinicName}</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Neure Prodesk</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:#5EA89A;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td style="background:#FFFFFF;padding:28px 28px 24px;">
+            <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">New Booking 🎉</p>
+            <p style="margin:0 0 22px;font-size:13px;color:#5EA89A;font-weight:500;">A client has booked a session with you</p>
+            <p style="margin:0 0 22px;font-size:15px;color:#4B5563;line-height:1.7;">
+              Hi <strong style="color:#111827;">${toName}</strong>,<br>
+              <strong style="color:#111827;">${clientName}</strong> has booked a session with you.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:20px;">
+              <tr>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Client</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${clientName}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Contact</p>
+                  <p style="margin:0;font-size:14px;color:#374151;">${clientEmail}${clientPhone ? ' &nbsp;·&nbsp; ' + clientPhone : ''}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Format</p>
+                  <p style="margin:0;font-size:14px;font-weight:600;color:#374151;text-transform:capitalize;">${modality === 'in_person' ? 'In Person' : 'Video'} &nbsp;·&nbsp; ${durationMin} min</p>
+                </td>
+              </tr>
+              ${meetRowHtml}
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                  <p style="margin:0;font-size:12px;color:#9CA3AF;">${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span></p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = 'SUCCESS'; let statusCode = 200;
+    try {
+      const response = await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject: `New booking: ${clientName} on ${sessionTime}`,
+          htmlContent
+        },
+        { headers: { 'api-key': await getBrevoApiKey(), 'Content-Type': 'application/json' } }
+      );
+      statusCode = response.status;
+    } catch (err) {
+      status = 'FAILED'; statusCode = err.response?.status || 500;
+      console.error('sendBookingNotificationToTherapist error:', err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: 'EMAIL', status_code: statusCode, status,
+      type: 'BOOKING_NOTIFICATION_THERAPIST',
+      message: `booking_notification_therapist → ${toEmail}`
+    });
   }
 }
 
