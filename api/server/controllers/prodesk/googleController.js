@@ -17,23 +17,32 @@ class GoogleController {
 
   // Google redirects here after user grants permission
   static async callback(req, res) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Fallback used only when return_to is a relative path (legacy)
+    const fallbackOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+    let returnTo = `${fallbackOrigin}/settings`;
+
     try {
       const { code, state } = req.query;
-      if (!code || !state) return res.redirect(`${frontendUrl}/settings?google=error`);
+      if (!code || !state) return res.redirect(`${returnTo}?google=error`);
 
-      let therapistId, returnTo = '/settings';
+      let therapistId;
       try {
         const decoded = JSON.parse(Buffer.from(decodeURIComponent(state), 'base64').toString());
         therapistId = decoded.therapist_id;
-        if (decoded.return_to) returnTo = decoded.return_to;
+        if (decoded.return_to) {
+          // If it's already an absolute URL (starts with http), use it directly
+          // Otherwise prepend fallback origin (backwards compat)
+          returnTo = decoded.return_to.startsWith('http')
+            ? decoded.return_to
+            : `${fallbackOrigin}${decoded.return_to}`;
+        }
       } catch {
-        return res.redirect(`${frontendUrl}/settings?google=error`);
+        return res.redirect(`${returnTo}?google=error`);
       }
 
       const tokens = await exchangeCodeForTokens(code);
       if (!tokens.refresh_token) {
-        return res.redirect(`${frontendUrl}${returnTo}?google=error&reason=no_refresh`);
+        return res.redirect(`${returnTo}?google=error&reason=no_refresh`);
       }
 
       await db.query(
@@ -43,10 +52,10 @@ class GoogleController {
         [therapistId, tokens.refresh_token, tokens.refresh_token]
       );
 
-      return res.redirect(`${frontendUrl}${returnTo}?google=connected`);
+      return res.redirect(`${returnTo}?google=connected`);
     } catch (e) {
       console.error('Google OAuth callback error:', e.message);
-      return res.redirect(`${frontendUrl}${returnTo}?google=error`);
+      return res.redirect(`${returnTo}?google=error`);
     }
   }
 
