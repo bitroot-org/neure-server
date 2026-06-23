@@ -167,7 +167,8 @@ const getClientsService = async (payload) => {
       `SELECT pc.*, u.first_name, u.last_name, u.email, u.phone,
               CONCAT(u.first_name, ' ', u.last_name) AS name,
               (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count,
-              (SELECT ps2.starts_at FROM prodesk_sessions ps2
+              (SELECT DATE_ADD(DATE_ADD(ps2.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE)
+               FROM prodesk_sessions ps2
                WHERE ps2.client_id = pc.id AND ps2.status = 'scheduled'
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc

@@ -87,13 +87,13 @@ class ResourceTrackingService {
   static async getUserResourceHistory(user_id, resource_type = null, start_date = null, end_date = null) {
     try {
       let query = `
-        SELECT 
+        SELECT
           urt.id,
           urt.resource_type,
           urt.resource_id,
           urt.action_type,
-          urt.action_timestamp,
-          CASE 
+          DATE_ADD(DATE_ADD(urt.action_timestamp, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS action_timestamp,
+          CASE
             WHEN urt.resource_type = 'article' THEN a.title
             WHEN urt.resource_type IN ('gallery_image', 'gallery_video', 'gallery_pdf') THEN g.title
             WHEN urt.resource_type = 'soundscape' THEN s.title

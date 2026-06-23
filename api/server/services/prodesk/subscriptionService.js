@@ -22,7 +22,8 @@ const getSubscriptionService = async ({ therapist_id }) => {
     const [[sub]] = await db.query(
       `SELECT ps.id AS subscription_id, pp.name AS plan_name, pp.plan_type, pp.access_type,
               pp.price_inr, pp.client_limit, ps.billing_cycle, ps.status,
-              ps.current_period_start AS period_start, ps.current_period_end AS period_end,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_start,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end,
               DATEDIFF(ps.current_period_end, CURDATE()) AS days_remaining,
               po.code AS offer_code, ps.psychologist_count
        FROM prodesk_subscriptions ps

@@ -535,9 +535,11 @@ class CompanyService {
   static async getQna() {
     try {
       const [rows] = await db.query(
-        `SELECT id, question, answer, created_at, updated_at 
-         FROM qna 
-         WHERE is_active = 1 
+        `SELECT id, question, answer,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              DATE_ADD(DATE_ADD(updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at
+         FROM qna
+         WHERE is_active = 1
          ORDER BY created_at DESC`
       );
 

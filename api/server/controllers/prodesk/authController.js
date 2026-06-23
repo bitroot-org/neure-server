@@ -23,9 +23,9 @@ const respond = (res, result) => {
 class ProdeskAuthController {
   static async register(req, res) {
     try {
-      const { first_name, last_name, email, password, phone } = req.body;
+      const { first_name, last_name, email, password, phone, referral_code } = req.body;
       if (!first_name || !email || !password) return res.status(400).json({ status: false, code: 400, message: 'first_name, email and password are required', data: null });
-      const result = await registerService({ first_name, last_name, email, password, phone });
+      const result = await registerService({ first_name, last_name, email, password, phone, referral_code });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

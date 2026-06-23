@@ -412,7 +412,8 @@ class UserServices {
 
       const [therapists] = await db.query(
         `SELECT u.user_id, u.email, u.phone, u.username, u.first_name, u.last_name,
-                u.gender, u.profile_url, u.is_active, u.created_at,
+                u.gender, u.profile_url, u.is_active,
+                DATE_ADD(DATE_ADD(u.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
                 t.id AS therapist_id, t.bio, t.about_me, t.specialization,
                 t.years_of_experience, t.designation, t.qualification, t.booking_slug
          FROM users u

@@ -15,7 +15,7 @@ class workshopService {
     try {
       // Fetch workshop details
       const [workshops] = await db.query(
-        "SELECT *, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at, DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') as updated_at FROM workshops WHERE id = ? AND is_active = 1",
+        "SELECT *, DATE_FORMAT(DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as created_at, DATE_FORMAT(DATE_ADD(DATE_ADD(updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as updated_at FROM workshops WHERE id = ? AND is_active = 1",
         [workshop_id]
       );
 
@@ -45,10 +45,10 @@ class workshopService {
 
       // Build the query with base conditions
       let scheduleQuery = `
-        SELECT 
+        SELECT
           ws.id AS schedule_id,
-          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
-          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as start_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as end_time,
           ws.status,
           ws.max_participants,
           ws.host_name,
@@ -133,16 +133,16 @@ class workshopService {
 
       if (user_id) {
         baseQuery = `
-          SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
-                 ws.id AS schedule_id, 
-                 DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time, 
-                 DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time, 
-                 ws.status, ws.max_participants, 
-                 w.location, w.poster_image 
+          SELECT w.id AS workshop_id, w.title, w.description, w.is_active,
+                 ws.id AS schedule_id,
+                 DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as start_time,
+                 DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as end_time,
+                 ws.status, ws.max_participants,
+                 w.location, w.poster_image
           FROM workshops w
           INNER JOIN workshop_assignments wa ON w.id = wa.workshop_id
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-          WHERE wa.user_id = ? 
+          WHERE wa.user_id = ?
           AND w.is_active = 1
           AND ws.status NOT IN ('cancelled', 'completed')
           AND DATE(ws.start_time) >= ?
@@ -150,16 +150,16 @@ class workshopService {
         queryParams.push(user_id, today);
       } else if (company_id) {
         baseQuery = `
-          SELECT w.id AS workshop_id, w.title, w.description, w.is_active, 
-                 ws.id AS schedule_id, 
-                 DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time, 
-                 DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time, 
-                 ws.status, ws.max_participants, 
-                 w.location, w.poster_image 
+          SELECT w.id AS workshop_id, w.title, w.description, w.is_active,
+                 ws.id AS schedule_id,
+                 DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as start_time,
+                 DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as end_time,
+                 ws.status, ws.max_participants,
+                 w.location, w.poster_image
           FROM workshops w
           INNER JOIN workshop_schedules ws ON w.id = ws.workshop_id
-          WHERE ws.company_id = ? 
-          AND w.is_active = 1 
+          WHERE ws.company_id = ?
+          AND w.is_active = 1
           AND ws.status NOT IN ('cancelled', 'completed')
           AND DATE(ws.start_time) >= ?
         `;
@@ -479,13 +479,13 @@ class workshopService {
   ) {
     try {
       let query = `
-        SELECT 
+        SELECT
           ws.id AS session_id,
           w.title AS workshop_title,
           c.company_name AS company_name,
-          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') AS start_time,
-          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') AS end_time,
-          DATE_FORMAT(ws.start_time, '%Y-%m-%d') AS schedule_date,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') AS start_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') AS end_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d') AS schedule_date,
           w.pdf_url,
           ws.status,
           ws.host_name,
@@ -614,9 +614,9 @@ class workshopService {
 
       // Get the formatted dates directly from the database to avoid timezone issues
       const [formattedDates] = await db.query(
-        `SELECT 
-          DATE_FORMAT(start_time, '%Y-%m-%d %H:%i:%s') as formatted_start_time,
-          DATE_FORMAT(end_time, '%Y-%m-%d %H:%i:%s') as formatted_end_time
+        `SELECT
+          DATE_FORMAT(DATE_ADD(DATE_ADD(start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as formatted_start_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as formatted_end_time
          FROM workshop_schedules
          WHERE id = ?`,
         [scheduleId]
@@ -1062,8 +1062,8 @@ class workshopService {
           c.company_name,
           lt.schedule_id,
           ws.host_name,
-          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') AS start_time,
-          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') AS end_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') AS start_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') AS end_time,
           u.user_id,
           u.first_name,
           u.last_name,
@@ -1187,9 +1187,9 @@ class workshopService {
   // Get user's workshop tickets
   static async getUserWorkshopTickets(user_id) {
     const query = `
-      SELECT 
+      SELECT
         w.title AS workshop_title,
-        DATE_FORMAT(wt.created_at, '%Y-%m-%d %H:%i:%s') AS ticket_generated_at,
+        DATE_FORMAT(DATE_ADD(DATE_ADD(wt.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') AS ticket_generated_at,
         u.first_name,
         u.last_name,
         u.email,
@@ -1221,8 +1221,8 @@ class workshopService {
           wt.schedule_id,
           wt.is_attended,
           w.title as workshop_title,
-          DATE_FORMAT(ws.start_time, '%Y-%m-%d %H:%i:%s') as start_time,
-          DATE_FORMAT(ws.end_time, '%Y-%m-%d %H:%i:%s') as end_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.start_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as start_time,
+          DATE_FORMAT(DATE_ADD(DATE_ADD(ws.end_time, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d %H:%i:%s') as end_time,
           ws.status
         FROM workshop_tickets wt
         JOIN workshops w ON wt.workshop_id = w.id

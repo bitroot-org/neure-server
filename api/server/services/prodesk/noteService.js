@@ -136,8 +136,11 @@ const getClientNotesService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT n.id, n.session_id, n.title, n.preview, n.format, n.is_draft, n.created_at, n.updated_at,
-              ps.session_number, ps.starts_at AS session_starts_at
+      `SELECT n.id, n.session_id, n.title, n.preview, n.format, n.is_draft,
+              DATE_ADD(DATE_ADD(n.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              DATE_ADD(DATE_ADD(n.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
+              ps.session_number,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS session_starts_at
        FROM prodesk_session_notes n
        JOIN prodesk_sessions ps ON ps.id = n.session_id
        WHERE n.client_id = ? AND n.therapist_id = ?

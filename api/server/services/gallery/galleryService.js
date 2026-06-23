@@ -37,7 +37,7 @@ class GalleryService {
         g.file_url,
         g.size,
         g.tags,
-        g.created_at
+        DATE_ADD(DATE_ADD(g.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
       FROM gallery g
       `;
 
@@ -132,7 +132,7 @@ class GalleryService {
           g.description,
           g.tags,
           g.size,
-          g.created_at,
+          DATE_ADD(DATE_ADD(g.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
           GROUP_CONCAT(cga.company_id) as assigned_companies
         FROM gallery g
         LEFT JOIN company_gallery_assignments cga ON g.id = cga.gallery_item_id

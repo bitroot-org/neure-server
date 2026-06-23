@@ -124,7 +124,8 @@ const getAvailableSlotsService = async (payload) => {
     }
 
     const [booked] = await db.query(
-      `SELECT DATE_FORMAT(starts_at, '%Y-%m-%d') AS date, DATE_FORMAT(starts_at, '%H:%i') AS time_slot
+      `SELECT DATE_FORMAT(DATE_ADD(DATE_ADD(starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d') AS date,
+              DATE_FORMAT(DATE_ADD(DATE_ADD(starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%H:%i') AS time_slot
        FROM prodesk_sessions
        WHERE therapist_id = ? AND status != 'cancelled' AND DATE(starts_at) BETWEEN ? AND ?`,
       [therapistId, from, to]

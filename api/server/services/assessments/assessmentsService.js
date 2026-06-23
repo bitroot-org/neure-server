@@ -41,11 +41,11 @@ class AssessmentsService {
       
       // First get all assessment IDs
       let assessmentQuery = `
-        SELECT 
-          a.id, 
-          a.title, 
-          a.description, 
-          a.created_at,
+        SELECT
+          a.id,
+          a.title,
+          a.description,
+          DATE_ADD(DATE_ADD(a.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
           a.is_psi_assessment
         FROM assessments a
         WHERE a.is_active = 1
@@ -744,8 +744,9 @@ class AssessmentsService {
       }
       
       let userAssessmentQuery = `
-        SELECT id, score, total_points, max_possible_points, completed_at 
-        FROM user_assessments 
+        SELECT id, score, total_points, max_possible_points,
+               DATE_ADD(DATE_ADD(completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS completed_at
+        FROM user_assessments
         WHERE user_id = ? AND assessment_id = ?
       `;
       
@@ -824,9 +825,9 @@ class AssessmentsService {
       let submissionHistory = [];
       if (assessment[0].is_psi_assessment) {
         const [history] = await db.query(
-          `SELECT id, DATE_FORMAT(completed_at, '%Y-%m-%d') as submission_date, 
+          `SELECT id, DATE_FORMAT(DATE_ADD(DATE_ADD(completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d') as submission_date,
            score, total_points
-           FROM user_assessments 
+           FROM user_assessments
            WHERE user_id = ? AND assessment_id = ?
            ORDER BY completed_at DESC`,
           [user_id, assessment_id]
@@ -868,7 +869,7 @@ class AssessmentsService {
       
       // Build the query with joins to get all required data
       let query = `
-        SELECT 
+        SELECT
           u.first_name,
           u.last_name,
           u.email,
@@ -878,7 +879,7 @@ class AssessmentsService {
           a.title as assessment_name,
           a.id as assessment_id,
           ua.score,
-          ua.completed_at,
+          DATE_ADD(DATE_ADD(ua.completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS completed_at,
           ua.id as user_assessment_id
         FROM user_assessments ua
         JOIN users u ON ua.user_id = u.user_id
@@ -965,13 +966,13 @@ class AssessmentsService {
       // Query to get all assessments submitted by the user with scores
       // For PSI assessments, include a flag indicating if it's the latest monthly submission
       const query = `
-        SELECT 
+        SELECT
           ua.id as submission_id,
           ua.assessment_id,
           a.title as assessment_title,
           a.is_psi_assessment,
           ua.score,
-          ua.completed_at,
+          DATE_ADD(DATE_ADD(ua.completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS completed_at,
           c.id as company_id,
           c.company_name,
           CASE 
@@ -1011,7 +1012,8 @@ class AssessmentsService {
   static async generateAssessmentPdf(userId, assessmentId, returnType = 'blob', submissionId = null) {
     try {
       // Get assessment data
-      let userAssessmentQuery = `SELECT ua.id, ua.total_points, ua.score, ua.completed_at
+      let userAssessmentQuery = `SELECT ua.id, ua.total_points, ua.score,
+                                DATE_ADD(DATE_ADD(ua.completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS completed_at
                                 FROM user_assessments ua
                                 WHERE ua.user_id = ? AND ua.assessment_id = ?`;
       
@@ -1183,14 +1185,14 @@ class AssessmentsService {
       // Get all submissions for each PSI assessment
       const psiHistory = await Promise.all(psiAssessments.map(async (assessment) => {
         const [submissions] = await db.query(
-          `SELECT 
-            id, 
-            score, 
-            total_points, 
+          `SELECT
+            id,
+            score,
+            total_points,
             max_possible_points,
-            DATE_FORMAT(completed_at, '%Y-%m-%d') as submission_date,
-            DATE_FORMAT(completed_at, '%Y-%m') as month_year
-          FROM user_assessments 
+            DATE_FORMAT(DATE_ADD(DATE_ADD(completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m-%d') as submission_date,
+            DATE_FORMAT(DATE_ADD(DATE_ADD(completed_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE), '%Y-%m') as month_year
+          FROM user_assessments
           WHERE user_id = ? AND assessment_id = ? AND company_id = ?
           ORDER BY completed_at DESC`,
           [user_id, assessment.id, company_id]

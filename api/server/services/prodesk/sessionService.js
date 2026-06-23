@@ -23,7 +23,12 @@ const getSessionByIdService = async (payload) => {
     const { therapist_id, session_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT ps.*,
+      `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
+              ps.note_id,
+              DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
@@ -228,7 +233,12 @@ const getSessionsService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT ps.*,
+      `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
+              ps.note_id,
+              DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
               CONCAT(u.first_name,' ',u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color,
               CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials
@@ -372,7 +382,9 @@ const cancelSessionService = async (payload) => {
     const { therapist_id, session_id, reason } = payload;
 
     const [[session]] = await db.query(
-      `SELECT ps.id, ps.client_id, ps.starts_at, ps.title,
+      `SELECT ps.id, ps.client_id,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.title,
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               tb.brand_name AS clinic_name
        FROM prodesk_sessions ps
@@ -457,7 +469,9 @@ const getCalendarSessionsService = async (payload) => {
     }
 
     const [rows] = await db.query(
-      `SELECT ps.id, ps.starts_at, ps.duration_min, ps.modality, ps.status, ps.title,
+      `SELECT ps.id,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality, ps.status, ps.title,
               ps.meet_url, ps.session_number,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color,
@@ -491,7 +505,9 @@ const getTodaySessionsService = async (payload) => {
     const { therapist_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT ps.id, ps.starts_at, ps.duration_min, ps.modality, ps.status, ps.title,
+      `SELECT ps.id,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
@@ -547,7 +563,9 @@ const sendSessionReminderService = async (payload) => {
     const { therapist_id, session_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT ps.id, ps.starts_at, ps.modality, ps.meet_url, ps.status,
+      `SELECT ps.id,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.modality, ps.meet_url, ps.status,
               u.email, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
               COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name,

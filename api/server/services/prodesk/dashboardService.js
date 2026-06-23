@@ -164,7 +164,9 @@ const getMetricsService = async (payload) => {
 const getTodaySessionsForDashboard = async (therapistId) => {
   try {
     const [rows] = await db.query(
-      `SELECT ps.id, ps.starts_at, ps.duration_min, ps.modality, ps.status, ps.title,
+      `SELECT ps.id,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
@@ -186,7 +188,8 @@ const getTodaySessionsForDashboard = async (therapistId) => {
 const getRecentNotificationsForDashboard = async (userId) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, content AS text, type, is_read, created_at
+      `SELECT id, title, content AS text, type, is_read,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM notifications
        WHERE user_id = ? AND is_close = 0
        ORDER BY created_at DESC LIMIT 5`,
@@ -221,7 +224,9 @@ const getNotificationsService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT * FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      `SELECT id, title, content, type, company_id, user_id, is_read, priority, is_close,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
+       FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...vals, limit, offset]
     );
 

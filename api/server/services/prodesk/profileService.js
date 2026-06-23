@@ -29,7 +29,7 @@ const getProfileService = async (payload) => {
               t.id AS therapist_id, t.bio, t.specialization, t.years_of_experience,
               t.designation, t.qualification, t.booking_slug, t.about_me,
               t.experience_years, t.registration_number, t.rating, t.is_active,
-              t.onboarding_completed
+              t.onboarding_completed, t.onboarding_step
        FROM users u
        JOIN therapists t ON t.user_id = u.user_id
        WHERE t.id = ?`,
@@ -418,12 +418,29 @@ const getBookingLinkService = async (payload) => {
 const completeOnboardingService = async ({ therapist_id }) => {
   try {
     await db.query(
-      'UPDATE therapists SET onboarding_completed = 1 WHERE id = ?',
+      'UPDATE therapists SET onboarding_completed = 1, onboarding_step = 6 WHERE id = ?',
       [therapist_id]
     );
     return { status: true, code: 200, message: 'Onboarding marked complete', data: null };
   } catch (error) {
     console.log('Error in completeOnboardingService::>>', error);
+    return null;
+  }
+};
+
+const updateOnboardingStepService = async ({ therapist_id, step }) => {
+  try {
+    const stepNum = parseInt(step);
+    if (isNaN(stepNum) || stepNum < 0 || stepNum > 6) {
+      return { status: false, code: 400, message: 'step must be between 0 and 6', data: null };
+    }
+    await db.query(
+      'UPDATE therapists SET onboarding_step = ? WHERE id = ?',
+      [stepNum, therapist_id]
+    );
+    return { status: true, code: 200, message: 'Onboarding step updated', data: { onboarding_step: stepNum } };
+  } catch (error) {
+    console.log('Error in updateOnboardingStepService::>>', error);
     return null;
   }
 };
@@ -441,5 +458,6 @@ module.exports = {
   uploadDocumentService,
   deleteDocumentService,
   getBookingLinkService,
-  completeOnboardingService
+  completeOnboardingService,
+  updateOnboardingStepService
 };

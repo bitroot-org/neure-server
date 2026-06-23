@@ -20,7 +20,8 @@ const getTeamService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone,
-              u.profile_url, u.job_title, u.created_at AS joined_at
+              u.profile_url, u.job_title,
+              DATE_ADD(DATE_ADD(u.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS joined_at
        FROM users u
        WHERE u.role_id = 6 AND u.is_active = 1 ${searchCond}
        ORDER BY u.created_at DESC LIMIT ? OFFSET ?`,

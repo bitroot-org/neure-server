@@ -532,7 +532,9 @@ const getDeviceSessionsService = async (payload) => {
     const { therapist_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT id, jti, device_info, ip_address, last_active_at, created_at
+      `SELECT id, jti, device_info, ip_address,
+              DATE_ADD(DATE_ADD(last_active_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS last_active_at,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_device_sessions
        WHERE therapist_id = ? AND revoked = 0
        ORDER BY last_active_at DESC`,

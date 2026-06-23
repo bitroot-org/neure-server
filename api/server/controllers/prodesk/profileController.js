@@ -11,7 +11,8 @@ const {
   uploadDocumentService,
   deleteDocumentService,
   getBookingLinkService,
-  completeOnboardingService
+  completeOnboardingService,
+  updateOnboardingStepService
 } = require('../../services/prodesk/profileService');
 const { uploadImage } = require('../upload/UploadController');
 const { convertDatesToIST } = require('../../utils/dateHelper');
@@ -154,6 +155,17 @@ class ProdeskProfileController {
   static async completeOnboarding(req, res) {
     try {
       const result = await completeOnboardingService({ therapist_id: req.user.therapist_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async updateOnboardingStep(req, res) {
+    try {
+      const { step } = req.body;
+      if (step === undefined) return res.status(400).json({ status: false, code: 400, message: 'step is required', data: null });
+      const result = await updateOnboardingStepService({ therapist_id: req.user.therapist_id, step });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

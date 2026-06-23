@@ -50,7 +50,8 @@ class AnnouncementService {
       const offset = (page - 1) * limit;
 
       let query = `
-        SELECT a.id, a.title, a.content, a.link, a.audience_type, a.created_at,
+        SELECT a.id, a.title, a.content, a.link, a.audience_type,
+               DATE_ADD(DATE_ADD(a.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
                CASE WHEN ar.id IS NOT NULL THEN 1 ELSE 0 END as is_read
         FROM announcements a
       `;

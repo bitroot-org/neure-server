@@ -78,7 +78,8 @@ const getReferralHistoryService = async ({ therapist_id, page = 1, limit = 20 })
     const offset = (page - 1) * limit;
     const [referrals] = await db.query(
       `SELECT CONCAT(u.first_name,' ',u.last_name) AS referred_name, u.email AS referred_email,
-              pr.status, pr.reward_amount, pr.converted_at
+              pr.status, pr.reward_amount,
+              DATE_ADD(DATE_ADD(pr.converted_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS converted_at
        FROM prodesk_referrals pr
        JOIN therapists t ON pr.referred_therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -90,7 +91,8 @@ const getReferralHistoryService = async ({ therapist_id, page = 1, limit = 20 })
        FROM prodesk_referral_payouts WHERE therapist_id = ? ORDER BY created_at DESC`, [therapist_id]
     );
     const [ledger] = await db.query(
-      `SELECT type, amount, description, balance_after, created_at
+      `SELECT type, amount, description, balance_after,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_referral_wallet_ledger WHERE therapist_id = ? ORDER BY created_at DESC LIMIT 50`,
       [therapist_id]
     );

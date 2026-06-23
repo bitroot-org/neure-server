@@ -5,7 +5,9 @@ class GoogleController {
   // Returns the Google OAuth URL for the frontend to redirect to
   static async authUrl(req, res) {
     try {
-      const state = Buffer.from(JSON.stringify({ therapist_id: req.user.therapist_id })).toString('base64');
+      // Allow caller to specify where to return after OAuth (defaults to /settings)
+      const returnTo = req.body.return_to || '/settings';
+      const state = Buffer.from(JSON.stringify({ therapist_id: req.user.therapist_id, return_to: returnTo })).toString('base64');
       const url = `${getAuthUrl()}&state=${encodeURIComponent(state)}`;
       return res.json({ status: true, data: { url } });
     } catch (e) {
@@ -20,17 +22,18 @@ class GoogleController {
       const { code, state } = req.query;
       if (!code || !state) return res.redirect(`${frontendUrl}/settings?google=error`);
 
-      let therapistId;
+      let therapistId, returnTo = '/settings';
       try {
         const decoded = JSON.parse(Buffer.from(decodeURIComponent(state), 'base64').toString());
         therapistId = decoded.therapist_id;
+        if (decoded.return_to) returnTo = decoded.return_to;
       } catch {
         return res.redirect(`${frontendUrl}/settings?google=error`);
       }
 
       const tokens = await exchangeCodeForTokens(code);
       if (!tokens.refresh_token) {
-        return res.redirect(`${frontendUrl}/settings?google=error&reason=no_refresh`);
+        return res.redirect(`${frontendUrl}${returnTo}?google=error&reason=no_refresh`);
       }
 
       await db.query(
@@ -40,10 +43,10 @@ class GoogleController {
         [therapistId, tokens.refresh_token, tokens.refresh_token]
       );
 
-      return res.redirect(`${frontendUrl}/settings?google=connected`);
+      return res.redirect(`${frontendUrl}${returnTo}?google=connected`);
     } catch (e) {
       console.error('Google OAuth callback error:', e.message);
-      return res.redirect(`${frontendUrl}/settings?google=error`);
+      return res.redirect(`${frontendUrl}${returnTo}?google=error`);
     }
   }
 

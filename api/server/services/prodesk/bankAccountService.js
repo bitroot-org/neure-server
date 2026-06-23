@@ -207,8 +207,9 @@ const adminGetAllBankAccountsService = async ({ page = 1, limit = 20, search = '
     const [rows] = await db.query(
       `SELECT tba.id, tba.therapist_id, tba.account_holder,
               tba.account_number, tba.ifsc_code, tba.bank_name,
-              tba.branch_name, tba.account_type, tba.last_edited_at,
-              tba.created_at,
+              tba.branch_name, tba.account_type,
+              DATE_ADD(DATE_ADD(tba.last_edited_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS last_edited_at,
+              DATE_ADD(DATE_ADD(tba.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               CONCAT(u.first_name, ' ', u.last_name) AS therapist_name,
               u.email AS therapist_email
        FROM therapist_bank_accounts tba
@@ -264,7 +265,10 @@ const adminGetBankAccountLogsService = async ({ therapist_id, page = 1, limit = 
     );
 
     const [rows] = await db.query(
-      `SELECT l.*, CONCAT(u.first_name, ' ', u.last_name) AS changed_by_name, u.email AS changed_by_email
+      `SELECT l.id, l.therapist_id, l.action, l.old_data, l.new_data, l.changed_by_user,
+              l.ip_address, l.user_agent,
+              DATE_ADD(DATE_ADD(l.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              CONCAT(u.first_name, ' ', u.last_name) AS changed_by_name, u.email AS changed_by_email
        FROM therapist_bank_account_logs l
        LEFT JOIN users u ON u.user_id = l.changed_by_user
        WHERE l.therapist_id = ?

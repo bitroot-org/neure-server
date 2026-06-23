@@ -117,8 +117,8 @@ const getActiveUsersService = async ({ page = 1, limit = 20, search = '', plan_t
               IFNULL(pp.plan_type, 'none') AS plan_type,
               pp.access_type,
               ps.billing_cycle,
-              ps.current_period_start AS activation_date,
-              ps.current_period_end AS period_end,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS activation_date,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end,
               IFNULL(ps.status, 'no_subscription') AS status
        FROM users u
        JOIN therapists t ON u.user_id = t.user_id
@@ -157,8 +157,8 @@ const getDiscontinuedUsersService = async ({ page = 1, limit = 20, search = '' }
       `SELECT t.id AS therapist_id, CONCAT(u.first_name,' ',u.last_name) AS name,
               u.email, u.phone, IFNULL(pp.name,'No Plan') AS plan_name,
               pp.plan_type, ps.billing_cycle,
-              ps.current_period_start AS activation_date,
-              ps.updated_at AS cancelled_on,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS activation_date,
+              DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS cancelled_on,
               IFNULL(ps.status, 'deactivated') AS status
        FROM users u
        JOIN therapists t ON u.user_id = t.user_id
@@ -196,10 +196,12 @@ const getTherapistsService = async ({ page = 1, limit = 20, search = '', plan_ty
     );
     const [rows] = await db.query(
       `SELECT t.id AS therapist_id, u.user_id, CONCAT(u.first_name,' ',u.last_name) AS name,
-              u.email, u.phone, u.profile_url, u.is_active, u.created_at, t.booking_slug,
+              u.email, u.phone, u.profile_url, u.is_active,
+              DATE_ADD(DATE_ADD(u.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              t.booking_slug,
               pp.name AS plan_name, pp.plan_type, pp.access_type,
               ps.billing_cycle, ps.status AS subscription_status,
-              ps.current_period_end AS period_end
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end
        FROM users u
        JOIN therapists t ON u.user_id = t.user_id
        LEFT JOIN prodesk_subscriptions ps ON t.id = ps.therapist_id
@@ -244,7 +246,8 @@ const getFeedbackService = async ({ page = 1, limit = 20, search = '', status = 
     const [rows] = await db.query(
       `SELECT pf.id, pf.therapist_id, CONCAT(u.first_name,' ',u.last_name) AS therapist_name,
               u.email AS therapist_email, pf.subject, pf.message, pf.rating,
-              pf.status, pf.admin_notes, pf.created_at
+              pf.status, pf.admin_notes,
+              DATE_ADD(DATE_ADD(pf.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_feedback pf
        JOIN therapists t ON pf.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id ${where}
@@ -293,7 +296,9 @@ const getDeactivatedAccountsService = async ({ page = 1, limit = 20, search = ''
       `SELECT t.id AS therapist_id, CONCAT(u.first_name,' ',u.last_name) AS name,
               u.email, u.phone, pp.name AS plan_name, ps.billing_cycle,
               IFNULL(psp.amount, 0) AS amount_paid,
-              ps.current_period_start AS activation_date, ps.updated_at AS deactivated_on, ps.status
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS activation_date,
+              DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS deactivated_on,
+              ps.status
        FROM prodesk_subscriptions ps
        JOIN therapists t ON ps.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -323,7 +328,7 @@ const createOfferTagService = async ({ name, description }) => {
 
 const getOfferTagsService = async () => {
   try {
-    const [rows] = await db.query(`SELECT id, name, description, created_at FROM prodesk_offer_tags ORDER BY id`);
+    const [rows] = await db.query(`SELECT id, name, description, DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at FROM prodesk_offer_tags ORDER BY id`);
     return { status: true, code: 200, message: 'Tags fetched', data: rows };
   } catch (error) {
     console.log('Error in getOfferTagsService::>>', error);
@@ -411,7 +416,8 @@ const getOffersService = async ({ page = 1, limit = 20, search = '', tag_id = nu
     const [rows] = await db.query(
       `SELECT po.id, po.code, po.name, pt.name AS tag_name, po.is_percent, po.percent_discount,
               po.is_email_restricted, po.valid_from, po.valid_till, po.total_used,
-              po.is_active, po.created_at,
+              po.is_active,
+              DATE_ADD(DATE_ADD(po.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               (SELECT COUNT(*) FROM prodesk_offer_emails poe WHERE poe.offer_id = po.id) AS total_emails_whitelisted
        FROM prodesk_offers po
        JOIN prodesk_offer_tags pt ON po.tag_id = pt.id ${where}
@@ -513,7 +519,8 @@ const getReferralDetailService = async ({ therapist_id }) => {
     const [[wallet]] = await db.query(`SELECT * FROM prodesk_referral_wallet WHERE therapist_id = ?`, [therapist_id]);
     const [referrals] = await db.query(
       `SELECT CONCAT(u.first_name,' ',u.last_name) AS referred_name, u.email AS referred_email,
-              pr.status, pr.reward_amount, pr.converted_at
+              pr.status, pr.reward_amount,
+              DATE_ADD(DATE_ADD(pr.converted_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS converted_at
        FROM prodesk_referrals pr
        JOIN therapists t ON pr.referred_therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -524,7 +531,8 @@ const getReferralDetailService = async ({ therapist_id }) => {
        FROM prodesk_referral_payouts WHERE therapist_id = ? ORDER BY created_at DESC`, [therapist_id]
     );
     const [ledger] = await db.query(
-      `SELECT type, amount, description, balance_after, created_at
+      `SELECT type, amount, description, balance_after,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_referral_wallet_ledger WHERE therapist_id = ? ORDER BY created_at DESC`, [therapist_id]
     );
     return {
@@ -621,7 +629,9 @@ const getSessionsAdminService = async ({ page = 1, limit = 20, therapist_id = nu
       `SELECT ps.id AS session_id, ps.therapist_id,
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               CONCAT(cu.first_name,' ',cu.last_name) AS client_name,
-              ps.session_number, ps.starts_at, ps.duration_min, ps.modality,
+              ps.session_number,
+              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.duration_min, ps.modality,
               ps.status, ps.fee,
               CASE WHEN psn.id IS NOT NULL THEN 1 ELSE 0 END AS has_note,
               psn.preview AS note_preview
@@ -662,8 +672,11 @@ const getSubscriptionsAdminService = async ({ page = 1, limit = 20, search = '',
     const [rows] = await db.query(
       `SELECT ps.id AS subscription_id, ps.therapist_id, CONCAT(u.first_name,' ',u.last_name) AS therapist_name,
               u.email, pp.name AS plan_name, pp.plan_type, pp.access_type, ps.billing_cycle,
-              ps.status, psp.amount AS amount_paid, ps.current_period_start AS period_start,
-              ps.current_period_end AS period_end, po.code AS offer_code, ps.created_at
+              ps.status, psp.amount AS amount_paid,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_start,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end,
+              po.code AS offer_code,
+              DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_subscriptions ps
        JOIN therapists t ON ps.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -688,10 +701,13 @@ const getSubscriptionDetailService = async ({ subscription_id }) => {
       `SELECT ps.id AS subscription_id, ps.therapist_id,
               CONCAT(u.first_name,' ',u.last_name) AS therapist_name, u.email,
               pp.name AS plan_name, pp.plan_type, pp.access_type, pp.price_inr,
-              ps.billing_cycle, ps.status, ps.current_period_start AS period_start,
-              ps.current_period_end AS period_end, ps.psychologist_count,
+              ps.billing_cycle, ps.status,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_start,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end,
+              ps.psychologist_count,
               po.code AS offer_code, po.name AS offer_name,
-              ps.created_at, ps.updated_at
+              DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+              DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at
        FROM prodesk_subscriptions ps
        JOIN therapists t ON ps.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -703,7 +719,9 @@ const getSubscriptionDetailService = async ({ subscription_id }) => {
 
     const [payments] = await db.query(
       `SELECT id AS payment_id, amount, currency, razorpay_order_id, razorpay_payment_id,
-              status, payment_for, paid_at, created_at
+              status, payment_for,
+              DATE_ADD(DATE_ADD(paid_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS paid_at,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_subscription_payments
        WHERE subscription_id = ? ORDER BY created_at DESC`, [subscription_id]
     );
@@ -742,7 +760,9 @@ const getPaymentsService = async ({ page = 1, limit = 20, search = '', status = 
               CONCAT(u.first_name,' ',u.last_name) AS therapist_name, u.email,
               pp.name AS plan_name, pp.plan_type,
               psp.amount, psp.currency, psp.razorpay_order_id, psp.razorpay_payment_id,
-              psp.status, psp.payment_for, psp.paid_at, psp.created_at
+              psp.status, psp.payment_for,
+              DATE_ADD(DATE_ADD(psp.paid_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS paid_at,
+              DATE_ADD(DATE_ADD(psp.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_subscription_payments psp
        JOIN therapists t ON psp.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -767,9 +787,13 @@ const getPaymentDetailService = async ({ payment_id }) => {
               CONCAT(u.first_name,' ',u.last_name) AS therapist_name, u.email, u.phone,
               pp.name AS plan_name, pp.plan_type, pp.access_type, pp.billing_cycle AS plan_billing,
               ps.billing_cycle AS subscription_billing, ps.status AS subscription_status,
-              ps.current_period_start, ps.current_period_end,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS current_period_start,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS current_period_end,
               psp.amount, psp.currency, psp.razorpay_order_id, psp.razorpay_payment_id,
-              psp.status, psp.payment_for, psp.paid_at, psp.meta, psp.created_at
+              psp.status, psp.payment_for,
+              DATE_ADD(DATE_ADD(psp.paid_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS paid_at,
+              psp.meta,
+              DATE_ADD(DATE_ADD(psp.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_subscription_payments psp
        JOIN therapists t ON psp.therapist_id = t.id
        JOIN users u ON t.user_id = u.user_id
@@ -782,7 +806,10 @@ const getPaymentDetailService = async ({ payment_id }) => {
     // All payment attempts/logs for the same subscription (trial logs)
     const [allAttempts] = await db.query(
       `SELECT id AS payment_id, amount, currency, razorpay_order_id, razorpay_payment_id,
-              status, payment_for, paid_at, meta, created_at
+              status, payment_for,
+              DATE_ADD(DATE_ADD(paid_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS paid_at,
+              meta,
+              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_subscription_payments
        WHERE subscription_id = ? ORDER BY created_at ASC`,
       [payment.subscription_id]
@@ -813,10 +840,11 @@ const getOfferEmailsService = async ({ offer_id, page = 1, limit = 20, search = 
       );
       const [rows] = await db.query(
         `SELECT poe.id, poe.offer_id, po.code AS offer_code, po.name AS offer_name,
-                poe.email, poe.is_used, poe.used_at,
+                poe.email, poe.is_used,
+                DATE_ADD(DATE_ADD(poe.used_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS used_at,
                 poe.used_by_therapist_id,
                 CONCAT(u.first_name,' ',u.last_name) AS used_by_name,
-                poe.created_at
+                DATE_ADD(DATE_ADD(poe.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
          FROM prodesk_offer_emails poe
          JOIN prodesk_offers po ON poe.offer_id = po.id
          LEFT JOIN therapists t ON poe.used_by_therapist_id = t.id
@@ -842,10 +870,11 @@ const getOfferEmailsService = async ({ offer_id, page = 1, limit = 20, search = 
       `SELECT COUNT(*) AS total FROM prodesk_offer_emails poe ${where}`, params
     );
     const [rows] = await db.query(
-      `SELECT poe.id, poe.offer_id, poe.email, poe.is_used, poe.used_at,
+      `SELECT poe.id, poe.offer_id, poe.email, poe.is_used,
+              DATE_ADD(DATE_ADD(poe.used_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS used_at,
               poe.used_by_therapist_id,
               CONCAT(u.first_name,' ',u.last_name) AS used_by_name,
-              poe.created_at
+              DATE_ADD(DATE_ADD(poe.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
        FROM prodesk_offer_emails poe
        LEFT JOIN therapists t ON poe.used_by_therapist_id = t.id
        LEFT JOIN users u ON t.user_id = u.user_id
@@ -929,7 +958,8 @@ const getTherapistByIdService = async ({ therapist_id }) => {
 
     const [[therapist]] = await db.query(
       `SELECT t.id AS therapist_id, u.user_id, CONCAT(u.first_name,' ',u.last_name) AS name,
-              u.email, u.phone, u.profile_url, u.is_active, u.created_at,
+              u.email, u.phone, u.profile_url, u.is_active,
+              DATE_ADD(DATE_ADD(u.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               t.booking_slug, t.about_me, t.experience_years, t.qualification,
               t.registration_number, t.referral_code
        FROM therapists t
@@ -940,8 +970,10 @@ const getTherapistByIdService = async ({ therapist_id }) => {
 
     const [[sub]] = await db.query(
       `SELECT ps.id AS subscription_id, pp.name AS plan_name, pp.plan_type, pp.access_type,
-              ps.billing_cycle, ps.status, ps.current_period_start AS period_start,
-              ps.current_period_end AS period_end, psp.amount AS amount_paid, po.code AS offer_code
+              ps.billing_cycle, ps.status,
+              DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_start,
+              DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end,
+              psp.amount AS amount_paid, po.code AS offer_code
        FROM prodesk_subscriptions ps
        JOIN prodesk_plans pp ON ps.plan_id = pp.id
        LEFT JOIN prodesk_subscription_payments psp ON ps.latest_payment_id = psp.id

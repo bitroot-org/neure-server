@@ -51,7 +51,7 @@ const getFaqService = async ({ search = '', page = 1, limit = 50 }) => {
     }
     const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM qna ${where}`, params);
     const [rows] = await db.query(
-      `SELECT id, question, answer, created_at FROM qna ${where} ORDER BY id ASC LIMIT ? OFFSET ?`,
+      `SELECT id, question, answer, DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at FROM qna ${where} ORDER BY id ASC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), offset]
     );
     return {

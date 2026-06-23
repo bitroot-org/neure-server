@@ -29,7 +29,9 @@ class QnaService {
       const offset = (page - 1) * limit;
       
       let query = `
-        SELECT id, question, answer, is_active, created_at, updated_at 
+        SELECT id, question, answer, is_active,
+               DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+               DATE_ADD(DATE_ADD(updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at
         FROM qna
       `;
       
@@ -73,8 +75,10 @@ class QnaService {
   static async getQnaById(id) {
     try {
       const [rows] = await db.query(
-        `SELECT id, question, answer, is_active, created_at, updated_at 
-         FROM qna 
+        `SELECT id, question, answer, is_active,
+                DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+                DATE_ADD(DATE_ADD(updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at
+         FROM qna
          WHERE id = ?`,
         [id]
       );

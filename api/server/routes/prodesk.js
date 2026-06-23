@@ -85,7 +85,8 @@ router.post('/getDocuments',        authorization, ProfileCtrl.getDocuments);
 router.post('/uploadDocument',      authorization, imageUpload.single('file'), ProfileCtrl.uploadDocument);
 router.post('/deleteDocument',      authorization, ProfileCtrl.deleteDocument);
 router.post('/getBookingLink',        authorization, ProfileCtrl.getBookingLink);
-router.post('/completeOnboarding',   authorization, ProfileCtrl.completeOnboarding);
+router.post('/completeOnboarding',    authorization, ProfileCtrl.completeOnboarding);
+router.post('/updateOnboardingStep',  authorization, ProfileCtrl.updateOnboardingStep);
 
 // ──────────────────────────────────────────────────────────────
 // CLIENTS

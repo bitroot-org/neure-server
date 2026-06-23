@@ -75,13 +75,14 @@ class ActivityLogService {
       
       // Data query with pagination
       const query = `
-        SELECT 
-          al.*,
+        SELECT
+          al.id, al.user_id, al.company_id, al.performed_by, al.module_name, al.action, al.description,
+          DATE_ADD(DATE_ADD(al.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
           c.company_name
         FROM activity_logs al
         LEFT JOIN companies c ON al.company_id = c.id
-        ${whereClause} 
-        ORDER BY al.created_at DESC 
+        ${whereClause}
+        ORDER BY al.created_at DESC
         LIMIT ? OFFSET ?`;
       const queryParams = [...params, limit, offset];
       const [logs] = await db.query(query, queryParams);
