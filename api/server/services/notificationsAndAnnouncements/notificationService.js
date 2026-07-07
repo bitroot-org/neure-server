@@ -6,7 +6,7 @@ const MSG91_INTEGRATED_NUMBER = "919004364096";
 const MSG91_WHATSAPP_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
 
 const BREVO_SENDER_EMAIL = "prodesk@neure.co.in";
-const BREVO_SENDER_NAME  = "Neure Sessions"; // used for session emails only — see per-function overrides below
+const BREVO_SENDER_NAME  = "Prodesk Sessions"; // used for session emails only — see per-function overrides below
 
 let _brevoApiKey = null;
 const getBrevoApiKey = async () => {
@@ -524,7 +524,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
+          sender: { name: "Prodesk Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject: "Your Neure Prodesk password has been reset",
           htmlContent
@@ -633,7 +633,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
+          sender: { name: "Prodesk Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject: `Welcome to Neure Prodesk, ${toName}!`,
           htmlContent
@@ -741,7 +741,7 @@ class NotificationService {
       const response = await axios.post(
         "https://api.brevo.com/v3/smtp/email",
         {
-          sender: { name: "Neure Account", email: BREVO_SENDER_EMAIL },
+          sender: { name: "Prodesk Account", email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject,
           htmlContent
@@ -1340,6 +1340,21 @@ class NotificationService {
       `);
     }
 
+    else if (template === 'prodesk_admin_new_subscription') {
+      subject = `New ProDesk Subscription — ${data.plan_name} (${data.therapist_name})`;
+      htmlContent = shell('Internal — Subscription', `
+        ${heading('New Subscription', `${data.therapist_name} just subscribed to ${data.plan_name}`, '#5EA89A')}
+        ${infoBox([
+          ['Therapist', data.therapist_name],
+          ['Email', data.therapist_email],
+          ['Plan', data.plan_name],
+          ['Type', data.plan_type === 'starter' ? 'Free' : 'Paid'],
+          ...(data.billing_cycle ? [['Billing cycle', data.billing_cycle]] : []),
+          ['Subscribed at', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
+        ])}
+      `);
+    }
+
     else if (template === 'prodesk_session_rescheduled') {
       subject = `Your session with ${data.therapist_name} has been rescheduled`;
       const clinicLabel = data.clinic_name || 'Neure ProDesk';
@@ -1509,7 +1524,7 @@ class NotificationService {
       const response = await axios.post(
         'https://api.brevo.com/v3/smtp/email',
         {
-          sender: { name: template.startsWith('prodesk_session') ? BREVO_SENDER_NAME : 'Neure ProDesk', email: BREVO_SENDER_EMAIL },
+          sender: { name: template.startsWith('prodesk_session') ? BREVO_SENDER_NAME : 'Prodesk Account', email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
           subject,
           htmlContent

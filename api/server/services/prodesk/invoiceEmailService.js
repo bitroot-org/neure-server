@@ -17,7 +17,7 @@ const TERMS = `
 
 const MSG91_INVOICE_TEMPLATE = 'neure_invoice1';
 
-const BREVO_SENDER = { name: 'Neure Invoice', email: 'prodesk@neure.co.in' };
+const BREVO_SENDER = { name: 'Prodesk Invoice', email: 'prodesk@neure.co.in' };
 
 const db = require('../../../config/db');
 let _brevoApiKey = null;
@@ -247,7 +247,7 @@ const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl }) => {
     const response = await axios.post(
       'https://api.brevo.com/v3/smtp/email',
       {
-        sender: { name: 'Neure Invoice', email: BREVO_SENDER.email },
+        sender: { name: 'Prodesk Invoice', email: BREVO_SENDER.email },
         to: [{ email: client.email, name: `${client.first_name} ${client.last_name}` }],
         subject: `Invoice ${invoice.invoice_number} from ${clinicName} — INR ${formatINR(invoice.total)}`,
         htmlContent

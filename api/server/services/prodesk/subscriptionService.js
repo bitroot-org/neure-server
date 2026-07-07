@@ -44,6 +44,18 @@ const daysBetween = (from, to) => {
   return Math.max(0, Math.round((b - a) / 86400000));
 };
 
+// ─── ADMIN NOTIFY: new subscription (Free or Pro) ─────────────────────────────
+// Fire-and-forget — must never fail/block the subscription flow that calls it.
+const notifyAdminNewSubscription = async ({ therapist_name, therapist_email, plan_name, plan_type, billing_cycle }) => {
+  try {
+    await NotificationService.sendEmail({
+      toEmail: 'support@neure.co.in', toName: 'Neure Support',
+      template: 'prodesk_admin_new_subscription',
+      data: { therapist_name, therapist_email, plan_name, plan_type, billing_cycle }
+    });
+  } catch (_) {}
+};
+
 // ─── GET PLANS ───────────────────────────────────────────────────────────────
 
 const getPlansService = async () => {
@@ -149,6 +161,8 @@ const activateFreeService = async ({ therapist_id, offer_id }) => {
         data: { therapist_name: therapistRow.first_name, plan_name: 'Starter', dashboard_url: process.env.PRODESK_DASHBOARD_URL }
       });
     } catch (_) {}
+
+    notifyAdminNewSubscription({ therapist_name: therapistRow.first_name, therapist_email: therapistRow.email, plan_name: 'Starter', plan_type: 'starter', billing_cycle: 'monthly' });
 
     return {
       status: true, code: 200, message: 'Starter plan activated',
@@ -922,5 +936,6 @@ module.exports = {
   cancelPendingDowngradeService,
   cancelSubscriptionService,
   undoCancelSubscriptionService,
-  executePendingDowngradeService
+  executePendingDowngradeService,
+  notifyAdminNewSubscription
 };

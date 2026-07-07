@@ -20,7 +20,7 @@ const submitFeedbackService = async ({ therapist_id, subject, message, rating })
 
     try {
       await NotificationService.sendEmail({
-        toEmail: process.env.ADMIN_EMAIL || 'tech@bitroot.org',
+        toEmail: 'support@neure.co.in',
         toName: 'ProDesk Admin',
         template: 'prodesk_feedback_received_admin',
         data: {

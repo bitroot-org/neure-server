@@ -617,6 +617,12 @@ const getBillingSummaryService = async (payload) => {
     console.log('Payload in getBillingSummaryService::>>', payload);
     const { therapist_id } = payload;
 
+    const [[totalBilled]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS total_billed FROM prodesk_invoices
+       WHERE therapist_id = ? AND status != 'draft'`,
+      [therapist_id]
+    );
+
     const [[outstanding]] = await db.query(
       `SELECT COALESCE(SUM(total), 0) AS outstanding FROM prodesk_invoices
        WHERE therapist_id = ? AND status IN ('sent','payment_initiated','overdue')`,
@@ -643,6 +649,7 @@ const getBillingSummaryService = async (payload) => {
     return {
       status: true, code: 200, message: 'Billing summary fetched',
       data: {
+        total_billed: totalBilled.total_billed,
         outstanding: outstanding.outstanding,
         paid_this_month: paidMonth.paid_this_month,
         overdue_count: overdueData.overdue_count,
@@ -1169,6 +1176,8 @@ const handleRazorpayWebhookService = async (payload) => {
             template: 'prodesk_subscription_activated',
             data: { therapist_name: therapistRow.first_name, plan_name: planRow?.name, billing_cycle: sub.billing_cycle, period_end: cycleEnd }
           });
+
+          require('./subscriptionService').notifyAdminNewSubscription({ therapist_name: therapistRow.first_name, therapist_email: therapistRow.email, plan_name: planRow?.name, plan_type: 'pro', billing_cycle: sub.billing_cycle });
         }
       } catch (_) {}
     }

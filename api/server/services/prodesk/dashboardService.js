@@ -165,7 +165,7 @@ const getTodaySessionsForDashboard = async (therapistId) => {
   try {
     const [rows] = await db.query(
       `SELECT ps.id,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color, pc.id AS client_id,

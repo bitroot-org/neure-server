@@ -24,7 +24,7 @@ const getSessionByIdService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
               ps.note_id,
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
@@ -234,7 +234,7 @@ const getSessionsService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
               ps.note_id,
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
@@ -383,7 +383,7 @@ const cancelSessionService = async (payload) => {
 
     const [[session]] = await db.query(
       `SELECT ps.id, ps.client_id,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.title,
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               tb.brand_name AS clinic_name
@@ -470,7 +470,7 @@ const getCalendarSessionsService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.status, ps.title,
               ps.meet_url, ps.session_number,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
@@ -506,7 +506,7 @@ const getTodaySessionsService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color, pc.id AS client_id,
@@ -564,7 +564,7 @@ const sendSessionReminderService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT ps.id,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.modality, ps.meet_url, ps.status,
               u.email, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
