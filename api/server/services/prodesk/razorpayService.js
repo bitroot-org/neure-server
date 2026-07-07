@@ -189,24 +189,98 @@ const getKeyIdService = async () => {
   }
 };
 
+// ─── RAZORPAY SUBSCRIPTIONS ───────────────────────────────────────────────────
+
+const createRazorpaySubscriptionService = async (payload) => {
+  try {
+    console.log('Payload in createRazorpaySubscriptionService::>>', payload);
+    const { razorpayPlanId, totalCount = 600, notes = {}, startAt = null } = payload;
+
+    const body = {
+      plan_id:     razorpayPlanId,
+      total_count: totalCount,
+      quantity:    1,
+      notes
+    };
+    if (startAt) body.start_at = startAt; // unix timestamp — delays first charge
+
+    const data = await razorpayRequest({ method: 'POST', path: '/v1/subscriptions', body });
+    return data;
+  } catch (error) {
+    console.log('Error in createRazorpaySubscriptionService::>>', error);
+    return null;
+  }
+};
+
+const cancelRazorpaySubscriptionService = async (payload) => {
+  try {
+    console.log('Payload in cancelRazorpaySubscriptionService::>>', payload);
+    const { razorpaySubscriptionId, cancelAtCycleEnd = 1 } = payload;
+
+    const data = await razorpayRequest({
+      method: 'POST',
+      path:   `/v1/subscriptions/${razorpaySubscriptionId}/cancel`,
+      body:   { cancel_at_cycle_end: cancelAtCycleEnd }
+    });
+    return data;
+  } catch (error) {
+    console.log('Error in cancelRazorpaySubscriptionService::>>', error);
+    return null;
+  }
+};
+
+const getRazorpaySubscriptionService = async (razorpaySubscriptionId) => {
+  try {
+    const data = await razorpayRequest({ method: 'GET', path: `/v1/subscriptions/${razorpaySubscriptionId}` });
+    return data;
+  } catch (error) {
+    console.log('Error in getRazorpaySubscriptionService::>>', error);
+    return null;
+  }
+};
+
+// Signature for subscription checkout callback:
+// HMAC_SHA256(razorpay_payment_id + "|" + razorpay_subscription_id, key_secret)
+const verifySubscriptionSignatureService = async (payload) => {
+  try {
+    console.log('Payload in verifySubscriptionSignatureService::>>', payload);
+    const { subscriptionId, paymentId, signature } = payload;
+
+    const { keySecret } = await getRazorpayCredentials();
+    const expected = crypto.createHmac('sha256', keySecret).update(`${paymentId}|${subscriptionId}`).digest('hex');
+    return expected === signature;
+  } catch (error) {
+    console.log('Error in verifySubscriptionSignatureService::>>', error);
+    return false;
+  }
+};
+
 const RazorpayService = {
-  createOrder:              (p) => createOrderService(p),
-  createInvoice:            (p) => createInvoiceRazorpayService(p),
-  notifyInvoice:            (p) => notifyInvoiceService(p),
-  cancelInvoice:            (razorpayInvoiceId) => cancelInvoiceRazorpayService({ razorpay_invoice_id: razorpayInvoiceId }),
-  createRefund:             (p) => createRefundService(p),
-  verifyPaymentSignature:   (p) => verifyPaymentSignatureService(p),
-  verifyWebhookSignature:   (rawBody, signature) => verifyWebhookSignatureService({ rawBody, signature }),
-  getKeyId:                 () => getKeyIdService()
+  createOrder:                  (p) => createOrderService(p),
+  createInvoice:                (p) => createInvoiceRazorpayService(p),
+  notifyInvoice:                (p) => notifyInvoiceService(p),
+  cancelInvoice:                (razorpayInvoiceId) => cancelInvoiceRazorpayService({ razorpay_invoice_id: razorpayInvoiceId }),
+  createRefund:                 (p) => createRefundService(p),
+  verifyPaymentSignature:       (p) => verifyPaymentSignatureService(p),
+  verifySubscriptionSignature:  (p) => verifySubscriptionSignatureService(p),
+  verifyWebhookSignature:       (rawBody, signature) => verifyWebhookSignatureService({ rawBody, signature }),
+  getKeyId:                     () => getKeyIdService(),
+  createSubscription:           (p) => createRazorpaySubscriptionService(p),
+  cancelSubscription:           (p) => cancelRazorpaySubscriptionService(p),
+  getSubscription:              (id) => getRazorpaySubscriptionService(id)
 };
 
 module.exports = RazorpayService;
 
-module.exports.createOrderService              = createOrderService;
-module.exports.createInvoiceRazorpayService    = createInvoiceRazorpayService;
-module.exports.notifyInvoiceService            = notifyInvoiceService;
-module.exports.cancelInvoiceRazorpayService    = cancelInvoiceRazorpayService;
-module.exports.createRefundService             = createRefundService;
-module.exports.verifyPaymentSignatureService   = verifyPaymentSignatureService;
-module.exports.verifyWebhookSignatureService   = verifyWebhookSignatureService;
-module.exports.getKeyIdService                 = getKeyIdService;
+module.exports.createOrderService                    = createOrderService;
+module.exports.createInvoiceRazorpayService          = createInvoiceRazorpayService;
+module.exports.notifyInvoiceService                  = notifyInvoiceService;
+module.exports.cancelInvoiceRazorpayService          = cancelInvoiceRazorpayService;
+module.exports.createRefundService                   = createRefundService;
+module.exports.verifyPaymentSignatureService         = verifyPaymentSignatureService;
+module.exports.verifySubscriptionSignatureService    = verifySubscriptionSignatureService;
+module.exports.verifyWebhookSignatureService         = verifyWebhookSignatureService;
+module.exports.getKeyIdService                       = getKeyIdService;
+module.exports.createRazorpaySubscriptionService     = createRazorpaySubscriptionService;
+module.exports.cancelRazorpaySubscriptionService     = cancelRazorpaySubscriptionService;
+module.exports.getRazorpaySubscriptionService        = getRazorpaySubscriptionService;

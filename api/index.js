@@ -23,14 +23,15 @@ const prodeskRoutes = require('./server/routes/prodesk');
 const prodeskAdminRoutes = require('./server/routes/prodeskAdmin');
 const serverActive = require("./Cron/serverActive");
 
-const initMonthlyMetricsReset = require("./Cron/monthlyMetricsReset");
-const initWorkshopReminder = require("./Cron/workshopReminder");
-const initCompanyMetrics = require("./Cron/companyMetrics");
-const initResourceUsageMetrics = require("./Cron/resourceUsageMetrics");
-const initAssessmentCompletionCheck = require("./Cron/assessmentCompletionCheck");
-const initNewCompanyMetrics = require("./Cron/newCompanyMetrics");
-const initProdeskOverdueInvoices = require("./Cron/prodeskOverdueInvoices");
-// NOTE: Inactive — uncomment to activate renewal reminders
+// const initMonthlyMetricsReset = require("./Cron/monthlyMetricsReset");
+// const initWorkshopReminder = require("./Cron/workshopReminder");
+// const initCompanyMetrics = require("./Cron/companyMetrics");
+// const initResourceUsageMetrics = require("./Cron/resourceUsageMetrics");
+// const initAssessmentCompletionCheck = require("./Cron/assessmentCompletionCheck");
+// const initNewCompanyMetrics = require("./Cron/newCompanyMetrics");
+const initProdeskOverdueInvoices   = require("./Cron/prodeskOverdueInvoices");
+const initProdeskSubscriptionJobs  = require("./Cron/prodeskSubscriptionJobs");
+// NOTE: Inactive — uncomment to activate old renewal reminders
 // const initProdeskSubscriptionRenewal = require("./Cron/prodeskSubscriptionRenewal");
 
 // Initialize environment variables
@@ -79,14 +80,15 @@ app.listen(PORT, () => {
 serverActive();
 
 // Initialize all cron jobs (this just sets up the schedules, doesn't run the tasks)
-initCompanyMetrics();
-initResourceUsageMetrics();
-initAssessmentCompletionCheck();
-initMonthlyMetricsReset();
-initWorkshopReminder();
-initNewCompanyMetrics();
+// initCompanyMetrics();
+// initResourceUsageMetrics();
+// initAssessmentCompletionCheck();
+// initMonthlyMetricsReset();
+// initWorkshopReminder();
+// initNewCompanyMetrics();
 initProdeskOverdueInvoices();
-// initProdeskSubscriptionRenewal(); // INACTIVE — uncomment to enable renewal reminders
+initProdeskSubscriptionJobs();
+// initProdeskSubscriptionRenewal(); // INACTIVE — old order-based renewal, replaced by initProdeskSubscriptionJobs
 
 app.get("*", (req, res) => {
   const currentTime = new Date().toISOString();

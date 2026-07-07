@@ -1062,6 +1062,184 @@ const handleRazorpayWebhookService = async (payload) => {
       }
     }
 
+    // ── subscription.activated / subscription.pending ─────────────────────────
+    else if (eventType === 'subscription.activated') {
+      const entity = eventPayload?.subscription?.entity;
+      const rzpSubId = entity?.id;
+      if (rzpSubId) {
+        await db.query(
+          `UPDATE prodesk_subscriptions SET status = 'authenticated' WHERE razorpay_subscription_id = ? AND status = 'pending'`,
+          [rzpSubId]
+        );
+      }
+    }
+
+    // ── subscription.charged — payment collected for a cycle ─────────────────
+    else if (eventType === 'subscription.charged') {
+      const subEntity  = eventPayload?.subscription?.entity;
+      const payEntity  = eventPayload?.payment?.entity;
+      const rzpSubId   = subEntity?.id;
+      if (!rzpSubId) return { status: true, code: 200, message: 'Ignored: no subscription id', data: null };
+
+      const [[sub]] = await db.query(
+        `SELECT ps.*, pp.billing_cycle FROM prodesk_subscriptions ps
+           JOIN prodesk_plans pp ON ps.plan_id = pp.id
+         WHERE ps.razorpay_subscription_id = ?`,
+        [rzpSubId]
+      );
+      if (!sub) return { status: true, code: 200, message: 'Ignored: subscription not found in DB', data: null };
+
+      const chargeAt     = payEntity?.created_at ? new Date(payEntity.created_at * 1000) : new Date();
+      const cycleStart   = chargeAt.toISOString().slice(0, 10);
+      const cycleEndDate = new Date(chargeAt);
+      if (sub.billing_cycle === 'annual') {
+        cycleEndDate.setFullYear(cycleEndDate.getFullYear() + 1);
+      } else {
+        cycleEndDate.setMonth(cycleEndDate.getMonth() + 1);
+      }
+      const cycleEnd = cycleEndDate.toISOString().slice(0, 10);
+      const amount   = payEntity?.amount ? payEntity.amount / 100 : 0;
+      const newCycleCount = (sub.cycle_count || 0) + 1;
+
+      const conn = await db.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        await conn.query(
+          `UPDATE prodesk_subscriptions
+             SET status = 'active', current_period_start = ?, current_period_end = ?,
+                 halted_at = NULL, grace_period_end = NULL, cycle_count = ?
+           WHERE id = ?`,
+          [cycleStart, cycleEnd, newCycleCount, sub.id]
+        );
+
+        // Idempotent payment record
+        const [[existingPmt]] = await conn.query(
+          `SELECT id FROM prodesk_subscription_payments WHERE razorpay_invoice_id = ? LIMIT 1`,
+          [payEntity?.invoice_id || null]
+        );
+        if (!existingPmt) {
+          await conn.query(
+            `INSERT INTO prodesk_subscription_payments
+               (subscription_id, therapist_id, amount, razorpay_payment_id, razorpay_invoice_id,
+                status, payment_for, cycle_number, billing_period_start, billing_period_end, paid_at)
+             VALUES (?, ?, ?, ?, ?, 'captured', 'renewal', ?, ?, ?, NOW())`,
+            [
+              sub.id, sub.therapist_id, amount,
+              payEntity?.id || null, payEntity?.invoice_id || null,
+              newCycleCount, cycleStart, cycleEnd
+            ]
+          );
+        }
+
+        // Execute pending downgrade if this charge is at/after period_end
+        if (sub.pending_plan_id && sub.current_period_end) {
+          const today = new Date();
+          const periodEnd = new Date(sub.current_period_end);
+          if (today >= periodEnd) {
+            const { executePendingDowngradeService } = require('./subscriptionService');
+            await executePendingDowngradeService({ subscription_id: sub.id });
+          }
+        }
+
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback();
+        throw e;
+      } finally {
+        conn.release();
+      }
+
+      // Send renewal confirmation email
+      try {
+        const [[therapistRow]] = await db.query(
+          `SELECT u.email, u.first_name FROM therapists t JOIN users u ON t.user_id = u.user_id WHERE t.id = ?`,
+          [sub.therapist_id]
+        );
+        const [[planRow]] = await db.query(`SELECT name FROM prodesk_plans WHERE id = ?`, [sub.plan_id]);
+        if (therapistRow && newCycleCount > 1) {
+          await NotificationService.sendEmail({
+            toEmail: therapistRow.email, toName: therapistRow.first_name,
+            template: 'prodesk_subscription_renewed',
+            data: { therapist_name: therapistRow.first_name, plan_name: planRow?.name, period_end: cycleEnd }
+          });
+        } else if (therapistRow && newCycleCount === 1) {
+          await NotificationService.sendEmail({
+            toEmail: therapistRow.email, toName: therapistRow.first_name,
+            template: 'prodesk_subscription_activated',
+            data: { therapist_name: therapistRow.first_name, plan_name: planRow?.name, billing_cycle: sub.billing_cycle, period_end: cycleEnd }
+          });
+        }
+      } catch (_) {}
+    }
+
+    // ── subscription.halted — Razorpay gave up retrying, grace period starts ──
+    else if (eventType === 'subscription.halted') {
+      const subEntity = eventPayload?.subscription?.entity;
+      const rzpSubId  = subEntity?.id;
+      if (!rzpSubId) return { status: true, code: 200, message: 'Ignored: no subscription id', data: null };
+
+      const [[sub]] = await db.query(
+        `SELECT ps.*, pp.name AS plan_name FROM prodesk_subscriptions ps
+           JOIN prodesk_plans pp ON ps.plan_id = pp.id
+         WHERE ps.razorpay_subscription_id = ?`,
+        [rzpSubId]
+      );
+      if (!sub) return { status: true, code: 200, message: 'Ignored: subscription not found', data: null };
+
+      const gracePeriodEnd = new Date();
+      gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 5); // 5-day grace
+      const gracePeriodEndStr = gracePeriodEnd.toISOString().slice(0, 10);
+
+      await db.query(
+        `UPDATE prodesk_subscriptions SET status = 'halted', halted_at = NOW(), grace_period_end = ? WHERE id = ?`,
+        [gracePeriodEndStr, sub.id]
+      );
+
+      try {
+        const [[therapistRow]] = await db.query(
+          `SELECT u.email, u.first_name FROM therapists t JOIN users u ON t.user_id = u.user_id WHERE t.id = ?`,
+          [sub.therapist_id]
+        );
+        if (therapistRow) {
+          await NotificationService.sendEmail({
+            toEmail: therapistRow.email, toName: therapistRow.first_name,
+            template: 'prodesk_payment_failed_halted',
+            data: {
+              therapist_name:   therapistRow.first_name,
+              plan_name:        sub.plan_name,
+              grace_period_end: gracePeriodEndStr
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    // ── subscription.cancelled — Razorpay confirms cancellation ──────────────
+    else if (eventType === 'subscription.cancelled') {
+      const subEntity = eventPayload?.subscription?.entity;
+      const rzpSubId  = subEntity?.id;
+      if (!rzpSubId) return { status: true, code: 200, message: 'Ignored: no subscription id', data: null };
+
+      await db.query(
+        `UPDATE prodesk_subscriptions SET status = 'cancelled'
+         WHERE razorpay_subscription_id = ? AND status NOT IN ('expired')`,
+        [rzpSubId]
+      );
+    }
+
+    // ── subscription.completed — all billing cycles done (annual) ────────────
+    else if (eventType === 'subscription.completed') {
+      const subEntity = eventPayload?.subscription?.entity;
+      const rzpSubId  = subEntity?.id;
+      if (!rzpSubId) return { status: true, code: 200, message: 'Ignored: no subscription id', data: null };
+
+      await db.query(
+        `UPDATE prodesk_subscriptions SET status = 'expired' WHERE razorpay_subscription_id = ?`,
+        [rzpSubId]
+      );
+    }
+
     return { status: true, code: 200, message: 'Webhook handled', data: null };
   } catch (error) {
     console.log('Error in handleRazorpayWebhookService::>>', error);

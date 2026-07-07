@@ -1385,6 +1385,118 @@ class NotificationService {
       `);
     }
 
+    else if (template === 'prodesk_subscription_cancelled') {
+      subject = 'Your ProDesk subscription has been cancelled';
+      htmlContent = shell('Subscription Cancelled', `
+        ${heading('Subscription Cancelled', 'Your plan will remain active until the end of your billing period.')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, your <strong>${data.plan_name}</strong> plan
+          has been cancelled as requested. You will continue to have full access until your current billing period ends.
+        </p>
+        ${infoBox([
+          ['Plan', data.plan_name],
+          ['Access Until', data.access_till],
+          ['Status', 'Cancelled — access continues till above date'],
+        ])}
+        ${cta(`${DASHBOARD_URL}/dashboard`, 'Go to Dashboard')}
+        ${note('Changed your mind? You can reactivate your subscription any time before your access ends directly from the Settings section of your dashboard.')}
+      `);
+    }
+
+    else if (template === 'prodesk_subscription_upgraded') {
+      subject = `You've upgraded to ProDesk ${data.new_plan_name}`;
+      htmlContent = shell('Plan Upgraded', `
+        ${heading(`Upgraded to ${data.new_plan_name}!`, 'Your new plan is now active.')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, you have successfully upgraded your ProDesk plan.
+          Your new <strong>${data.new_plan_name}</strong> plan is now active with access to all premium features.
+        </p>
+        ${infoBox([
+          ['Previous Plan', data.old_plan_name],
+          ['New Plan', data.new_plan_name],
+          ['Effective From', data.effective_date],
+        ])}
+        ${cta(`${DASHBOARD_URL}/dashboard`, 'Explore New Features')}
+        ${note('Your billing cycle remains the same. The new plan pricing will apply from your next renewal date.')}
+      `);
+    }
+
+    else if (template === 'prodesk_downgrade_scheduled') {
+      subject = `Your ProDesk plan will change to ${data.new_plan_name} on ${data.effective_date}`;
+      htmlContent = shell('Downgrade Scheduled', `
+        ${heading('Plan Change Scheduled', `Your plan will switch to ${data.new_plan_name} on ${data.effective_date}.`)}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, your request to switch to
+          <strong>${data.new_plan_name}</strong> has been scheduled. You will continue to enjoy your current
+          <strong>${data.current_plan_name}</strong> plan until the end of your billing period.
+        </p>
+        ${infoBox([
+          ['Current Plan', data.current_plan_name],
+          ['New Plan', data.new_plan_name],
+          ['Switch Date', data.effective_date],
+        ])}
+        ${cta(`${DASHBOARD_URL}/settings`, 'Manage Subscription')}
+        ${note('You can cancel this scheduled change any time before the switch date from the Settings section of your dashboard.')}
+      `);
+    }
+
+    else if (template === 'prodesk_subscription_expired') {
+      subject = 'Your ProDesk subscription has expired';
+      htmlContent = shell('Subscription Expired', `
+        ${heading('Subscription Expired', 'Resubscribe to continue using ProDesk.')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, your <strong>${data.plan_name}</strong> plan
+          has expired because we were unable to collect your payment within the grace period.
+          Your data is safe — resubscribe to regain access.
+        </p>
+        ${infoBox([
+          ['Plan', data.plan_name],
+          ['Expired On', data.expired_on || 'Today'],
+        ])}
+        ${cta(`${DASHBOARD_URL}/select-plan`, 'Resubscribe Now')}
+        ${note('All your data including clients, sessions, and notes are preserved. Simply resubscribe to pick up right where you left off.')}
+      `);
+    }
+
+    else if (template === 'prodesk_renewal_reminder') {
+      subject = `Your ProDesk subscription renews in ${data.days_remaining} day${data.days_remaining > 1 ? 's' : ''}`;
+      htmlContent = shell('Renewal Reminder', `
+        ${heading('Upcoming Renewal', `Your ${data.plan_name} plan renews on ${data.renewal_date}.`)}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, just a heads-up — your
+          <strong>${data.plan_name}</strong> subscription will automatically renew in
+          <strong>${data.days_remaining} day${data.days_remaining > 1 ? 's' : ''}</strong>.
+          Please ensure your payment method is up to date.
+        </p>
+        ${infoBox([
+          ['Plan', data.plan_name],
+          ['Renewal Date', data.renewal_date],
+          ['Amount', data.amount],
+        ])}
+        ${cta(`${DASHBOARD_URL}/settings`, 'Manage Subscription')}
+        ${note('If you do not wish to renew, you can cancel your subscription any time before the renewal date from the Settings section of your dashboard.')}
+      `);
+    }
+
+    else if (template === 'prodesk_grace_period_reminder') {
+      subject = '⚠️ Action required — Your ProDesk payment failed';
+      htmlContent = shell('Payment Failed', `
+        ${heading('Payment Failed', 'Please update your payment method to avoid losing access.', '#DC2626')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.therapist_name}</strong>, we were unable to collect your
+          <strong>${data.plan_name}</strong> subscription payment. Your account is in a grace period and will
+          expire on <strong style="color:#DC2626;">${data.grace_period_end}</strong> if not resolved.
+        </p>
+        ${infoBox([
+          ['Plan', data.plan_name],
+          ['Access Until', data.grace_period_end],
+          ['Action Required', 'Update payment method on Razorpay'],
+        ])}
+        ${cta(`${DASHBOARD_URL}/settings`, 'Update Payment Method')}
+        ${note('Once you update your payment method, Razorpay will automatically retry the payment and restore your full access. Your data is safe.')}
+      `);
+    }
+
     else {
       console.warn(`sendEmail: unknown template "${template}"`);
       return false;

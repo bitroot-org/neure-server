@@ -201,14 +201,18 @@ router.post('/removeStaff',  authorization, TeamCtrl.removeStaff);
 router.post('/plans/get',                    authorization, SubscriptionCtrl.getPlans);
 
 // ──────────────────────────────────────────────────────────────
-// SUBSCRIPTION
+// SUBSCRIPTION (Razorpay Subscriptions — auto-debit)
 // ──────────────────────────────────────────────────────────────
-router.post('/subscription/get',             authorization, SubscriptionCtrl.getSubscription);
-router.post('/subscription/activate-free',   authorization, SubscriptionCtrl.activateFree);
-router.post('/subscription/create-order',    authorization, SubscriptionCtrl.createOrder);
-router.post('/subscription/confirm-payment', authorization, SubscriptionCtrl.confirmPayment);
-router.post('/subscription/renew',           authorization, SubscriptionCtrl.renewOrder);
-router.post('/subscription/confirm-renewal', authorization, SubscriptionCtrl.confirmRenewal);
+router.post('/subscription/get',                     authorization, SubscriptionCtrl.getSubscription);
+router.post('/subscription/activate-free',           authorization, SubscriptionCtrl.activateFree);
+router.post('/subscription/create',                  authorization, SubscriptionCtrl.createSubscription);
+router.post('/subscription/confirm',                 authorization, SubscriptionCtrl.confirmSubscription);
+router.post('/subscription/upgrade',                 authorization, SubscriptionCtrl.upgradeSubscription);
+router.post('/subscription/upgrade/confirm-prorate', authorization, SubscriptionCtrl.confirmProrateAndSubscribe);
+router.post('/subscription/downgrade',               authorization, SubscriptionCtrl.requestDowngrade);
+router.post('/subscription/downgrade/cancel',        authorization, SubscriptionCtrl.cancelPendingDowngrade);
+router.post('/subscription/cancel',                  authorization, SubscriptionCtrl.cancelSubscription);
+router.post('/subscription/cancel/undo',             authorization, SubscriptionCtrl.undoCancelSubscription);
 
 // ──────────────────────────────────────────────────────────────
 // OFFERS
