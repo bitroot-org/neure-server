@@ -210,8 +210,20 @@ const registerService = async (payload) => {
       return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
     }
 
-    const [existing] = await db.query('SELECT user_id FROM users WHERE email = ?', [email]);
+    const [existing] = await db.query('SELECT user_id, first_name, is_active FROM users WHERE email = ?', [email]);
     if (existing && existing.length) {
+      const existingUser = existing[0];
+      if (!existingUser.is_active) {
+        // Account exists but was never verified (e.g. previous OTP email failed to send).
+        // Resend the OTP instead of dead-ending the user with "already exists".
+        try {
+          const otp = await saveOtp(existingUser.user_id, 'email_verify');
+          await NotificationService.sendOtpEmail({ toEmail: email, toName: existingUser.first_name, otp, type: 'verify' });
+        } catch (emailErr) {
+          console.log('Warning: OTP email failed while resending to unverified account::>>', emailErr.message);
+        }
+        return { status: true, code: 201, message: 'Account already exists but is not verified. A new OTP has been sent.', data: { email } };
+      }
       return { status: false, code: 409, message: 'An account with this email already exists', data: null };
     }
 
@@ -231,6 +243,7 @@ const registerService = async (payload) => {
     const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
 
     const conn = await db.getConnection();
+    let userId;
     try {
       await conn.beginTransaction();
 
@@ -238,7 +251,7 @@ const registerService = async (payload) => {
         'INSERT INTO users (first_name, last_name, email, phone, password, role_id, is_active) VALUES (?, ?, ?, ?, ?, 4, 0)',
         [firstName, lastName, email, cleanPhone, hashed]
       );
-      const userId = userResult.insertId;
+      userId = userResult.insertId;
 
       const slug = `${firstName.toLowerCase()}-${lastName.toLowerCase()}-${userId}`.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
       let uniqueReferralCode = generateReferralCode(firstName, userId);
@@ -377,7 +390,12 @@ const resendOtpService = async (payload) => {
     }
 
     const otp = await saveOtp(users[0].user_id, type);
-    await NotificationService.sendOtpEmail({ toEmail: email, toName: users[0].first_name, otp, type });
+    await NotificationService.sendOtpEmail({
+      toEmail: email,
+      toName: users[0].first_name,
+      otp,
+      type: type === 'email_verify' ? 'verify' : 'forgot_password'
+    });
 
     return { status: true, code: 200, message: 'OTP resent successfully', data: null };
   } catch (error) {
