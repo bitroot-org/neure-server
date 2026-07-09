@@ -7,7 +7,7 @@ try {
     stdio: 'inherit',
     env: {
       ...process.env,
-      PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer',
+      PUPPETEER_CACHE_DIR: process.env.PUPPETEER_CACHE_DIR || `${require('os').homedir()}/.cache/puppeteer`,
     },
   });
   console.log('Chromium browser installed successfully!');
