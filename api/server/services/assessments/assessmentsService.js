@@ -5,7 +5,6 @@ const UserServices = require('../user/UserServices');
 const path = require('path');
 const fs = require('fs');
 const handlebars = require('handlebars');
-const { chromium } = require('playwright');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 class AssessmentsService {
