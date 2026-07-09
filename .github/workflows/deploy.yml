@@ -1,8 +1,8 @@
-name: Deploy to Mac
+name: Deploy to Elastic Beanstalk
 
 on:
   push:
-    branches: [ main ]
+    branches: [ aws-prod ]
 
 jobs:
   deploy:
@@ -11,25 +11,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Test SSH Connection
-        uses: appleboy/ssh-action@v1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.DEPLOYMENT_MAC_IP }}
-          username: ${{ secrets.DEPLOYMENT_MAC_USER }}
-          key: ${{ secrets.PRAVEEN_MAC_SSH_KEY }}
-          script: |
-            echo "✅ SSH Connection Successful"
-            uname -a  # Check system details
-            ls -lah   # List files for debugging
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Generate deployment package
+        run: |
+          zip -r deploy.zip . \
+            -x "node_modules/*" \
+            -x ".git/*" \
+            -x "uploads/*" \
+            -x "temp/*" \
+            -x "*.sql" \
+            -x "*.md"
+
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v22
         with:
-          host: ${{ secrets.DEPLOYMENT_MAC_IP }}
-          username: ${{ secrets.DEPLOYMENT_MAC_USER }}
-          key: ${{ secrets.PRAVEEN_MAC_SSH_KEY }}
-          script: |
-            cd path/to/your/repo  # Update this path!
-            git pull origin main
-            docker-compose down
-            docker-compose up -d --build
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: ${{ vars.EB_APPLICATION_NAME }}
+          environment_name: ${{ vars.EB_ENVIRONMENT_NAME }}
+          version_label: "gh-${{ github.run_number }}-${{ github.sha }}"
+          region: ${{ vars.AWS_REGION }}
+          deployment_package: deploy.zip
+          use_existing_version_if_available: false
