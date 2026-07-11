@@ -117,7 +117,7 @@ const getSubscriptionService = async ({ therapist_id }) => {
 
 // ─── ACTIVATE FREE (Starter) ─────────────────────────────────────────────────
 
-const activateFreeService = async ({ therapist_id, offer_id }) => {
+const activateFreeService = async ({ therapist_id }) => {
   try {
     const [[existing]] = await db.query(
       `SELECT id FROM prodesk_subscriptions WHERE therapist_id = ? AND status IN ('active','authenticated')`,
@@ -132,27 +132,15 @@ const activateFreeService = async ({ therapist_id, offer_id }) => {
 
     let planId = 1; // Starter
 
+    // Starter is free — offer codes give a discount, which doesn't apply here,
+    // so no offer_id is ever stored/redeemed against a free-plan activation.
     const today = new Date().toISOString().slice(0, 10);
     const [result] = await db.query(
-      `INSERT INTO prodesk_subscriptions (therapist_id, plan_id, status, billing_cycle, current_period_start, offer_id)
-       VALUES (?, ?, 'active', 'monthly', ?, ?)`,
-      [therapist_id, planId, today, offer_id || null]
+      `INSERT INTO prodesk_subscriptions (therapist_id, plan_id, status, billing_cycle, current_period_start)
+       VALUES (?, ?, 'active', 'monthly', ?)`,
+      [therapist_id, planId, today]
     );
     const subscription_id = result.insertId;
-
-    if (offer_id) {
-      await db.query(
-        `INSERT INTO prodesk_user_offers (offer_id, therapist_id, subscription_id, activated_at, redeemed_at, is_redeemed)
-         VALUES (?, ?, ?, NOW(), NOW(), 1)`,
-        [offer_id, therapist_id, subscription_id]
-      );
-      await db.query(
-        `UPDATE prodesk_offer_emails SET is_used=1, used_at=NOW(), used_by_therapist_id=?
-         WHERE offer_id=? AND email=?`,
-        [therapist_id, offer_id, therapistRow.email]
-      );
-      await db.query(`UPDATE prodesk_offers SET total_used = total_used + 1 WHERE id = ?`, [offer_id]);
-    }
 
     try {
       await NotificationService.sendEmail({
@@ -235,6 +223,7 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
 
     const rzpSub = await RazorpayService.createSubscription({
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+      billingCycle: billing_cycle,
       notes: { therapist_id: String(therapist_id), plan_id: String(subscribePlanId), billing_cycle, offer_id: offer_id ? String(offer_id) : '' }
     });
     if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
@@ -354,6 +343,7 @@ const upgradeSubscriptionService = async ({ therapist_id, new_plan_id, new_billi
     if (!currentSub || currentSub.plan_type === 'starter') {
       const rzpSub = await RazorpayService.createSubscription({
         razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+        billingCycle: new_billing_cycle,
         notes: { therapist_id: String(therapist_id), plan_id: String(new_plan_id), billing_cycle: new_billing_cycle, type: 'upgrade' }
       });
       if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
@@ -411,6 +401,7 @@ const upgradeSubscriptionService = async ({ therapist_id, new_plan_id, new_billi
       }
       const rzpSub = await RazorpayService.createSubscription({
         razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+        billingCycle: new_billing_cycle,
         notes: { therapist_id: String(therapist_id), plan_id: String(new_plan_id), billing_cycle: new_billing_cycle, type: 'upgrade_immediate' }
       });
       if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
@@ -520,6 +511,7 @@ const confirmProrateAndSubscribeService = async ({ therapist_id, razorpay_order_
 
     const rzpSub = await RazorpayService.createSubscription({
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+      billingCycle:   upgrade.new_billing_cycle,
       startAt:        startAtUnix,
       notes: { therapist_id: String(therapist_id), plan_id: String(upgrade.new_plan_id), type: 'prorate_upgrade' }
     });
@@ -652,6 +644,7 @@ const requestDowngradeService = async ({ therapist_id, new_plan_id, new_billing_
     // Create new Razorpay subscription starting at period_end
     const rzpSub = await RazorpayService.createSubscription({
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+      billingCycle:   new_billing_cycle,
       startAt:        startAtUnix,
       notes: { therapist_id: String(therapist_id), plan_id: String(new_plan_id), billing_cycle: new_billing_cycle, type: 'downgrade' }
     });
@@ -846,6 +839,7 @@ const undoCancelSubscriptionService = async ({ therapist_id }) => {
 
     const rzpSub = await RazorpayService.createSubscription({
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
+      billingCycle:   sub.billing_cycle,
       startAt:        startAtUnix,
       notes: { therapist_id: String(therapist_id), plan_id: String(sub.plan_id), type: 'undo_cancel' }
     });

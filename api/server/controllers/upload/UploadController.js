@@ -237,7 +237,6 @@ class MediaController {
         Key: s3Path,
         Body: createReadStream(req.file.path),
         ContentType: fileType,
-        ACL: 'public-read',
       };
 
       const command = new PutObjectCommand(uploadParams);
@@ -292,7 +291,6 @@ class MediaController {
         Key: soundS3Path,
         Body: createReadStream(soundFile.path),
         ContentType: soundFile.mimetype,
-        ACL: "public-read",
       };
   
       const soundCommand = new PutObjectCommand(soundUploadParams);
@@ -315,7 +313,6 @@ class MediaController {
           Key: coverImageS3Path,
           Body: createReadStream(coverImage.path),
           ContentType: coverImage.mimetype,
-          ACL: "public-read",
         };
   
         const imageCommand = new PutObjectCommand(imageUploadParams);
@@ -377,7 +374,6 @@ class MediaController {
         Key: s3Path,
         Body: createReadStream(req.file.path),
         ContentType: req.file.mimetype,
-        ACL: 'public-read',
       };
   
       const command = new PutObjectCommand(uploadParams);
@@ -642,7 +638,6 @@ class MediaController {
           Key: pdfPath,
           Body: createReadStream(pdfFile.path),
           ContentType: pdfFile.mimetype,
-          ACL: 'public-read'
         };
 
         const pdfCommand = new PutObjectCommand(pdfUploadParams);
@@ -667,7 +662,6 @@ class MediaController {
           Key: imagePath,
           Body: createReadStream(coverImageFile.path),
           ContentType: coverImageFile.mimetype,
-          ACL: 'public-read'
         };
 
         const imageCommand = new PutObjectCommand(imageUploadParams);

@@ -396,7 +396,6 @@ class WorkshopPdfService {
         Key: pdfPath,
         Body: pdfBuffer,
         ContentType: 'application/pdf',
-        ACL: 'public-read'
       };
 
       console.log('Sending upload command to S3');

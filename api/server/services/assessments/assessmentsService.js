@@ -1156,7 +1156,6 @@ class AssessmentsService {
       Key: pdfPath,
       Body: pdfBuffer,
       ContentType: 'application/pdf',
-      ACL: 'public-read'
     };
     
     const command = new PutObjectCommand(uploadParams);

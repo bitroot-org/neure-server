@@ -191,14 +191,21 @@ const getKeyIdService = async () => {
 
 // ─── RAZORPAY SUBSCRIPTIONS ───────────────────────────────────────────────────
 
+// Razorpay caps total subscription duration (total_count * plan period) well
+// under 600 years. 600 total_count is fine for a monthly plan (=50 years) but
+// invalid for an annual plan (=600 years), which is what was causing annual
+// subscription creation to fail with a 400 from Razorpay. Keep the overall
+// duration equivalent (~50 years) regardless of billing cycle.
+const DEFAULT_TOTAL_COUNT_BY_CYCLE = { monthly: 600, annual: 50 };
+
 const createRazorpaySubscriptionService = async (payload) => {
   try {
     console.log('Payload in createRazorpaySubscriptionService::>>', payload);
-    const { razorpayPlanId, totalCount = 600, notes = {}, startAt = null } = payload;
+    const { razorpayPlanId, billingCycle = 'monthly', totalCount, notes = {}, startAt = null } = payload;
 
     const body = {
       plan_id:     razorpayPlanId,
-      total_count: totalCount,
+      total_count: totalCount || DEFAULT_TOTAL_COUNT_BY_CYCLE[billingCycle] || 600,
       quantity:    1,
       notes
     };

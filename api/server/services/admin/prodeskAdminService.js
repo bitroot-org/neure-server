@@ -630,7 +630,7 @@ const getSessionsAdminService = async ({ page = 1, limit = 20, therapist_id = nu
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               CONCAT(cu.first_name,' ',cu.last_name) AS client_name,
               ps.session_number,
-              DATE_ADD(DATE_ADD(ps.starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              ps.starts_at AS starts_at,
               ps.duration_min, ps.modality,
               ps.status, ps.fee,
               CASE WHEN psn.id IS NOT NULL THEN 1 ELSE 0 END AS has_note,

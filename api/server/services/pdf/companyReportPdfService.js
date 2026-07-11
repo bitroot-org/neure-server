@@ -499,7 +499,6 @@ class CompanyReportPdfService {
           sanitizedPath
         )}"`,
         CacheControl: "max-age=31536000",
-        ACL: "public-read",
       };
 
       // Use the existing s3Client instance

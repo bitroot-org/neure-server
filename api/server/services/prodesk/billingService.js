@@ -904,16 +904,17 @@ const handleRazorpayWebhookService = async (payload) => {
         // Notify therapist of the failed payment
         try {
           const [invRow] = await db.query(
-            'SELECT therapist_id, invoice_number FROM prodesk_invoices WHERE id = ?',
+            `SELECT t.user_id, i.invoice_number FROM prodesk_invoices i
+             JOIN therapists t ON t.id = i.therapist_id
+             WHERE i.id = ?`,
             [invoiceId]
           );
           if (invRow && invRow.length) {
             await NotificationService.createNotification({
-              user_id: invRow[0].therapist_id,
-              user_type: 'therapist',
+              user_id: invRow[0].user_id,
               type: 'payment_failed',
-              message: `Payment failed for invoice ${invRow[0].invoice_number}`,
-              meta: { invoice_id: invoiceId }
+              title: 'Payment Failed',
+              content: `Payment failed for invoice ${invRow[0].invoice_number}`
             });
           }
         } catch (notifErr) {
@@ -1050,16 +1051,17 @@ const handleRazorpayWebhookService = async (payload) => {
           // Notify therapist
           try {
             const [invRow] = await db.query(
-              'SELECT invoice_number FROM prodesk_invoices WHERE id = ?',
-              [payRows[0].invoice_id]
+              `SELECT i.invoice_number, t.user_id FROM prodesk_invoices i
+               JOIN therapists t ON t.id = ?
+               WHERE i.id = ?`,
+              [payRows[0].therapist_id, payRows[0].invoice_id]
             );
             if (invRow && invRow.length) {
               await NotificationService.createNotification({
-                user_id: payRows[0].therapist_id,
-                user_type: 'therapist',
+                user_id: invRow[0].user_id,
                 type: 'refund_failed',
-                message: `Refund failed for invoice ${invRow[0].invoice_number}. Please retry.`,
-                meta: { invoice_id: payRows[0].invoice_id }
+                title: 'Refund Failed',
+                content: `Refund failed for invoice ${invRow[0].invoice_number}. Please retry.`
               });
             }
           } catch (notifErr) {

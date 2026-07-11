@@ -1,6 +1,7 @@
 const db = require('../../../config/db');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
+const { formatISTWallClock } = require('../../utils/dateHelper');
 
 const checkOverlap = async (therapistId, startsAt, durationMin, excludeId = null) => {
   const query = `
@@ -135,6 +136,7 @@ const createSessionService = async (payload) => {
         `SELECT u.phone, u.email,
                 CONCAT(u.first_name, ' ', u.last_name) AS client_name,
                 CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+                tu.user_id AS therapist_user_id,
                 COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
          FROM prodesk_clients pc
          JOIN users u ON u.user_id = pc.user_id
@@ -146,13 +148,17 @@ const createSessionService = async (payload) => {
       );
 
       if (clientRow && clientRow.length) {
-        const { phone, email, client_name, therapist_name, clinic_name } = clientRow[0];
-        const formattedTime = new Date(starts_at).toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          dateStyle: 'medium',
-          timeStyle: 'short'
-        });
+        const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
+        const formattedTime = formatISTWallClock(starts_at);
         const notifMeta = { session_id: result.insertId, client_id };
+
+        // In-app notification for the therapist's own dashboard bell.
+        await NotificationService.createNotification({
+          user_id: therapist_user_id,
+          type: 'SESSION_SCHEDULED',
+          title: 'Session Scheduled',
+          content: `Session with ${client_name} scheduled for ${formattedTime}.`
+        });
 
         // Email (primary — always fires while WhatsApp template is pending)
         if (email) {
@@ -343,9 +349,7 @@ const rescheduleSessionService = async (payload) => {
          WHERE pc.id = ?`, [session.client_id]
       );
       if (clientRow) {
-        const sessionTime = new Date(starts_at).toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
-        });
+        const sessionTime = formatISTWallClock(starts_at);
         if (clientRow.email) {
           await NotificationService.sendEmail({
             toEmail: clientRow.email,
@@ -406,9 +410,7 @@ const cancelSessionService = async (payload) => {
          WHERE pc.id = ?`, [session.client_id]
       );
       if (clientRow) {
-        const sessionTime = new Date(session.starts_at).toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
-        });
+        const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
           toEmail: clientRow.email,
           toName: clientRow.first_name,
@@ -590,9 +592,7 @@ const sendSessionReminderService = async (payload) => {
       return { status: false, code: 409, message: 'Cannot send reminder for a cancelled session', data: null };
     }
 
-    const formattedTime = new Date(s.starts_at).toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
-    });
+    const formattedTime = formatISTWallClock(s.starts_at);
 
     const sent = { email: false, whatsapp: false };
 

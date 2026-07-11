@@ -43,7 +43,6 @@ const uploadToS3 = async (file, folder) => {
       Key: key,
       Body: createReadStream(file.path),
       ContentType: file.mimetype,
-      ACL: 'public-read',
     }));
 
     try { unlinkSync(file.path); } catch (_) {}

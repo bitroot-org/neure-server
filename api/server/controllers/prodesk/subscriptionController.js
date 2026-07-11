@@ -37,8 +37,8 @@ class SubscriptionController {
 
   static async activateFree(req, res) {
     try {
-      const { offer_id } = req.body;
-      return respond(res, await activateFreeService({ therapist_id: req.user.therapist_id, offer_id: offer_id || null }));
+      // Starter is free — no offer code applies, so offer_id (if sent) is ignored.
+      return respond(res, await activateFreeService({ therapist_id: req.user.therapist_id }));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }

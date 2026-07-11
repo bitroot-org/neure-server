@@ -14,8 +14,9 @@ const getTeamService = async (payload) => {
 
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM users u
-       WHERE u.role_id = 6 AND u.is_active = 1 ${searchCond}`,
-      searchVals
+       JOIN prodesk_staff ps ON ps.user_id = u.user_id
+       WHERE ps.therapist_id = ? AND u.role_id = 6 AND u.is_active = 1 ${searchCond}`,
+      [therapist_id, ...searchVals]
     );
 
     const [rows] = await db.query(
@@ -23,9 +24,10 @@ const getTeamService = async (payload) => {
               u.profile_url, u.job_title,
               DATE_ADD(DATE_ADD(u.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS joined_at
        FROM users u
-       WHERE u.role_id = 6 AND u.is_active = 1 ${searchCond}
+       JOIN prodesk_staff ps ON ps.user_id = u.user_id
+       WHERE ps.therapist_id = ? AND u.role_id = 6 AND u.is_active = 1 ${searchCond}
        ORDER BY u.created_at DESC LIMIT ? OFFSET ?`,
-      [...searchVals, limit, offset]
+      [therapist_id, ...searchVals, limit, offset]
     );
 
     return {
@@ -63,6 +65,11 @@ const inviteStaffService = async (payload) => {
       [nameParts[0], nameParts.slice(1).join(' ') || '', email, phone || null, hashed]
     );
 
+    await db.query(
+      `INSERT INTO prodesk_staff (user_id, therapist_id) VALUES (?, ?)`,
+      [result.insertId, therapist_id]
+    );
+
     try {
       await EmailService.sendEmail({
         to: email,
@@ -92,8 +99,10 @@ const updateStaffService = async (payload) => {
     const { therapist_id, staff_user_id, ...data } = payload;
 
     const [check] = await db.query(
-      'SELECT user_id FROM users WHERE user_id = ? AND role_id = 6',
-      [staff_user_id]
+      `SELECT u.user_id FROM users u
+       JOIN prodesk_staff ps ON ps.user_id = u.user_id
+       WHERE u.user_id = ? AND u.role_id = 6 AND ps.therapist_id = ?`,
+      [staff_user_id, therapist_id]
     );
     if (!check || !check.length) {
       return { status: false, code: 404, message: 'Staff member not found', data: null };
@@ -129,8 +138,10 @@ const removeStaffService = async (payload) => {
     const { therapist_id, staff_user_id } = payload;
 
     const [check] = await db.query(
-      'SELECT user_id FROM users WHERE user_id = ? AND role_id = 6',
-      [staff_user_id]
+      `SELECT u.user_id FROM users u
+       JOIN prodesk_staff ps ON ps.user_id = u.user_id
+       WHERE u.user_id = ? AND u.role_id = 6 AND ps.therapist_id = ?`,
+      [staff_user_id, therapist_id]
     );
     if (!check || !check.length) {
       return { status: false, code: 404, message: 'Staff member not found', data: null };

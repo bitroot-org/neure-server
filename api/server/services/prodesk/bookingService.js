@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+const { formatISTWallClock } = require('../../utils/dateHelper');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -630,9 +631,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       }
 
       // Formatted time for emails
-      const formattedTime = new Date(starts_at).toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short'
-      });
+      const formattedTime = formatISTWallClock(starts_at);
 
       // Email to client
       try {
