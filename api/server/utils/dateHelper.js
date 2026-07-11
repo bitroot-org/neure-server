@@ -13,7 +13,15 @@ const DATE_FIELDS = new Set([
 
 function toIST(utcVal) {
   if (!utcVal) return null;
-  const d = new Date(utcVal);
+  // DB pool uses dateStrings:true, so utcVal is a plain "YYYY-MM-DD HH:MM:SS"
+  // string representing a genuine UTC instant (created_at/updated_at use
+  // CURRENT_TIMESTAMP under session time_zone=UTC). Parse it explicitly as
+  // UTC — letting `new Date()` guess would use the server process's local
+  // timezone and silently reintroduce an environment-dependent shift.
+  const isoUtc = utcVal instanceof Date
+    ? utcVal.toISOString()
+    : `${String(utcVal).replace(' ', 'T')}Z`;
+  const d = new Date(isoUtc);
   if (isNaN(d.getTime())) return utcVal;
   d.setMinutes(d.getMinutes() + 330); // +5h30m
   return d.toISOString().replace('T', ' ').substring(0, 19);

@@ -156,8 +156,9 @@ const createSessionService = async (payload) => {
         await NotificationService.createNotification({
           user_id: therapist_user_id,
           type: 'SESSION_SCHEDULED',
-          title: 'Session Scheduled',
-          content: `Session with ${client_name} scheduled for ${formattedTime}.`
+          title: `Session Scheduled with ${client_name}`,
+          content: `Session with ${client_name} scheduled for ${formattedTime}.`,
+          meta: notifMeta
         });
 
         // Email (primary — always fires while WhatsApp template is pending)

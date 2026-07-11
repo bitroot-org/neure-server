@@ -96,6 +96,7 @@ router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, ClientCtrl.updateClient);
 router.post('/archiveClient',   authorization, ClientCtrl.archiveClient);
+router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestRecordHistoryUpdate);
 
 // ──────────────────────────────────────────────────────────────
 // SESSIONS

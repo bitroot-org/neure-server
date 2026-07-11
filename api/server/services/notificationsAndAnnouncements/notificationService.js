@@ -775,13 +775,14 @@ class NotificationService {
     content,
     type,
     company_id = null,
-    user_id = null
+    user_id = null,
+    meta = null
   }) {
     try {
       const [result] = await db.query(
-        `INSERT INTO notifications (title, content, type, company_id, user_id)
-         VALUES (?, ?, ?, ?, ?)`,
-        [title, content, type, company_id, user_id]
+        `INSERT INTO notifications (title, content, type, company_id, user_id, meta)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [title, content, type, company_id, user_id, meta ? JSON.stringify(meta) : null]
       );
 
       return {
@@ -791,6 +792,7 @@ class NotificationService {
         type,
         company_id,
         user_id,
+        meta,
         created_at: new Date()
       };
     } catch (error) {
