@@ -3,7 +3,8 @@ const {
   getClientsService,
   getClientByIdService,
   updateClientService,
-  archiveClientService
+  archiveClientService,
+  requestRecordHistoryUpdateService
 } = require('../../services/prodesk/clientService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -58,6 +59,17 @@ class ProdeskClientController {
       const { client_id } = req.body;
       if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id required', data: null });
       const result = await archiveClientService({ therapist_id: req.user.therapist_id, client_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async requestRecordHistoryUpdate(req, res) {
+    try {
+      const { client_id } = req.body;
+      if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id required', data: null });
+      const result = await requestRecordHistoryUpdateService({ therapist_id: req.user.therapist_id, client_id });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

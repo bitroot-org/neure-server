@@ -28,7 +28,10 @@ const getDashboardService = async (payload) => {
 const getPeriodRange = (period) => {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  let start, prevStart, prevEnd;
+  // end defaults to today (day/week can't look into the future); month/year
+  // override it below to the full period end, so sessions/invoices already
+  // booked later this month/year aren't excluded from "this month" totals.
+  let start, end = today, prevStart, prevEnd;
 
   if (period === 'day') {
     start = today;
@@ -43,18 +46,20 @@ const getPeriodRange = (period) => {
     prevEnd = prevWeekEnd.toISOString().slice(0, 10);
   } else if (period === 'year') {
     start = `${now.getFullYear()}-01-01`;
+    end = `${now.getFullYear()}-12-31`;
     prevStart = `${now.getFullYear() - 1}-01-01`;
     prevEnd = `${now.getFullYear() - 1}-12-31`;
   } else {
     // month (default)
     start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     prevStart = prevMonthStart.toISOString().slice(0, 10);
     prevEnd = prevMonthEnd.toISOString().slice(0, 10);
   }
 
-  return { start, end: today, prevStart, prevEnd: prevEnd || today };
+  return { start, end, prevStart, prevEnd: prevEnd || today };
 };
 
 const getMetricsService = async (payload) => {
@@ -70,21 +75,26 @@ const getMetricsService = async (payload) => {
     const prevEnd   = range.prevEnd;
 
     // ── Current period ────────────────────────────────────────────────────
+    // "sessions" counts everything booked this period (scheduled + completed,
+    // excluding cancelled) so the overview reflects real activity, not just
+    // sessions that have already happened. therapy_hours stays completed-only
+    // since it represents hours of therapy actually delivered.
     const [[sessionStats]] = await db.query(
       `SELECT COUNT(*) AS total_sessions,
-              COALESCE(SUM(duration_min) / 60, 0) AS therapy_hours
+              COALESCE(SUM(CASE WHEN status = 'completed' THEN duration_min ELSE 0 END) / 60, 0) AS therapy_hours
        FROM prodesk_sessions
-       WHERE therapist_id = ? AND status = 'completed'
+       WHERE therapist_id = ? AND status != 'cancelled'
        AND DATE(starts_at) BETWEEN ? AND ?`,
       [therapist_id, startDate, endDate]
     );
 
+    // "lives_impacted" is the practice's total active client count, not
+    // scoped to this period — matches the count shown on the Clients page.
     const [[clientStats]] = await db.query(
-      `SELECT COUNT(DISTINCT client_id) AS lives_impacted
-       FROM prodesk_sessions
-       WHERE therapist_id = ? AND status = 'completed'
-       AND DATE(starts_at) BETWEEN ? AND ?`,
-      [therapist_id, startDate, endDate]
+      `SELECT COUNT(*) AS lives_impacted
+       FROM prodesk_clients
+       WHERE therapist_id = ? AND status = 'active'`,
+      [therapist_id]
     );
 
     const [[revenueStats]] = await db.query(
@@ -97,10 +107,23 @@ const getMetricsService = async (payload) => {
 
     // ── Previous period (for change calculations) ─────────────────────────
     const [[prevSession]] = await db.query(
-      `SELECT COUNT(*) AS total_sessions, COUNT(DISTINCT client_id) AS lives_impacted
+      `SELECT COUNT(*) AS total_sessions
        FROM prodesk_sessions
-       WHERE therapist_id = ? AND status = 'completed'
+       WHERE therapist_id = ? AND status != 'cancelled'
        AND DATE(starts_at) BETWEEN ? AND ?`,
+      [therapist_id, prevStart, prevEnd]
+    );
+
+    // clients_change = new clients added this period vs previous period
+    // (lives_impacted itself is a total-active snapshot, not period-scoped).
+    const [[curNewClients]] = await db.query(
+      `SELECT COUNT(*) AS cnt FROM prodesk_clients
+       WHERE therapist_id = ? AND DATE(created_at) BETWEEN ? AND ?`,
+      [therapist_id, startDate, endDate]
+    );
+    const [[prevNewClients]] = await db.query(
+      `SELECT COUNT(*) AS cnt FROM prodesk_clients
+       WHERE therapist_id = ? AND DATE(created_at) BETWEEN ? AND ?`,
       [therapist_id, prevStart, prevEnd]
     );
 
@@ -127,7 +150,8 @@ const getMetricsService = async (payload) => {
     const curSessions = Number(sessionStats.total_sessions)  || 0;
     const prevSess    = Number(prevSession.total_sessions)   || 0;
     const curClients  = Number(clientStats.lives_impacted)   || 0;
-    const prevClients = Number(prevSession.lives_impacted)   || 0;
+    const curNewCli   = Number(curNewClients.cnt)             || 0;
+    const prevNewCli  = Number(prevNewClients.cnt)             || 0;
 
     const pct = (cur, prev) => prev > 0
       ? parseFloat(((cur - prev) / prev * 100).toFixed(1))
@@ -148,7 +172,7 @@ const getMetricsService = async (payload) => {
         // Change vs previous period
         revenue_change_percent:   pct(curRevenue, prevRev),
         sessions_change_percent:  pct(curSessions, prevSess),
-        clients_change:           curClients - prevClients,
+        clients_change:           curNewCli - prevNewCli,
         month_over_month_percent: pct(curRevenue, prevRev),
         // Unpaid invoices
         payments_due:   parseFloat(Number(unpaidStats.payments_due).toFixed(2)),
@@ -188,8 +212,7 @@ const getTodaySessionsForDashboard = async (therapistId) => {
 const getRecentNotificationsForDashboard = async (userId) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, content AS text, type, is_read,
-              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
+      `SELECT id, title, content AS text, type, is_read, created_at
        FROM notifications
        WHERE user_id = ? AND is_close = 0
        ORDER BY created_at DESC LIMIT 5`,
@@ -224,8 +247,7 @@ const getNotificationsService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT id, title, content, type, company_id, user_id, is_read, priority, is_close,
-              DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
+      `SELECT id, title, content, type, company_id, user_id, is_read, priority, is_close, meta, created_at
        FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...vals, limit, offset]
     );

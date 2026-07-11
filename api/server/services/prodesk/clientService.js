@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
+const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
 
@@ -260,10 +261,60 @@ const archiveClientService = async (payload) => {
   }
 };
 
+// "Record history" is no longer editable in-app — therapists request updates
+// via a WhatsApp message to the admin team instead.
+const RECORD_HISTORY_ADMIN_PHONE = '918850352266';
+const RECORD_HISTORY_WHATSAPP_TEMPLATE = 'prodesk_record_history_request';
+
+const requestRecordHistoryUpdateService = async (payload) => {
+  try {
+    console.log('Payload in requestRecordHistoryUpdateService::>>', payload);
+    const { therapist_id, client_id } = payload;
+
+    const [[row]] = await db.query(
+      `SELECT CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM prodesk_clients pc
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = pc.therapist_id
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE pc.id = ? AND pc.therapist_id = ?`,
+      [client_id, therapist_id]
+    );
+
+    if (!row) {
+      return { status: false, code: 404, message: 'Client not found', data: null };
+    }
+
+    const { client_name, therapist_name, clinic_name } = row;
+
+    // Fire-and-forget — the therapist's request should always succeed even
+    // if the WhatsApp send fails (network hiccup, MSG91 outage, etc.).
+    NotificationService.sendWhatsAppNotification({
+      to: RECORD_HISTORY_ADMIN_PHONE,
+      templateName: RECORD_HISTORY_WHATSAPP_TEMPLATE,
+      variables: [
+        clinic_name,    // {{1}} clinic/therapist name
+        therapist_name, // {{2}} therapist name
+        client_name     // {{3}} client name
+      ],
+      meta: { therapist_id, client_id, type: 'record_history_request' }
+    }).catch((e) => console.log('Record history WhatsApp send failed (non-blocking):', e.message));
+
+    return { status: true, code: 200, message: 'Request sent. Our team will reach out shortly.', data: null };
+  } catch (error) {
+    console.log('Error in requestRecordHistoryUpdateService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   createClientService,
   getClientsService,
   getClientByIdService,
   updateClientService,
-  archiveClientService
+  archiveClientService,
+  requestRecordHistoryUpdateService
 };

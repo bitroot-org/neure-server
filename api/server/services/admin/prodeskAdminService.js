@@ -985,9 +985,18 @@ const getTherapistByIdService = async ({ therapist_id }) => {
       `SELECT brand_name, theme, accent, logo_url FROM therapist_branding WHERE therapist_id = ?`, [therapist_id]
     );
 
-    const [[availability]] = await db.query(
-      `SELECT days, from_time, to_time, slot_minutes FROM therapist_availability WHERE therapist_id = ?`, [therapist_id]
+    const [[availabilitySettings]] = await db.query(
+      `SELECT slot_minutes, buffer_minutes FROM therapist_availability WHERE therapist_id = ?`, [therapist_id]
     );
+
+    const [availabilityBlocks] = await db.query(
+      `SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time`,
+      [therapist_id]
+    );
+
+    const availability = availabilitySettings
+      ? { ...availabilitySettings, blocks: availabilityBlocks }
+      : null;
 
     const [[stats]] = await db.query(
       `SELECT
