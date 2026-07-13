@@ -59,6 +59,9 @@ router.post('/refreshToken',     AuthCtrl.refreshToken);
 router.post('/forgotPassword',   AuthCtrl.forgotPassword);
 router.post('/verifyForgotOtp',  AuthCtrl.verifyForgotOtp);
 router.post('/resetPassword',    AuthCtrl.resetPassword);
+// Public status check for pre-login pages (register/login) — exposes only
+// is-maintenance-on + message + end time, nothing user-specific.
+router.post('/publicMaintenanceStatus', DashboardCtrl.getMaintenanceStatus);
 
 // ──────────────────────────────────────────────────────────────
 // AUTH (bearer required)
@@ -173,6 +176,8 @@ router.post('/getNotifications',           authorization, DashboardCtrl.getNotif
 router.post('/markNotificationRead',       authorization, DashboardCtrl.markNotificationRead);
 router.post('/markAllNotificationsRead',   authorization, DashboardCtrl.markAllNotificationsRead);
 router.post('/closeNotification',          authorization, DashboardCtrl.closeNotification);
+router.post('/getPopupNotifications',      authorization, DashboardCtrl.getPopupNotifications);
+router.post('/getMaintenanceStatus',       authorization, DashboardCtrl.getMaintenanceStatus);
 
 // ──────────────────────────────────────────────────────────────
 // DASHBOARD & METRICS

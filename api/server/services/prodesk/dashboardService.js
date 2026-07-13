@@ -247,7 +247,7 @@ const getNotificationsService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT id, title, content, type, company_id, user_id, is_read, priority, is_close, meta, created_at
+      `SELECT id, title, content, type, company_id, user_id, is_read, priority, is_close, is_popup, meta, created_at
        FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...vals, limit, offset]
     );
@@ -314,11 +314,62 @@ const closeNotificationService = async (payload) => {
   }
 };
 
+const getPopupNotificationsService = async ({ user_id }) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, title, content, type, meta, created_at
+       FROM notifications
+       WHERE user_id = ? AND is_popup = 1 AND is_close = 0
+       ORDER BY created_at ASC`,
+      [user_id]
+    );
+    return { status: true, code: 200, message: 'Popup notifications fetched', data: rows || [] };
+  } catch (error) {
+    console.log('Error in getPopupNotificationsService::>>', error);
+    return null;
+  }
+};
+
+const getMaintenanceStatusService = async () => {
+  try {
+    // starts_at/ends_at are stored as UTC (written via NOW()/DATE_ADD(NOW()...)).
+    // This controller's respond() runs convertDatesToIST, but that helper
+    // ignores 'starts_at' (reserved elsewhere for a naive-IST field) and
+    // doesn't know 'ends_at' at all — so convert explicitly here at the SQL
+    // level instead, same as the admin-side maintenance queries.
+    //
+    // is_active only flips to 0 via an explicit deactivation — a window that
+    // simply times out stays is_active=1 in the DB. The WHERE clause below
+    // already excludes expired rows regardless of that stale flag, but we
+    // also self-heal it here so the admin-side "last configured" fallback
+    // (which does trust the flag) doesn't keep reporting it as active.
+    await db.query(
+      `UPDATE maintenance_mode SET is_active = 0
+       WHERE is_active = 1 AND ends_at IS NOT NULL AND ends_at <= NOW()`
+    );
+
+    const [[row]] = await db.query(
+      `SELECT is_active, message,
+              DATE_ADD(DATE_ADD(starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+              DATE_ADD(DATE_ADD(ends_at,   INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS ends_at
+       FROM maintenance_mode
+       WHERE is_active = 1 AND (ends_at IS NULL OR ends_at > NOW())
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    return { status: true, code: 200, message: 'Maintenance status fetched', data: row || null };
+  } catch (error) {
+    console.log('Error in getMaintenanceStatusService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   getDashboardService,
   getMetricsService,
   getNotificationsService,
   markNotificationReadService,
   markAllNotificationsReadService,
-  closeNotificationService
+  closeNotificationService,
+  getPopupNotificationsService,
+  getMaintenanceStatusService
 };

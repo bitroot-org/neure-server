@@ -68,4 +68,18 @@ router.post('/getBankAccountList',      authorization, BankAccountCtrl.adminGetA
 router.post('/getBankAccountById',      authorization, BankAccountCtrl.adminGetBankAccountById);
 router.post('/getBankAccountLogs',      authorization, BankAccountCtrl.adminGetBankAccountLogs);
 
+// ── NOTIFICATION BROADCAST ────────────────────────────────────
+// Recipient picker uses the existing /user/getProdeskTherapists endpoint
+// (users JOIN therapists only) — this router's own getTherapists is joined
+// against prodesk_subscriptions for the Subscriptions/Payments admin view
+// and returns one row per subscription record, which duplicates therapists
+// that have subscription history.
+router.post('/sendNotification',        authorization, Ctrl.sendNotification);
+router.post('/getSentNotifications',    authorization, Ctrl.getSentNotifications);
+router.post('/getNotificationDetail',   authorization, Ctrl.getNotificationDetail);
+
+// ── MAINTENANCE MODE ──────────────────────────────────────────
+router.post('/getMaintenanceMode',      authorization, Ctrl.getMaintenanceMode);
+router.post('/setMaintenanceMode',      authorization, Ctrl.setMaintenanceMode);
+
 module.exports = router;
