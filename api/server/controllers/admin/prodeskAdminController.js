@@ -10,12 +10,22 @@ const {
   getSessionsAdminService, getSubscriptionsAdminService,
   getSubscriptionDetailService, getPaymentsService, getPaymentDetailService,
   getOfferEmailsService, editOfferEmailService, addOfferEmailsService,
-  getTherapistByIdService
+  getTherapistByIdService,
+  sendNotificationService, getSentNotificationsService, getNotificationBatchDetailService,
+  getMaintenanceModeService, setMaintenanceModeService
 } = require('../../services/admin/prodeskAdminService');
 
 const respond = (res, result) => {
   if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
   return res.status(result.code).json(result);
+};
+
+const requireSuperadmin = (req, res) => {
+  if (req.user?.role_id !== 1) {
+    res.status(403).json({ status: false, code: 403, message: 'Access denied. Only superadmins can perform this action', data: null });
+    return false;
+  }
+  return true;
 };
 
 class ProdeskAdminController {
@@ -261,6 +271,59 @@ class ProdeskAdminController {
   static async getTherapistById(req, res) {
     try {
       return respond(res, await getTherapistByIdService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async sendNotification(req, res) {
+    try {
+      if (!requireSuperadmin(req, res)) return;
+      const { title, content, is_popup, target, user_ids } = req.body;
+      return respond(res, await sendNotificationService({
+        title, content, is_popup, target, user_ids, created_by: req.user.user_id
+      }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getSentNotifications(req, res) {
+    try {
+      if (!requireSuperadmin(req, res)) return;
+      return respond(res, await getSentNotificationsService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getNotificationDetail(req, res) {
+    try {
+      if (!requireSuperadmin(req, res)) return;
+      const { batch_id } = req.body;
+      if (!batch_id) return res.status(400).json({ status: false, code: 400, message: 'batch_id required', data: null });
+      return respond(res, await getNotificationBatchDetailService({ batch_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getMaintenanceMode(req, res) {
+    try {
+      if (!requireSuperadmin(req, res)) return;
+      return respond(res, await getMaintenanceModeService());
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async setMaintenanceMode(req, res) {
+    try {
+      if (!requireSuperadmin(req, res)) return;
+      const { is_active, message, duration_minutes } = req.body;
+      return respond(res, await setMaintenanceModeService({
+        is_active, message, duration_minutes, created_by: req.user.user_id
+      }));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }

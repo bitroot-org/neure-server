@@ -4,7 +4,9 @@ const {
   getNotificationsService,
   markNotificationReadService,
   markAllNotificationsReadService,
-  closeNotificationService
+  closeNotificationService,
+  getPopupNotificationsService,
+  getMaintenanceStatusService
 } = require('../../services/prodesk/dashboardService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -66,6 +68,24 @@ class ProdeskDashboardController {
       const { notification_id } = req.body;
       if (!notification_id) return res.status(400).json({ status: false, code: 400, message: 'notification_id required', data: null });
       const result = await closeNotificationService({ user_id: req.user.user_id, notification_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getPopupNotifications(req, res) {
+    try {
+      const result = await getPopupNotificationsService({ user_id: req.user.user_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getMaintenanceStatus(req, res) {
+    try {
+      const result = await getMaintenanceStatusService();
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

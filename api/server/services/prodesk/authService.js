@@ -210,6 +210,23 @@ const registerService = async (payload) => {
       return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
     }
 
+    // New signups are paused during an active maintenance window; existing
+    // users can still log in and will see the maintenance screen in-app.
+    const [[maintenance]] = await db.query(
+      `SELECT message,
+              DATE_ADD(DATE_ADD(ends_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS ends_at
+       FROM maintenance_mode
+       WHERE is_active = 1 AND (ends_at IS NULL OR ends_at > NOW())
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    if (maintenance) {
+      return {
+        status: false, code: 503,
+        message: `Signups are temporarily paused for scheduled maintenance. ${maintenance.message || ''}`.trim(),
+        data: { ends_at: maintenance.ends_at }
+      };
+    }
+
     const [existing] = await db.query('SELECT user_id, first_name, is_active FROM users WHERE email = ?', [email]);
     if (existing && existing.length) {
       const existingUser = existing[0];

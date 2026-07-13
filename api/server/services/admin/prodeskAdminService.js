@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { randomUUID } = require('crypto');
 
 const getOverviewService = async () => {
   try {
@@ -1029,6 +1030,195 @@ const getTherapistByIdService = async ({ therapist_id }) => {
   }
 };
 
+const sendNotificationService = async ({ title, content, is_popup = 0, target, user_ids = [], created_by }) => {
+  try {
+    if (!title || !content) {
+      return { status: false, code: 400, message: 'title and content are required', data: null };
+    }
+    if (target !== 'all' && target !== 'selected') {
+      return { status: false, code: 400, message: "target must be 'all' or 'selected'", data: null };
+    }
+
+    let recipientIds = [];
+    if (target === 'all') {
+      const [rows] = await db.query(
+        `SELECT user_id FROM users WHERE role_id = 4 AND is_active = 1`
+      );
+      recipientIds = rows.map(r => r.user_id);
+    } else {
+      recipientIds = Array.from(new Set((user_ids || []).map(Number).filter(Boolean)));
+      if (recipientIds.length === 0) {
+        return { status: false, code: 400, message: 'user_ids is required when target is selected', data: null };
+      }
+    }
+
+    if (recipientIds.length === 0) {
+      return { status: false, code: 400, message: 'No recipients found for this target', data: null };
+    }
+
+    const batch_id = randomUUID();
+    const values = recipientIds.map(user_id => [
+      title, content, 'prodesk_broadcast', user_id, is_popup ? 1 : 0, created_by, batch_id
+    ]);
+
+    await db.query(
+      `INSERT INTO notifications (title, content, type, user_id, is_popup, created_by, batch_id)
+       VALUES ?`,
+      [values]
+    );
+
+    return {
+      status: true, code: 200, message: 'Notification sent',
+      data: { batch_id, sent_count: recipientIds.length }
+    };
+  } catch (error) {
+    console.log('Error in sendNotificationService::>>', error);
+    return null;
+  }
+};
+
+const getSentNotificationsService = async ({ page = 1, limit = 20 }) => {
+  try {
+    const offset = (page - 1) * limit;
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(DISTINCT batch_id) AS total FROM notifications WHERE batch_id IS NOT NULL`
+    );
+    const [rows] = await db.query(
+      `SELECT batch_id, MIN(title) AS title, MIN(content) AS content,
+              MAX(is_popup) AS is_popup, COUNT(*) AS recipient_count,
+              SUM(is_read) AS read_count, SUM(is_close) AS closed_count,
+              DATE_ADD(DATE_ADD(MIN(created_at), INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS sent_at
+       FROM notifications
+       WHERE batch_id IS NOT NULL
+       GROUP BY batch_id
+       ORDER BY MIN(created_at) DESC
+       LIMIT ? OFFSET ?`,
+      [parseInt(limit), offset]
+    );
+    return {
+      status: true, code: 200, message: 'Sent notifications fetched',
+      data: rows, meta: { total, page: parseInt(page), limit: parseInt(limit) }
+    };
+  } catch (error) {
+    console.log('Error in getSentNotificationsService::>>', error);
+    return null;
+  }
+};
+
+const getNotificationBatchDetailService = async ({ batch_id }) => {
+  try {
+    const [[meta]] = await db.query(
+      `SELECT batch_id, MIN(title) AS title, MIN(content) AS content,
+              MAX(is_popup) AS is_popup, MIN(created_by) AS created_by,
+              DATE_ADD(DATE_ADD(MIN(created_at), INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS sent_at
+       FROM notifications WHERE batch_id = ? GROUP BY batch_id`,
+      [batch_id]
+    );
+    if (!meta) return { status: false, code: 404, message: 'Broadcast not found', data: null };
+
+    const [[sender]] = await db.query(
+      `SELECT user_id, CONCAT(first_name, ' ', last_name) AS name, email
+       FROM users WHERE user_id = ?`,
+      [meta.created_by]
+    );
+
+    const [recipients] = await db.query(
+      `SELECT n.id, n.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name, u.email,
+              n.is_read, n.is_close,
+              DATE_ADD(DATE_ADD(n.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at
+       FROM notifications n
+       JOIN users u ON u.user_id = n.user_id
+       WHERE n.batch_id = ?
+       ORDER BY u.first_name`,
+      [batch_id]
+    );
+
+    return {
+      status: true, code: 200, message: 'Broadcast detail fetched',
+      data: { ...meta, sender: sender || null, recipients }
+    };
+  } catch (error) {
+    console.log('Error in getNotificationBatchDetailService::>>', error);
+    return null;
+  }
+};
+
+// maintenance_mode.starts_at/ends_at/created_at/updated_at are all written via
+// NOW()/CURRENT_TIMESTAMP, i.e. genuine UTC instants (session time_zone=UTC —
+// see dateHelper.js). This controller's respond() does not run
+// convertDatesToIST, so we convert to IST explicitly at the SQL level here
+// (same +5:30 pattern as getTherapistsService above) rather than relying on
+// the generic helper, which by design skips 'starts_at' and doesn't know
+// about 'ends_at'.
+const MAINTENANCE_IST_SELECT = `
+  id, is_active, message, created_by,
+  DATE_ADD(DATE_ADD(starts_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS starts_at,
+  DATE_ADD(DATE_ADD(ends_at,   INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS ends_at,
+  DATE_ADD(DATE_ADD(created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
+  DATE_ADD(DATE_ADD(updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at
+`;
+
+// The row's is_active flag only ever flips to 0 via an explicit "End
+// Maintenance Now" UPDATE — a window that simply times out (ends_at passes
+// with nobody deactivating it) stays is_active=1 in the DB forever. Lazily
+// self-heal any such expired rows before reading, so a naturally-expired
+// window doesn't keep reporting itself as active.
+const clearExpiredMaintenanceWindows = async () => {
+  await db.query(
+    `UPDATE maintenance_mode SET is_active = 0
+     WHERE is_active = 1 AND ends_at IS NOT NULL AND ends_at <= NOW()`
+  );
+};
+
+const getMaintenanceModeService = async () => {
+  try {
+    await clearExpiredMaintenanceWindows();
+
+    const [[row]] = await db.query(
+      `SELECT ${MAINTENANCE_IST_SELECT} FROM maintenance_mode
+       WHERE is_active = 1 AND (ends_at IS NULL OR ends_at > NOW())
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    if (row) return { status: true, code: 200, message: 'Maintenance mode fetched', data: row };
+
+    const [[latest]] = await db.query(
+      `SELECT ${MAINTENANCE_IST_SELECT} FROM maintenance_mode ORDER BY created_at DESC LIMIT 1`
+    );
+    return { status: true, code: 200, message: 'Maintenance mode fetched', data: latest || null };
+  } catch (error) {
+    console.log('Error in getMaintenanceModeService::>>', error);
+    return null;
+  }
+};
+
+const setMaintenanceModeService = async ({ is_active, message, duration_minutes, created_by }) => {
+  try {
+    if (is_active) {
+      if (!message || !duration_minutes) {
+        return { status: false, code: 400, message: 'message and duration_minutes are required to activate maintenance mode', data: null };
+      }
+      const [result] = await db.query(
+        `INSERT INTO maintenance_mode (is_active, message, starts_at, ends_at, created_by)
+         VALUES (1, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE), ?)`,
+        [message, duration_minutes, created_by]
+      );
+      const [[row]] = await db.query(
+        `SELECT ${MAINTENANCE_IST_SELECT} FROM maintenance_mode WHERE id = ?`,
+        [result.insertId]
+      );
+      return { status: true, code: 200, message: 'Maintenance mode activated', data: row };
+    }
+
+    await db.query(
+      `UPDATE maintenance_mode SET is_active = 0, ends_at = NOW() WHERE is_active = 1`
+    );
+    return { status: true, code: 200, message: 'Maintenance mode deactivated', data: null };
+  } catch (error) {
+    console.log('Error in setMaintenanceModeService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   getOverviewService, getRevenueService, getActiveUsersService, getDiscontinuedUsersService,
   getTherapistsService, getFeedbackService, updateFeedbackStatusService, getDeactivatedAccountsService,
@@ -1038,5 +1228,7 @@ module.exports = {
   getSessionsAdminService, getSubscriptionsAdminService,
   getSubscriptionDetailService, getPaymentsService, getPaymentDetailService,
   getOfferEmailsService, editOfferEmailService, addOfferEmailsService,
-  getTherapistByIdService
+  getTherapistByIdService,
+  sendNotificationService, getSentNotificationsService, getNotificationBatchDetailService,
+  getMaintenanceModeService, setMaintenanceModeService
 };
