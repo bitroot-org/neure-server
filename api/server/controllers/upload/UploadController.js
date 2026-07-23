@@ -1,5 +1,6 @@
 const { createReadStream, unlinkSync } = require("fs");
 const { nanoid } = require("nanoid");
+const sharp = require("sharp");
 const db = require('../../../config/db');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg');
@@ -199,16 +200,14 @@ class MediaController {
         throw new Error("No file uploaded");
       }
 
-      // For profile images, ensure they're properly sized
-      if (type === 'profile') {
-        // You could add image processing here with sharp or another library
-        // Example: resize to standard dimensions for profile images
-        // const processedImagePath = await resizeImage(req.file.path, 300, 300);
-        // Then use processedImagePath instead of req.file.path below
-      }
-
-      const filename = `${nanoid()}.jpg`;
-      const fileType = req.file.mimetype;
+      // Convert images to WebP (lossless) at upload time - keeps quality while
+      // cutting file size, so uploads stay well under body-size limits.
+      const isImage = req.file.mimetype.startsWith('image/') && req.file.mimetype !== 'image/gif';
+      const filename = `${nanoid()}${isImage ? '.webp' : req.file.mimetype === 'image/gif' ? '.gif' : '.jpg'}`;
+      const fileType = isImage ? 'image/webp' : req.file.mimetype;
+      const fileBody = isImage
+        ? await sharp(req.file.path).webp({ lossless: true }).toBuffer()
+        : createReadStream(req.file.path);
 
       // Generate S3 path based on type
       let s3Path;
@@ -235,7 +234,7 @@ class MediaController {
       const uploadParams = {
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: s3Path,
-        Body: createReadStream(req.file.path),
+        Body: fileBody,
         ContentType: fileType,
       };
 
