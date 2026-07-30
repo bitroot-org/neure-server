@@ -357,7 +357,8 @@ const createOfferService = async (payload) => {
   try {
     const { code, name, description, tag_id, is_percent = 0, percent_discount = null,
       is_email_restricted = 0, valid_from, valid_till, max_uses_per_email = 1,
-      total_max_uses = null, razorpay_offer_id = null, admin_id } = payload;
+      total_max_uses = null, razorpay_offer_id = null, restricted_billing_cycle = null,
+      payment_method = 'all', discount_duration = 'single_cycle', discount_cycles = null, admin_id } = payload;
     if (!code || !name || !tag_id || !valid_from || !valid_till) {
       return { status: false, code: 400, message: 'code, name, tag_id, valid_from, valid_till are required', data: null };
     }
@@ -366,11 +367,13 @@ const createOfferService = async (payload) => {
     }
     const [result] = await db.query(
       `INSERT INTO prodesk_offers (code, name, description, tag_id, is_percent, percent_discount,
-        is_email_restricted, valid_from, valid_till, max_uses_per_email, total_max_uses, razorpay_offer_id, created_by_admin_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        is_email_restricted, valid_from, valid_till, max_uses_per_email, total_max_uses, razorpay_offer_id,
+        restricted_billing_cycle, payment_method, discount_duration, discount_cycles, created_by_admin_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code.toUpperCase().trim(), name, description || null, tag_id, is_percent ? 1 : 0,
        percent_discount || null, is_email_restricted ? 1 : 0, valid_from, valid_till,
-       max_uses_per_email, total_max_uses || null, razorpay_offer_id || null, admin_id || null]
+       max_uses_per_email, total_max_uses || null, razorpay_offer_id || null, restricted_billing_cycle || null,
+       payment_method || 'all', discount_duration || 'single_cycle', discount_cycles || null, admin_id || null]
     );
     return { status: true, code: 201, message: 'Offer created', data: { offer_id: result.insertId } };
   } catch (error) {
@@ -433,7 +436,8 @@ const getOffersService = async ({ page = 1, limit = 20, search = '', tag_id = nu
     const [rows] = await db.query(
       `SELECT po.id, po.code, po.name, pt.name AS tag_name, po.is_percent, po.percent_discount,
               po.is_email_restricted, po.valid_from, po.valid_till, po.total_used,
-              po.is_active, po.razorpay_offer_id,
+              po.is_active, po.razorpay_offer_id, po.restricted_billing_cycle, po.payment_method,
+              po.discount_duration, po.discount_cycles,
               DATE_ADD(DATE_ADD(po.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               (SELECT COUNT(*) FROM prodesk_offer_emails poe WHERE poe.offer_id = po.id) AS total_emails_whitelisted
        FROM prodesk_offers po
@@ -467,7 +471,7 @@ const getOfferDetailService = async ({ offer_id }) => {
   }
 };
 
-const updateOfferService = async ({ offer_id, name, valid_till, is_active, razorpay_offer_id }) => {
+const updateOfferService = async ({ offer_id, name, valid_till, is_active, razorpay_offer_id, restricted_billing_cycle, payment_method, discount_duration, discount_cycles }) => {
   try {
     if (!offer_id) return { status: false, code: 400, message: 'offer_id is required', data: null };
     const fields = [];
@@ -476,6 +480,10 @@ const updateOfferService = async ({ offer_id, name, valid_till, is_active, razor
     if (valid_till !== undefined) { fields.push('valid_till = ?'); params.push(valid_till); }
     if (is_active !== undefined) { fields.push('is_active = ?'); params.push(is_active ? 1 : 0); }
     if (razorpay_offer_id !== undefined) { fields.push('razorpay_offer_id = ?'); params.push(razorpay_offer_id || null); }
+    if (restricted_billing_cycle !== undefined) { fields.push('restricted_billing_cycle = ?'); params.push(restricted_billing_cycle || null); }
+    if (payment_method !== undefined) { fields.push('payment_method = ?'); params.push(payment_method || 'all'); }
+    if (discount_duration !== undefined) { fields.push('discount_duration = ?'); params.push(discount_duration || 'single_cycle'); }
+    if (discount_cycles !== undefined) { fields.push('discount_cycles = ?'); params.push(discount_cycles || null); }
     if (!fields.length) return { status: false, code: 400, message: 'No fields to update', data: null };
     params.push(offer_id);
     await db.query(`UPDATE prodesk_offers SET ${fields.join(', ')} WHERE id = ?`, params);
