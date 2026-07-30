@@ -39,8 +39,11 @@ const validateOfferService = async ({ therapist_id, code, plan_id }) => {
     // Single source of truth for the discounted price — computed here, not on the client.
     let plan_amount = null, discount_amount = 0, final_amount = null;
     if (plan_id) {
-      const [[plan]] = await db.query(`SELECT price_inr FROM prodesk_plans WHERE id = ? AND is_active = 1`, [plan_id]);
+      const [[plan]] = await db.query(`SELECT price_inr, billing_cycle FROM prodesk_plans WHERE id = ? AND is_active = 1`, [plan_id]);
       if (!plan) return { status: false, code: 404, message: 'Plan not found', data: null };
+      if (offer.restricted_billing_cycle && offer.restricted_billing_cycle !== plan.billing_cycle) {
+        return { status: false, code: 400, message: `This offer is valid for ${offer.restricted_billing_cycle} billing only`, data: null };
+      }
       plan_amount = parseFloat(plan.price_inr);
       discount_amount = offer.is_percent
         ? Math.round(plan_amount * (parseFloat(offer.percent_discount) / 100))
@@ -53,7 +56,8 @@ const validateOfferService = async ({ therapist_id, code, plan_id }) => {
       data: {
         offer_id: offer.id, offer_code: offer.code, offer_name: offer.name,
         tag_name: offer.tag_name, is_percent: offer.is_percent,
-        percent_discount: offer.percent_discount,
+        percent_discount: offer.percent_discount, payment_method: offer.payment_method,
+        discount_duration: offer.discount_duration, discount_cycles: offer.discount_cycles,
         plan_id: plan_id || null, plan_amount, discount_amount, final_amount
       }
     };

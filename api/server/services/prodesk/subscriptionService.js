@@ -163,10 +163,14 @@ const activateFreeService = async ({ therapist_id }) => {
 };
 
 // ─── CREATE SUBSCRIPTION ─────────────────────────────────────────────────────
-// plan_id is always the plan the user selected, at full price — no plan-switching.
-// If offer_id is passed, its razorpay_offer_id is handed straight to Razorpay;
-// Razorpay applies the discount itself (per the offer's configured redemption
-// type/cycles) and reverts to full plan price on renewal automatically.
+// Two discount paths, chosen by the offer's tag:
+//   tag = 'early_access' → swap to the plan's early_access variant (permanently
+//     discounted Razorpay plan) — no razorpay_offer_id passed. Discount applies
+//     every renewal cycle, not just the first.
+//   any other tag        → keep the plan the user selected, pass the offer's
+//     razorpay_offer_id straight to Razorpay — it applies the discount itself
+//     (per the offer's redemption type/cycles) and reverts to full price on
+//     renewal automatically.
 
 const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle, offer_id }) => {
   try {
@@ -192,18 +196,36 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
     );
 
     let razorpayOfferId = null;
+    let subscribePlanId = plan_id;
 
     if (offer_id) {
       const [[offer]] = await db.query(
-        `SELECT id, razorpay_offer_id FROM prodesk_offers
-         WHERE id = ? AND is_active = 1 AND valid_from <= NOW() AND valid_till >= NOW()`,
+        `SELECT po.id, po.razorpay_offer_id, po.restricted_billing_cycle, pt.name AS tag_name FROM prodesk_offers po
+         JOIN prodesk_offer_tags pt ON po.tag_id = pt.id
+         WHERE po.id = ? AND po.is_active = 1 AND po.valid_from <= NOW() AND po.valid_till >= NOW()`,
         [offer_id]
       );
       if (!offer) return { status: false, code: 400, message: 'Offer is invalid or expired', data: null };
-      razorpayOfferId = offer.razorpay_offer_id;
+      if (offer.restricted_billing_cycle && offer.restricted_billing_cycle !== billing_cycle) {
+        return { status: false, code: 400, message: `This offer is valid for ${offer.restricted_billing_cycle} billing only`, data: null };
+      }
+
+      if (offer.tag_name === 'early_access') {
+        // Permanent-discount path — swap to the early_access variant plan.
+        // No razorpay_offer_id passed; the plan itself is already discounted.
+        const [[earlyPlan]] = await db.query(
+          `SELECT id FROM prodesk_plans
+           WHERE plan_type = ? AND billing_cycle = ? AND access_type = 'early_access' AND is_active = 1`,
+          [plan.plan_type, plan.billing_cycle]
+        );
+        if (earlyPlan) subscribePlanId = earlyPlan.id;
+      } else {
+        // First-cycle-only discount path — Razorpay applies it via offer_id.
+        razorpayOfferId = offer.razorpay_offer_id;
+      }
     }
 
-    const rzpPlanRow = await getRazorpayPlanId(plan_id);
+    const rzpPlanRow = await getRazorpayPlanId(subscribePlanId);
     if (!rzpPlanRow) {
       return { status: false, code: 500, message: 'Razorpay plan not configured for this plan. Contact support.', data: null };
     }
@@ -215,7 +237,7 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
       billingCycle: billing_cycle,
       offerId: razorpayOfferId,
-      notes: { therapist_id: String(therapist_id), plan_id: String(plan_id), billing_cycle, offer_id: offer_id ? String(offer_id) : '' }
+      notes: { therapist_id: String(therapist_id), plan_id: String(subscribePlanId), billing_cycle, offer_id: offer_id ? String(offer_id) : '' }
     });
     if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
 
@@ -223,7 +245,7 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
       `INSERT INTO prodesk_subscriptions
          (therapist_id, plan_id, status, billing_cycle, razorpay_subscription_id, razorpay_plan_id, offer_id, linked_old_subscription_id)
        VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`,
-      [therapist_id, plan_id, billing_cycle, rzpSub.id, rzpPlanRow.razorpay_plan_id, offer_id || null, currentStarterSub?.id || null]
+      [therapist_id, subscribePlanId, billing_cycle, rzpSub.id, rzpPlanRow.razorpay_plan_id, offer_id || null, currentStarterSub?.id || null]
     );
 
     return {
