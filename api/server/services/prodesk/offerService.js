@@ -1,6 +1,6 @@
 const db = require('../../../config/db');
 
-const validateOfferService = async ({ therapist_id, code }) => {
+const validateOfferService = async ({ therapist_id, code, plan_id }) => {
   try {
     if (!code) return { status: false, code: 400, message: 'code is required', data: null };
 
@@ -36,13 +36,25 @@ const validateOfferService = async ({ therapist_id, code }) => {
       if (alreadyUsed) return { status: false, code: 400, message: 'You have already used this offer code', data: null };
     }
 
+    // Single source of truth for the discounted price — computed here, not on the client.
+    let plan_amount = null, discount_amount = 0, final_amount = null;
+    if (plan_id) {
+      const [[plan]] = await db.query(`SELECT price_inr FROM prodesk_plans WHERE id = ? AND is_active = 1`, [plan_id]);
+      if (!plan) return { status: false, code: 404, message: 'Plan not found', data: null };
+      plan_amount = parseFloat(plan.price_inr);
+      discount_amount = offer.is_percent
+        ? Math.round(plan_amount * (parseFloat(offer.percent_discount) / 100))
+        : 0; // flat-amount offers aren't in use yet — extend here if/when added
+      final_amount = Math.max(0, plan_amount - discount_amount);
+    }
+
     return {
       status: true, code: 200, message: 'Offer applied',
       data: {
         offer_id: offer.id, offer_code: offer.code, offer_name: offer.name,
         tag_name: offer.tag_name, is_percent: offer.is_percent,
         percent_discount: offer.percent_discount,
-        pricing_type: offer.tag_name === 'early_access' ? 'early_access' : 'full_version'
+        plan_id: plan_id || null, plan_amount, discount_amount, final_amount
       }
     };
   } catch (error) {

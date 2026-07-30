@@ -1122,6 +1122,27 @@ const handleRazorpayWebhookService = async (payload) => {
           [cycleStart, cycleEnd, newCycleCount, sub.id]
         );
 
+        // First charge confirmed — now safe to retire the plan this one replaced
+        if (sub.linked_old_subscription_id) {
+          const [[oldSub]] = await conn.query(
+            `SELECT id, razorpay_subscription_id, status FROM prodesk_subscriptions WHERE id = ?`,
+            [sub.linked_old_subscription_id]
+          );
+          if (oldSub && ['active', 'authenticated', 'halted'].includes(oldSub.status)) {
+            await conn.query(
+              `UPDATE prodesk_subscriptions SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?`,
+              [oldSub.id]
+            );
+            if (oldSub.razorpay_subscription_id) {
+              try {
+                await RazorpayService.cancelSubscription({ razorpaySubscriptionId: oldSub.razorpay_subscription_id, cancelAtCycleEnd: 0 });
+              } catch (e) {
+                console.log('Non-fatal: failed to cancel old Razorpay subscription::>>', e.message);
+              }
+            }
+          }
+        }
+
         // Idempotent payment record
         const [[existingPmt]] = await conn.query(
           `SELECT id FROM prodesk_subscription_payments WHERE razorpay_invoice_id = ? LIMIT 1`,
@@ -1139,6 +1160,35 @@ const handleRazorpayWebhookService = async (payload) => {
               newCycleCount, cycleStart, cycleEnd
             ]
           );
+        }
+
+        // First successful charge on an offer-linked subscription — mark the
+        // offer redeemed now (not at mandate-creation) so a failed/abandoned
+        // mandate never falsely burns the user's redemption.
+        if (newCycleCount === 1 && sub.offer_id) {
+          const [[offerRow]] = await conn.query(`SELECT is_email_restricted FROM prodesk_offers WHERE id = ?`, [sub.offer_id]);
+          if (offerRow) {
+            if (offerRow.is_email_restricted) {
+              const [[therapistRow]] = await conn.query(
+                `SELECT u.email FROM therapists t JOIN users u ON t.user_id = u.user_id WHERE t.id = ?`,
+                [sub.therapist_id]
+              );
+              if (therapistRow?.email) {
+                await conn.query(
+                  `UPDATE prodesk_offer_emails SET is_used = 1, used_at = NOW(), used_by_therapist_id = ?
+                   WHERE offer_id = ? AND email = ? AND is_used = 0`,
+                  [sub.therapist_id, sub.offer_id, therapistRow.email.toLowerCase()]
+                );
+              }
+            } else {
+              await conn.query(
+                `INSERT INTO prodesk_user_offers (offer_id, therapist_id, subscription_id, is_redeemed, redeemed_at)
+                 VALUES (?, ?, ?, 1, NOW())`,
+                [sub.offer_id, sub.therapist_id, sub.id]
+              );
+            }
+            await conn.query(`UPDATE prodesk_offers SET total_used = total_used + 1 WHERE id = ?`, [sub.offer_id]);
+          }
         }
 
         // Execute pending downgrade if this charge is at/after period_end

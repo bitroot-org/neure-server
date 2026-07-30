@@ -8,8 +8,8 @@ const respond = (res, result) => {
 class OfferController {
   static async validateOffer(req, res) {
     try {
-      const { code } = req.body;
-      return respond(res, await validateOfferService({ therapist_id: req.user.therapist_id, code }));
+      const { code, plan_id } = req.body;
+      return respond(res, await validateOfferService({ therapist_id: req.user.therapist_id, code, plan_id }));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }

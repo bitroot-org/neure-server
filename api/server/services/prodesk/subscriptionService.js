@@ -163,9 +163,10 @@ const activateFreeService = async ({ therapist_id }) => {
 };
 
 // ─── CREATE SUBSCRIPTION ─────────────────────────────────────────────────────
-// With offer (early_access tag) → uses early_access Razorpay plan (discounted price every cycle).
-// No offer → uses full_version Razorpay plan.
-// Both paths: single Razorpay Subscription checkout, no Order needed.
+// plan_id is always the plan the user selected, at full price — no plan-switching.
+// If offer_id is passed, its razorpay_offer_id is handed straight to Razorpay;
+// Razorpay applies the discount itself (per the offer's configured redemption
+// type/cycles) and reverts to full plan price on renewal automatically.
 
 const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle, offer_id }) => {
   try {
@@ -182,38 +183,27 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
       return { status: false, code: 409, message: 'Active subscription exists. Use upgrade or downgrade instead.', data: null };
     }
 
-    // Cancel any existing Starter sub
-    await db.query(
-      `UPDATE prodesk_subscriptions ps
+    // Find existing active Starter sub — kept active until payment is confirmed by webhook
+    const [[currentStarterSub]] = await db.query(
+      `SELECT ps.id FROM prodesk_subscriptions ps
          JOIN prodesk_plans pp ON ps.plan_id = pp.id
-         SET ps.status = 'cancelled', ps.cancelled_at = NOW()
        WHERE ps.therapist_id = ? AND ps.status = 'active' AND pp.plan_type = 'starter'`,
       [therapist_id]
     );
 
-    // Determine which plan (full_version or early_access) to subscribe to
-    let subscribePlanId = plan_id;
+    let razorpayOfferId = null;
 
     if (offer_id) {
       const [[offer]] = await db.query(
-        `SELECT po.id, pt.name AS tag_name FROM prodesk_offers po
-         JOIN prodesk_offer_tags pt ON po.tag_id = pt.id
-         WHERE po.id = ? AND po.is_active = 1 AND po.valid_from <= NOW() AND po.valid_till >= NOW()`,
+        `SELECT id, razorpay_offer_id FROM prodesk_offers
+         WHERE id = ? AND is_active = 1 AND valid_from <= NOW() AND valid_till >= NOW()`,
         [offer_id]
       );
       if (!offer) return { status: false, code: 400, message: 'Offer is invalid or expired', data: null };
-
-      if (offer.tag_name === 'early_access') {
-        const [[earlyPlan]] = await db.query(
-          `SELECT id FROM prodesk_plans
-           WHERE plan_type = ? AND billing_cycle = ? AND access_type = 'early_access' AND is_active = 1`,
-          [plan.plan_type, plan.billing_cycle]
-        );
-        if (earlyPlan) subscribePlanId = earlyPlan.id;
-      }
+      razorpayOfferId = offer.razorpay_offer_id;
     }
 
-    const rzpPlanRow = await getRazorpayPlanId(subscribePlanId);
+    const rzpPlanRow = await getRazorpayPlanId(plan_id);
     if (!rzpPlanRow) {
       return { status: false, code: 500, message: 'Razorpay plan not configured for this plan. Contact support.', data: null };
     }
@@ -224,15 +214,16 @@ const createSubscriptionService = async ({ therapist_id, plan_id, billing_cycle,
     const rzpSub = await RazorpayService.createSubscription({
       razorpayPlanId: rzpPlanRow.razorpay_plan_id,
       billingCycle: billing_cycle,
-      notes: { therapist_id: String(therapist_id), plan_id: String(subscribePlanId), billing_cycle, offer_id: offer_id ? String(offer_id) : '' }
+      offerId: razorpayOfferId,
+      notes: { therapist_id: String(therapist_id), plan_id: String(plan_id), billing_cycle, offer_id: offer_id ? String(offer_id) : '' }
     });
     if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
 
     const [subResult] = await db.query(
       `INSERT INTO prodesk_subscriptions
-         (therapist_id, plan_id, status, billing_cycle, razorpay_subscription_id, razorpay_plan_id, offer_id)
-       VALUES (?, ?, 'pending', ?, ?, ?, ?)`,
-      [therapist_id, subscribePlanId, billing_cycle, rzpSub.id, rzpPlanRow.razorpay_plan_id, offer_id || null]
+         (therapist_id, plan_id, status, billing_cycle, razorpay_subscription_id, razorpay_plan_id, offer_id, linked_old_subscription_id)
+       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`,
+      [therapist_id, plan_id, billing_cycle, rzpSub.id, rzpPlanRow.razorpay_plan_id, offer_id || null, currentStarterSub?.id || null]
     );
 
     return {
@@ -348,13 +339,7 @@ const upgradeSubscriptionService = async ({ therapist_id, new_plan_id, new_billi
       });
       if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
 
-      if (currentSub) {
-        await db.query(
-          `UPDATE prodesk_subscriptions SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?`,
-          [currentSub.id]
-        );
-      }
-
+      // Old (Starter) sub stays active until webhook confirms payment on the new one
       const [newSubResult] = await db.query(
         `INSERT INTO prodesk_subscriptions
            (therapist_id, plan_id, status, billing_cycle, razorpay_subscription_id, razorpay_plan_id, last_upgrade_at,
@@ -396,9 +381,6 @@ const upgradeSubscriptionService = async ({ therapist_id, new_plan_id, new_billi
 
     // ── Case B1: prorate too small or last day — skip, immediate new sub ──────
     if (daysRemaining === 0 || prorateAmount < PRORATE_MIN_AMOUNT) {
-      if (currentSub.razorpay_subscription_id) {
-        await RazorpayService.cancelSubscription({ razorpaySubscriptionId: currentSub.razorpay_subscription_id, cancelAtCycleEnd: 0 });
-      }
       const rzpSub = await RazorpayService.createSubscription({
         razorpayPlanId: rzpPlanRow.razorpay_plan_id,
         billingCycle: new_billing_cycle,
@@ -406,10 +388,7 @@ const upgradeSubscriptionService = async ({ therapist_id, new_plan_id, new_billi
       });
       if (!rzpSub) return { status: false, code: 500, message: 'Failed to create Razorpay subscription', data: null };
 
-      await db.query(
-        `UPDATE prodesk_subscriptions SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?`,
-        [currentSub.id]
-      );
+      // Old sub (and its Razorpay mandate) stays active until webhook confirms payment on the new one
       const [newSubResult] = await db.query(
         `INSERT INTO prodesk_subscriptions
            (therapist_id, plan_id, status, billing_cycle, razorpay_subscription_id, razorpay_plan_id,
