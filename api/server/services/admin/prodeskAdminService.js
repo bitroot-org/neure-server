@@ -186,14 +186,27 @@ const getTherapistsService = async ({ page = 1, limit = 20, search = '', plan_ty
       where += ` AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
-    if (plan_type) { where += ` AND pp.plan_type = ?`; params.push(plan_type); }
-    if (subscription_status) { where += ` AND ps.status = ?`; params.push(subscription_status); }
+    if (plan_type) {
+      where += plan_type === 'starter' ? ` AND (pp.plan_type = 'starter' OR pp.plan_type IS NULL)` : ` AND pp.plan_type = ?`;
+      if (plan_type !== 'starter') params.push(plan_type);
+    }
+    if (subscription_status) {
+      where += subscription_status === 'active' ? ` AND (ps.status = 'active' OR ps.status IS NULL)` : ` AND ps.status = ?`;
+      if (subscription_status !== 'active') params.push(subscription_status);
+    }
+
+    const activeSubJoin = `
+       LEFT JOIN prodesk_subscriptions ps ON ps.id = (
+         SELECT ps2.id FROM prodesk_subscriptions ps2
+         WHERE ps2.therapist_id = t.id AND ps2.status IN ('active','authenticated')
+         ORDER BY ps2.created_at DESC LIMIT 1
+       )
+       LEFT JOIN prodesk_plans pp ON ps.plan_id = pp.id`;
 
     const [[{ total }]] = await db.query(
-      `SELECT COUNT(*) AS total FROM users u
+      `SELECT COUNT(DISTINCT t.id) AS total FROM users u
        JOIN therapists t ON u.user_id = t.user_id
-       LEFT JOIN prodesk_subscriptions ps ON t.id = ps.therapist_id
-       LEFT JOIN prodesk_plans pp ON ps.plan_id = pp.id ${where}`, params
+       ${activeSubJoin} ${where}`, params
     );
     const [rows] = await db.query(
       `SELECT t.id AS therapist_id, u.user_id, CONCAT(u.first_name,' ',u.last_name) AS name,
@@ -205,8 +218,7 @@ const getTherapistsService = async ({ page = 1, limit = 20, search = '', plan_ty
               DATE_ADD(DATE_ADD(ps.current_period_end, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS period_end
        FROM users u
        JOIN therapists t ON u.user_id = t.user_id
-       LEFT JOIN prodesk_subscriptions ps ON t.id = ps.therapist_id
-       LEFT JOIN prodesk_plans pp ON ps.plan_id = pp.id ${where}
+       ${activeSubJoin} ${where}
        ORDER BY u.created_at DESC LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), offset]
     );
@@ -214,10 +226,14 @@ const getTherapistsService = async ({ page = 1, limit = 20, search = '', plan_ty
       therapist_id: r.therapist_id, user_id: r.user_id, name: r.name,
       email: r.email, phone: r.phone, profile_url: r.profile_url,
       is_active: r.is_active, created_at: r.created_at, booking_slug: r.booking_slug,
-      subscription: r.plan_name ? {
-        plan_name: r.plan_name, plan_type: r.plan_type, access_type: r.access_type,
-        billing_cycle: r.billing_cycle, status: r.subscription_status, period_end: r.period_end
-      } : null
+      subscription: {
+        plan_name: r.plan_name ?? 'Starter',
+        plan_type: r.plan_type ?? 'starter',
+        access_type: r.access_type ?? null,
+        billing_cycle: r.billing_cycle ?? null,
+        status: r.subscription_status ?? 'active',
+        period_end: r.period_end ?? null
+      }
     }));
     return { status: true, code: 200, message: 'Therapists fetched', data, meta: { total, page: parseInt(page), limit: parseInt(limit) } };
   } catch (error) {
@@ -341,7 +357,7 @@ const createOfferService = async (payload) => {
   try {
     const { code, name, description, tag_id, is_percent = 0, percent_discount = null,
       is_email_restricted = 0, valid_from, valid_till, max_uses_per_email = 1,
-      total_max_uses = null, admin_id } = payload;
+      total_max_uses = null, razorpay_offer_id = null, admin_id } = payload;
     if (!code || !name || !tag_id || !valid_from || !valid_till) {
       return { status: false, code: 400, message: 'code, name, tag_id, valid_from, valid_till are required', data: null };
     }
@@ -350,11 +366,11 @@ const createOfferService = async (payload) => {
     }
     const [result] = await db.query(
       `INSERT INTO prodesk_offers (code, name, description, tag_id, is_percent, percent_discount,
-        is_email_restricted, valid_from, valid_till, max_uses_per_email, total_max_uses, created_by_admin_id)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        is_email_restricted, valid_from, valid_till, max_uses_per_email, total_max_uses, razorpay_offer_id, created_by_admin_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [code.toUpperCase().trim(), name, description || null, tag_id, is_percent ? 1 : 0,
        percent_discount || null, is_email_restricted ? 1 : 0, valid_from, valid_till,
-       max_uses_per_email, total_max_uses || null, admin_id || null]
+       max_uses_per_email, total_max_uses || null, razorpay_offer_id || null, admin_id || null]
     );
     return { status: true, code: 201, message: 'Offer created', data: { offer_id: result.insertId } };
   } catch (error) {
@@ -417,7 +433,7 @@ const getOffersService = async ({ page = 1, limit = 20, search = '', tag_id = nu
     const [rows] = await db.query(
       `SELECT po.id, po.code, po.name, pt.name AS tag_name, po.is_percent, po.percent_discount,
               po.is_email_restricted, po.valid_from, po.valid_till, po.total_used,
-              po.is_active,
+              po.is_active, po.razorpay_offer_id,
               DATE_ADD(DATE_ADD(po.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               (SELECT COUNT(*) FROM prodesk_offer_emails poe WHERE poe.offer_id = po.id) AS total_emails_whitelisted
        FROM prodesk_offers po
@@ -451,7 +467,7 @@ const getOfferDetailService = async ({ offer_id }) => {
   }
 };
 
-const updateOfferService = async ({ offer_id, name, valid_till, is_active }) => {
+const updateOfferService = async ({ offer_id, name, valid_till, is_active, razorpay_offer_id }) => {
   try {
     if (!offer_id) return { status: false, code: 400, message: 'offer_id is required', data: null };
     const fields = [];
@@ -459,6 +475,7 @@ const updateOfferService = async ({ offer_id, name, valid_till, is_active }) => 
     if (name !== undefined) { fields.push('name = ?'); params.push(name); }
     if (valid_till !== undefined) { fields.push('valid_till = ?'); params.push(valid_till); }
     if (is_active !== undefined) { fields.push('is_active = ?'); params.push(is_active ? 1 : 0); }
+    if (razorpay_offer_id !== undefined) { fields.push('razorpay_offer_id = ?'); params.push(razorpay_offer_id || null); }
     if (!fields.length) return { status: false, code: 400, message: 'No fields to update', data: null };
     params.push(offer_id);
     await db.query(`UPDATE prodesk_offers SET ${fields.join(', ')} WHERE id = ?`, params);

@@ -201,7 +201,7 @@ const DEFAULT_TOTAL_COUNT_BY_CYCLE = { monthly: 600, annual: 50 };
 const createRazorpaySubscriptionService = async (payload) => {
   try {
     console.log('Payload in createRazorpaySubscriptionService::>>', payload);
-    const { razorpayPlanId, billingCycle = 'monthly', totalCount, notes = {}, startAt = null } = payload;
+    const { razorpayPlanId, billingCycle = 'monthly', totalCount, notes = {}, startAt = null, offerId = null } = payload;
 
     const body = {
       plan_id:     razorpayPlanId,
@@ -210,6 +210,7 @@ const createRazorpaySubscriptionService = async (payload) => {
       notes
     };
     if (startAt) body.start_at = startAt; // unix timestamp — delays first charge
+    if (offerId) body.offer_id = offerId; // Razorpay applies the offer's discount itself, per its configured cycles
 
     const data = await razorpayRequest({ method: 'POST', path: '/v1/subscriptions', body });
     return data;

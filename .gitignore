@@ -131,3 +131,5 @@ api/config/google-service-account.json
 
 # MCP config contains a secret token
 .mcp.json
+# contains DB credentials + dumps — whole folder stays local only
+scripts/
