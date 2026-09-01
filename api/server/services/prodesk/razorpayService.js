@@ -28,6 +28,7 @@ const razorpayRequest = async (payload) => {
     const fetch = (await import('node-fetch')).default;
     const res = await fetch(`https://api.razorpay.com${path}`, opts);
     const data = await res.json();
+    console.log('Response from Razorpay::>>', path, res.status, data);
 
     if (!res.ok) throw new Error(data.error?.description || `Razorpay error: ${res.status}`);
     return data;
@@ -191,12 +192,10 @@ const getKeyIdService = async () => {
 
 // ─── RAZORPAY SUBSCRIPTIONS ───────────────────────────────────────────────────
 
-// Razorpay caps total subscription duration (total_count * plan period) well
-// under 600 years. 600 total_count is fine for a monthly plan (=50 years) but
-// invalid for an annual plan (=600 years), which is what was causing annual
-// subscription creation to fail with a 400 from Razorpay. Keep the overall
-// duration equivalent (~50 years) regardless of billing cycle.
-const DEFAULT_TOTAL_COUNT_BY_CYCLE = { monthly: 600, annual: 50 };
+// Razorpay rejects UPI/e-mandate subscriptions whose total duration
+// (total_count * plan period) exceeds 30 years. Cap at 15 years, well under
+// that limit, for both UPI and card e-mandates.
+const DEFAULT_TOTAL_COUNT_BY_CYCLE = { monthly: 180, annual: 15 };
 
 const createRazorpaySubscriptionService = async (payload) => {
   try {
@@ -205,7 +204,7 @@ const createRazorpaySubscriptionService = async (payload) => {
 
     const body = {
       plan_id:     razorpayPlanId,
-      total_count: totalCount || DEFAULT_TOTAL_COUNT_BY_CYCLE[billingCycle] || 600,
+      total_count: totalCount || DEFAULT_TOTAL_COUNT_BY_CYCLE[billingCycle] || 180,
       quantity:    1,
       notes
     };
