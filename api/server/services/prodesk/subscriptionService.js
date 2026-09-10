@@ -104,7 +104,8 @@ const getSubscriptionService = async ({ therapist_id }) => {
        LEFT JOIN prodesk_offers po ON ps.offer_id = po.id
        LEFT JOIN prodesk_plans pp2 ON ps.pending_plan_id = pp2.id
        WHERE ps.therapist_id = ? AND ps.status IN ('active','pending','authenticated','halted','expired','cancelled')
-       ORDER BY ps.created_at DESC LIMIT 1`,
+       ORDER BY FIELD(ps.status, 'active', 'authenticated', 'halted', 'pending', 'expired', 'cancelled'), ps.created_at DESC
+       LIMIT 1`,
       [therapist_id]
     );
     if (!sub) return { status: false, code: 404, message: 'No subscription found', data: null };
