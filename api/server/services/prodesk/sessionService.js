@@ -633,14 +633,30 @@ const getSlotsService = async ({ therapist_id, date, session_duration }) => {
       return { status: false, code: 400, message: 'therapist_id, date and session_duration are required', data: null };
     }
 
+    // Therapist-facing slot lookup (scheduling/rescheduling their own
+    // sessions) — allows any custom duration in 5-minute steps, e.g. 105
+    // (1hr45) or 150. The public client-booking path (getBookingSlotsService)
+    // keeps its fixed preset list separately.
     const duration = parseInt(session_duration);
-    if (![30, 45, 60, 90, 120].includes(duration)) {
-      return { status: false, code: 400, message: 'session_duration must be 30, 45, 60, 90 or 120 minutes', data: null };
+    if (!Number.isInteger(duration) || duration < 15 || duration > 240 || duration % 5 !== 0) {
+      return { status: false, code: 400, message: 'session_duration must be a multiple of 5 between 15 and 240 minutes', data: null };
     }
 
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dateObj = new Date(date + 'T00:00:00');
     const dayName = DAY_NAMES[dateObj.getDay()];
+
+    // Therapist has marked this specific date unavailable (e.g. travel/OOO)
+    const [[blockedDate]] = await db.query(
+      'SELECT id FROM therapist_availability_exceptions WHERE therapist_id = ? AND date = ?',
+      [therapist_id, date]
+    );
+    if (blockedDate) {
+      return {
+        status: true, code: 200, message: 'Therapist unavailable on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
 
     // Get blocks for this day
     const [[settings]] = await db.query(
@@ -661,21 +677,24 @@ const getSlotsService = async ({ therapist_id, date, session_duration }) => {
       };
     }
 
-    // Generate all possible slots across all blocks for the day
+    // Generate all possible slots across all blocks for the day.
+    // Overlapping/duplicate availability blocks can yield the same `mins`
+    // more than once, so dedupe by `mins` before sorting.
     const step = duration + buffer;
-    const allSlots = [];
+    const slotsByMins = new Map();
     for (const block of dayBlocks) {
       const [fromH, fromM] = block.from_time.slice(0, 5).split(':').map(Number);
       const [toH, toM]     = block.to_time.slice(0, 5).split(':').map(Number);
       const fromMins = fromH * 60 + fromM;
       const toMins   = toH * 60 + toM;
       for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        if (slotsByMins.has(mins)) continue;
         const h = Math.floor(mins / 60).toString().padStart(2, '0');
         const m = (mins % 60).toString().padStart(2, '0');
-        allSlots.push({ time: `${h}:${m}`, mins });
+        slotsByMins.set(mins, { time: `${h}:${m}`, mins });
       }
     }
-    allSlots.sort((a, b) => a.mins - b.mins);
+    const allSlots = [...slotsByMins.values()].sort((a, b) => a.mins - b.mins);
 
     // Get booked sessions for this therapist on this date
     const [booked] = await db.query(

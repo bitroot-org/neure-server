@@ -198,6 +198,71 @@ const updateAvailabilityService = async (payload) => {
   }
 };
 
+// ─── BLOCKED DATES (full-day unavailability, e.g. travel/OOO) ───────────────
+
+const getBlockedDatesService = async (payload) => {
+  try {
+    const { therapist_id } = payload;
+
+    const [rows] = await db.query(
+      `SELECT id, date, reason FROM therapist_availability_exceptions
+       WHERE therapist_id = ? AND date >= CURDATE()
+       ORDER BY date`,
+      [therapist_id]
+    );
+
+    return { status: true, code: 200, message: 'Blocked dates fetched', data: rows || [] };
+  } catch (error) {
+    console.log('Error in getBlockedDatesService::>>', error);
+    return null;
+  }
+};
+
+const addBlockedDateService = async (payload) => {
+  try {
+    const { therapist_id, date, reason = null } = payload;
+
+    if (!date) {
+      return { status: false, code: 400, message: 'date is required', data: null };
+    }
+    if (date < new Date().toISOString().slice(0, 10)) {
+      return { status: false, code: 400, message: 'Cannot block a date in the past', data: null };
+    }
+
+    await db.query(
+      `INSERT INTO therapist_availability_exceptions (therapist_id, date, reason)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
+      [therapist_id, date, reason]
+    );
+
+    return getBlockedDatesService({ therapist_id });
+  } catch (error) {
+    console.log('Error in addBlockedDateService::>>', error);
+    return null;
+  }
+};
+
+const removeBlockedDateService = async (payload) => {
+  try {
+    const { therapist_id, id } = payload;
+
+    if (!id) {
+      return { status: false, code: 400, message: 'id is required', data: null };
+    }
+
+    await db.query(
+      'DELETE FROM therapist_availability_exceptions WHERE id = ? AND therapist_id = ?',
+      [id, therapist_id]
+    );
+
+    return getBlockedDatesService({ therapist_id });
+  } catch (error) {
+    console.log('Error in removeBlockedDateService::>>', error);
+    return null;
+  }
+};
+
 const VALID_ACCENTS          = ['sage','slate','plum','bronze','clay'];
 const VALID_GRADIENTS        = ['mist','linen','tide','dusk','mono'];
 const VALID_WALLPAPERS       = ['misty_peaks','warm_dusk','ocean_calm','forest_fog'];
@@ -450,6 +515,9 @@ module.exports = {
   updateProfileService,
   getAvailabilityService,
   updateAvailabilityService,
+  getBlockedDatesService,
+  addBlockedDateService,
+  removeBlockedDateService,
   getBrandingService,
   updateBrandingService,
   uploadLogoService,

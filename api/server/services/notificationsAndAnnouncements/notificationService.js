@@ -1650,6 +1650,104 @@ class NotificationService {
       message: `booking_notification_therapist → ${toEmail}`
     });
   }
+
+  /**
+   * Send a "session starting soon" reminder email to the THERAPIST
+   * (as opposed to sendSessionReminderEmail, which is client-facing).
+   */
+  static async sendTherapistSessionReminderEmail({ toEmail, toName, clientName, sessionTime, meetUrl = null, clinicName = 'Neure Prodesk', meta = null }) {
+    const meetRowHtml = meetUrl ? `
+      <tr>
+        <td style="padding:14px 20px;border-top:1px solid #E5EAF0;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session Link</p>
+          <a href="${meetUrl}" style="font-size:15px;font-weight:600;color:#5EA89A;text-decoration:none;word-break:break-all;">Join Session &rarr;</a>
+        </td>
+      </tr>` : '';
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;">
+    <tr><td align="center">
+      <table cellpadding="0" cellspacing="0" style="width:100%;max-width:540px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+        <tr>
+          <td style="background:#1A2332;padding:22px 28px;border-radius:12px 12px 0 0;">
+            <table width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#C89364;">${clinicName}</span></td>
+              <td align="right"><span style="font-size:11px;color:#3E5470;">Neure Prodesk</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr><td style="background:#C89364;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+        <tr>
+          <td style="background:#FFFFFF;padding:28px 28px 24px;">
+            <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">Session Starting Soon 🔔</p>
+            <p style="margin:0 0 22px;font-size:13px;color:#C89364;font-weight:500;">Your session starts in 15 minutes</p>
+            <p style="margin:0 0 22px;font-size:15px;color:#4B5563;line-height:1.7;">
+              Hi <strong style="color:#111827;">${toName}</strong>,<br>
+              This is a reminder for your upcoming session with <strong style="color:#111827;">${clientName}</strong>.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:20px;">
+              <tr>
+                <td style="padding:14px 20px;border-bottom:1px solid #E5EAF0;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Client</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${clientName}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 20px;">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</p>
+                  <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</p>
+                </td>
+              </tr>
+              ${meetRowHtml}
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="border-top:1px solid #E5EAF0;padding-top:18px;text-align:center;">
+                  <p style="margin:0;font-size:12px;color:#9CA3AF;">${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span></p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    let status = 'SUCCESS'; let statusCode = 200; let errorMsg = null;
+    try {
+      const response = await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+          to: [{ email: toEmail, name: toName }],
+          subject: `Reminder: Your session with ${clientName} starts in 15 minutes`,
+          htmlContent
+        },
+        { headers: { 'api-key': await getBrevoApiKey(), 'Content-Type': 'application/json' } }
+      );
+      statusCode = response.status;
+      console.log('Therapist reminder email sent to', toEmail, '| status:', statusCode);
+    } catch (err) {
+      status = 'FAILED'; statusCode = err.response?.status || 500; errorMsg = err.message;
+      console.error('sendTherapistSessionReminderEmail error:', err.message);
+    }
+
+    await NotificationService.logNotification({
+      platform: 'EMAIL', status_code: statusCode, status,
+      type: 'THERAPIST_SESSION_REMINDER',
+      message: `Therapist session reminder email to ${toEmail}`,
+      error: errorMsg,
+      template_name: 'therapist_session_reminder_email',
+      meta
+    });
+
+    return status === 'SUCCESS';
+  }
 }
 
 module.exports = NotificationService;

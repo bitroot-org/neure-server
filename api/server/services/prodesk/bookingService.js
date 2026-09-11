@@ -14,24 +14,25 @@ const avatarColor = (name) => {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 };
 
-// Generates slots for a single day from multiple time blocks
+// Generates slots for a single day from multiple time blocks.
+// Overlapping blocks can yield the same time string more than once, so
+// dedupe with a Set before sorting.
 const generateSlotsFromBlocks = (blocks, slotMins, bufferMins, takenSet, dateStr) => {
   const step = slotMins + bufferMins;
-  const slots = [];
+  const slots = new Set();
   for (const block of blocks) {
     let [h, m] = block.from_time.slice(0, 5).split(':').map(Number);
     const [eh, em] = block.to_time.slice(0, 5).split(':').map(Number);
     const endMins = eh * 60 + em;
     while (h * 60 + m + slotMins <= endMins) {
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      if (!takenSet.has(`${dateStr}T${timeStr}`)) slots.push(timeStr);
+      if (!takenSet.has(`${dateStr}T${timeStr}`)) slots.add(timeStr);
       const totalMins = h * 60 + m + step;
       h = Math.floor(totalMins / 60);
       m = totalMins % 60;
     }
   }
-  slots.sort();
-  return slots;
+  return [...slots].sort();
 };
 
 const getPublicProfileService = async (payload) => {
@@ -142,6 +143,14 @@ const getAvailableSlotsService = async (payload) => {
       ...(holds  || []).map(r => `${r.date}T${r.time_slot}`)
     ]);
 
+    // Dates the therapist has marked entirely unavailable (e.g. travel/OOO)
+    const [blockedRows] = await db.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date FROM therapist_availability_exceptions
+       WHERE therapist_id = ? AND date BETWEEN ? AND ?`,
+      [therapistId, from, to]
+    );
+    const blockedDates = new Set((blockedRows || []).map(r => r.date));
+
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const results = [];
     const startD = new Date(from + 'T00:00:00Z');
@@ -150,6 +159,7 @@ const getAvailableSlotsService = async (payload) => {
     for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
       const dayName = DAY_NAMES[d.getUTCDay()];
       const dateStr = d.toISOString().slice(0, 10);
+      if (blockedDates.has(dateStr)) continue;
       const blocks  = blocksByDay[dayName];
       if (!blocks || !blocks.length) continue;
       const slots = generateSlotsFromBlocks(blocks, slotMins, bufferMins, takenSet, dateStr);
@@ -427,6 +437,18 @@ const getBookingSlotsService = async ({ slug, date, session_duration }) => {
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dayName = DAY_NAMES[new Date(date + 'T00:00:00').getDay()];
 
+    // Therapist has marked this specific date unavailable (e.g. travel/OOO)
+    const [[blockedDate]] = await db.query(
+      'SELECT id FROM therapist_availability_exceptions WHERE therapist_id = ? AND date = ?',
+      [therapist_id, date]
+    );
+    if (blockedDate) {
+      return {
+        status: true, code: 200, message: 'Therapist unavailable on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
+
     const [dayBlocks] = await db.query(
       'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
       [therapist_id, dayName]
@@ -455,21 +477,23 @@ const getBookingSlotsService = async ({ slug, date, session_duration }) => {
       return { start_mins: d.getHours() * 60 + d.getMinutes(), duration_min: sess.duration_min };
     });
 
-    // Generate slots across all blocks
+    // Generate slots across all blocks. Overlapping blocks can yield the
+    // same `mins` more than once, so dedupe by `mins` before sorting.
     const step = duration + buffer;
-    const allSlots = [];
+    const slotsByMins = new Map();
     for (const block of dayBlocks) {
       const [fromH, fromM] = block.from_time.slice(0,5).split(':').map(Number);
       const [toH, toM]     = block.to_time.slice(0,5).split(':').map(Number);
       const fromMins = fromH * 60 + fromM;
       const toMins   = toH * 60 + toM;
       for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        if (slotsByMins.has(mins)) continue;
         const h = Math.floor(mins/60).toString().padStart(2,'0');
         const m = (mins%60).toString().padStart(2,'0');
-        allSlots.push({ time: `${h}:${m}`, mins });
+        slotsByMins.set(mins, { time: `${h}:${m}`, mins });
       }
     }
-    allSlots.sort((a, b) => a.mins - b.mins);
+    const allSlots = [...slotsByMins.values()].sort((a, b) => a.mins - b.mins);
 
     const available_slots = [];
     for (const slot of allSlots) {

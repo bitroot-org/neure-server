@@ -3,6 +3,9 @@ const {
   updateProfileService,
   getAvailabilityService,
   updateAvailabilityService,
+  getBlockedDatesService,
+  addBlockedDateService,
+  removeBlockedDateService,
   getBrandingService,
   updateBrandingService,
   uploadLogoService,
@@ -59,6 +62,33 @@ class ProdeskProfileController {
   static async updateAvailability(req, res) {
     try {
       const result = await updateAvailabilityService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getBlockedDates(req, res) {
+    try {
+      const result = await getBlockedDatesService({ therapist_id: req.user.therapist_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async addBlockedDate(req, res) {
+    try {
+      const result = await addBlockedDateService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async removeBlockedDate(req, res) {
+    try {
+      const result = await removeBlockedDateService({ therapist_id: req.user.therapist_id, ...req.body });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
