@@ -14,16 +14,25 @@ const getOverviewService = async () => {
        JOIN therapists t ON u.user_id = t.user_id
        WHERE u.role_id = 4 AND u.is_active = 0`
     );
-    // Paid/Free from subscriptions (builds up as therapists subscribe)
+    // Paid = active user (is_active=1) whose current active subscription is a
+    // paid tier (professional or clinic).
     const [[paidRow]] = await db.query(
-      `SELECT COUNT(*) AS total_paid_users FROM prodesk_subscriptions ps
-       JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE ps.status = 'active' AND pp.plan_type != 'starter'`
+      `SELECT COUNT(DISTINCT u.user_id) AS total_paid_users
+       FROM users u
+       JOIN therapists t ON u.user_id = t.user_id
+       JOIN prodesk_subscriptions ps ON ps.therapist_id = t.id AND ps.status = 'active'
+       JOIN prodesk_plans pp ON pp.id = ps.plan_id
+       WHERE u.role_id = 4 AND u.is_active = 1 AND pp.plan_type IN ('professional', 'clinic')`
     );
+    // Free = active user (is_active=1) who is either on the starter plan or
+    // has no active subscription at all yet.
     const [[freeRow]] = await db.query(
-      `SELECT COUNT(*) AS total_free_users FROM prodesk_subscriptions ps
-       JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE ps.status = 'active' AND pp.plan_type = 'starter'`
+      `SELECT COUNT(DISTINCT u.user_id) AS total_free_users
+       FROM users u
+       JOIN therapists t ON u.user_id = t.user_id
+       LEFT JOIN prodesk_subscriptions ps ON ps.therapist_id = t.id AND ps.status = 'active'
+       LEFT JOIN prodesk_plans pp ON pp.id = ps.plan_id
+       WHERE u.role_id = 4 AND u.is_active = 1 AND (ps.id IS NULL OR pp.plan_type = 'starter')`
     );
     const [[sessRow]] = await db.query(`SELECT COUNT(*) AS total_sessions FROM prodesk_sessions`);
     const [[clientRow]] = await db.query(`SELECT COUNT(*) AS total_clients FROM prodesk_clients`);
@@ -138,21 +147,33 @@ const getActiveUsersService = async ({ page = 1, limit = 20, search = '', plan_t
 const getDiscontinuedUsersService = async ({ page = 1, limit = 20, search = '' }) => {
   try {
     const offset = (page - 1) * limit;
-    const params = [];
-    // Discontinued = deactivated therapist account OR cancelled/expired subscription
-    let where = `WHERE (u.is_active = 0 OR ps.status IN ('cancelled','expired'))`;
-    if (search) {
-      where += ` AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
-    }
+    // Discontinued = deactivated therapist account (is_active = 0) only.
+    // A therapist can rack up many old cancelled/expired/pending subscription
+    // rows over time without ever being deactivated — matching on those too
+    // (the old behaviour) wrongly listed still-active accounts here as well,
+    // duplicating them into both the Active and Discontinued tabs.
+    // The LEFT JOIN below picks each therapist's single most recent
+    // subscription row (by created_at) purely for display (plan/cancelled
+    // date) — it does not affect who qualifies as discontinued.
+    const latestSubJoin = `
+       LEFT JOIN (
+         SELECT ps1.*
+         FROM prodesk_subscriptions ps1
+         INNER JOIN (
+           SELECT therapist_id, MAX(created_at) AS max_created
+           FROM prodesk_subscriptions
+           GROUP BY therapist_id
+         ) latest ON latest.therapist_id = ps1.therapist_id AND latest.max_created = ps1.created_at
+       ) ps ON ps.therapist_id = t.id`;
+
+    const searchClause = search ? ` AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)` : '';
+    const searchParams = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
+
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM users u
        JOIN therapists t ON u.user_id = t.user_id
-       LEFT JOIN prodesk_subscriptions ps ON t.id = ps.therapist_id
-       LEFT JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE u.role_id = 4 AND (u.is_active = 0 OR ps.status IN ('cancelled','expired'))
-       ${search ? `AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)` : ''}`,
-      search ? [`%${search}%`, `%${search}%`, `%${search}%`] : []
+       WHERE u.role_id = 4 AND u.is_active = 0${searchClause}`,
+      searchParams
     );
     const [rows] = await db.query(
       `SELECT t.id AS therapist_id, CONCAT(u.first_name,' ',u.last_name) AS name,
@@ -160,15 +181,14 @@ const getDiscontinuedUsersService = async ({ page = 1, limit = 20, search = '' }
               pp.plan_type, ps.billing_cycle,
               DATE_ADD(DATE_ADD(ps.current_period_start, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS activation_date,
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS cancelled_on,
-              IFNULL(ps.status, 'deactivated') AS status
+              'deactivated' AS status
        FROM users u
        JOIN therapists t ON u.user_id = t.user_id
-       LEFT JOIN prodesk_subscriptions ps ON t.id = ps.therapist_id
+       ${latestSubJoin}
        LEFT JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE u.role_id = 4 AND (u.is_active = 0 OR ps.status IN ('cancelled','expired'))
-       ${search ? `AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)` : ''}
+       WHERE u.role_id = 4 AND u.is_active = 0${searchClause}
        ORDER BY u.updated_at DESC LIMIT ? OFFSET ?`,
-      [...(search ? [`%${search}%`, `%${search}%`, `%${search}%`] : []), parseInt(limit), offset]
+      [...searchParams, parseInt(limit), offset]
     );
     return { status: true, code: 200, message: 'Discontinued users fetched', data: rows, meta: { total, page: parseInt(page), limit: parseInt(limit) } };
   } catch (error) {

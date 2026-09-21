@@ -4,6 +4,7 @@ const db = require('../../../config/db');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { formatISTWallClock } = require('../../utils/dateHelper');
+const { recordConsentService } = require('./consentService');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -14,24 +15,25 @@ const avatarColor = (name) => {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 };
 
-// Generates slots for a single day from multiple time blocks
+// Generates slots for a single day from multiple time blocks.
+// Overlapping blocks can yield the same time string more than once, so
+// dedupe with a Set before sorting.
 const generateSlotsFromBlocks = (blocks, slotMins, bufferMins, takenSet, dateStr) => {
   const step = slotMins + bufferMins;
-  const slots = [];
+  const slots = new Set();
   for (const block of blocks) {
     let [h, m] = block.from_time.slice(0, 5).split(':').map(Number);
     const [eh, em] = block.to_time.slice(0, 5).split(':').map(Number);
     const endMins = eh * 60 + em;
     while (h * 60 + m + slotMins <= endMins) {
       const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      if (!takenSet.has(`${dateStr}T${timeStr}`)) slots.push(timeStr);
+      if (!takenSet.has(`${dateStr}T${timeStr}`)) slots.add(timeStr);
       const totalMins = h * 60 + m + step;
       h = Math.floor(totalMins / 60);
       m = totalMins % 60;
     }
   }
-  slots.sort();
-  return slots;
+  return [...slots].sort();
 };
 
 const getPublicProfileService = async (payload) => {
@@ -142,6 +144,14 @@ const getAvailableSlotsService = async (payload) => {
       ...(holds  || []).map(r => `${r.date}T${r.time_slot}`)
     ]);
 
+    // Dates the therapist has marked entirely unavailable (e.g. travel/OOO)
+    const [blockedRows] = await db.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date FROM therapist_availability_exceptions
+       WHERE therapist_id = ? AND date BETWEEN ? AND ?`,
+      [therapistId, from, to]
+    );
+    const blockedDates = new Set((blockedRows || []).map(r => r.date));
+
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const results = [];
     const startD = new Date(from + 'T00:00:00Z');
@@ -150,6 +160,7 @@ const getAvailableSlotsService = async (payload) => {
     for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
       const dayName = DAY_NAMES[d.getUTCDay()];
       const dateStr = d.toISOString().slice(0, 10);
+      if (blockedDates.has(dateStr)) continue;
       const blocks  = blocksByDay[dayName];
       if (!blocks || !blocks.length) continue;
       const slots = generateSlotsFromBlocks(blocks, slotMins, bufferMins, takenSet, dateStr);
@@ -427,6 +438,18 @@ const getBookingSlotsService = async ({ slug, date, session_duration }) => {
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dayName = DAY_NAMES[new Date(date + 'T00:00:00').getDay()];
 
+    // Therapist has marked this specific date unavailable (e.g. travel/OOO)
+    const [[blockedDate]] = await db.query(
+      'SELECT id FROM therapist_availability_exceptions WHERE therapist_id = ? AND date = ?',
+      [therapist_id, date]
+    );
+    if (blockedDate) {
+      return {
+        status: true, code: 200, message: 'Therapist unavailable on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
+
     const [dayBlocks] = await db.query(
       'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
       [therapist_id, dayName]
@@ -455,21 +478,23 @@ const getBookingSlotsService = async ({ slug, date, session_duration }) => {
       return { start_mins: d.getHours() * 60 + d.getMinutes(), duration_min: sess.duration_min };
     });
 
-    // Generate slots across all blocks
+    // Generate slots across all blocks. Overlapping blocks can yield the
+    // same `mins` more than once, so dedupe by `mins` before sorting.
     const step = duration + buffer;
-    const allSlots = [];
+    const slotsByMins = new Map();
     for (const block of dayBlocks) {
       const [fromH, fromM] = block.from_time.slice(0,5).split(':').map(Number);
       const [toH, toM]     = block.to_time.slice(0,5).split(':').map(Number);
       const fromMins = fromH * 60 + fromM;
       const toMins   = toH * 60 + toM;
       for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        if (slotsByMins.has(mins)) continue;
         const h = Math.floor(mins/60).toString().padStart(2,'0');
         const m = (mins%60).toString().padStart(2,'0');
-        allSlots.push({ time: `${h}:${m}`, mins });
+        slotsByMins.set(mins, { time: `${h}:${m}`, mins });
       }
     }
-    allSlots.sort((a, b) => a.mins - b.mins);
+    const allSlots = [...slotsByMins.values()].sort((a, b) => a.mins - b.mins);
 
     const available_slots = [];
     for (const slot of allSlots) {
@@ -526,10 +551,13 @@ const lookupBookingClientService = async ({ slug, email }) => {
   }
 };
 
-const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern }) => {
+const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, ip_address = null, user_agent = null }) => {
   try {
     if (!slug || !date || !time || !modality || !email) {
       return { status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null };
+    }
+    if (!consent_accepted) {
+      return { status: false, code: 400, message: 'You must agree to the consent form to request a session', data: null };
     }
 
     const [[therapistRow]] = await db.query(
@@ -611,45 +639,36 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
 
       const [sessRes] = await conn.query(
         `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
         [therapist_id, client_id, sessionNum, `Session ${sessionNum}`, starts_at, duration_min, modality, fee || 0]
       );
       const session_id = sessRes.insertId;
 
       await conn.commit();
 
-      // Auto-create Google Meet for video sessions
-      let meetUrl = null;
-      if (modality === 'video') {
-        try {
-          const { createMeetingSpace } = require('./googleMeetService');
-          meetUrl = await createMeetingSpace(therapist_id);
-          await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, session_id]);
-        } catch (e) {
-          console.log('Meet create (non-blocking):', e.message);
-        }
-      }
+      // Log the client's consent to the booking form (same audit trail the
+      // superadmin dashboard's Consent Logs page shows for therapists).
+      try {
+        await recordConsentService({
+          actor_type: 'client',
+          actor_id: userId,
+          therapist_id,
+          email,
+          consent_types: ['booking_consent'],
+          ip_address,
+          user_agent
+        });
+      } catch (e) { console.log('Consent log (non-blocking):', e.message); }
 
-      // Formatted time for emails
+      // Formatted time for notifications
       const formattedTime = formatISTWallClock(starts_at);
 
-      // Email to client
-      try {
-        await NotificationService.sendSessionScheduledEmail({
-          toEmail: email,
-          toName: clientName,
-          therapistName: therapist_name,
-          sessionTime: formattedTime,
-          meetUrl,
-          clinicName: clinic_name,
-          sessionStartISO: starts_at,
-          durationMin: duration_min
-        });
-      } catch (e) { console.log('Client email (non-blocking):', e.message); }
+      // No Meet link and no client confirmation yet — this is a request,
+      // not a confirmed booking. Both happen once the therapist approves.
 
-      // Email to therapist
+      // Email to therapist — new request awaiting approval
       try {
-        await NotificationService.sendBookingNotificationToTherapist({
+        await NotificationService.sendBookingRequestNotificationToTherapist({
           toEmail: therapist_email,
           toName: therapist_name,
           clientName,
@@ -658,7 +677,6 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           sessionTime: formattedTime,
           modality,
           durationMin: duration_min,
-          meetUrl,
           clinicName: clinic_name
         });
       } catch (e) { console.log('Therapist email (non-blocking):', e.message); }
@@ -671,14 +689,13 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           const formatLabel = modality === 'video' ? 'Video' : 'In Person';
           await NotificationService.sendWhatsAppNotification({
             to: phone_e164,
-            templateName: 'booking_new_therapist',
+            templateName: 'booking_request_therapist',
             variables: [
               therapist_name,                             // {{1}} Hi *{{1}}*
               clientName,                                 // {{2}} Client
               `${email}${phone ? ' / ' + phone : ''}`,   // {{3}} Contact
               formattedTime,                              // {{4}} Date & Time
               `${formatLabel} · ${duration_min} min`,    // {{5}} Format
-              meetUrl || 'N/A'                            // {{6}} Session Link
             ],
             meta: { session_id }
           });
@@ -686,7 +703,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       }
 
       return {
-        status: true, code: 200, message: 'Session booked successfully',
+        status: true, code: 200, message: 'Booking request sent',
         data: {
           session_id,
           therapist_name,
@@ -694,7 +711,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           starts_at,
           duration_min,
           modality,
-          meet_url: meetUrl,
+          status: 'pending',
           formatted_time: formattedTime
         }
       };

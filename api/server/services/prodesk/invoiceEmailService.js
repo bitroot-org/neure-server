@@ -233,7 +233,7 @@ const uploadPDFToS3 = async (pdfBuffer, invoiceNumber) => {
 // Route: GET /api/prodesk/i/:invoice_number → redirects to S3 PDF
 
 const getInvoiceShortUrl = (invoiceNumber) => {
-  return `https://neure-api.bitroot.org/api/prodesk/i/${invoiceNumber}`;
+  return `https://api.neure.co.in/api/prodesk/i/${invoiceNumber}`;
 };
 
 // ─── EMAIL (via Brevo) ────────────────────────────────────────────────────────
@@ -313,4 +313,4 @@ const sendCustomInvoice = async ({ invoice, client, therapist }) => {
   return pdfUrl;
 };
 
-module.exports = { sendCustomInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3 };
+module.exports = { sendCustomInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };

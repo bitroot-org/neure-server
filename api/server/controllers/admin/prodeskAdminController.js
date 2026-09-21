@@ -14,6 +14,7 @@ const {
   sendNotificationService, getSentNotificationsService, getNotificationBatchDetailService,
   getMaintenanceModeService, setMaintenanceModeService
 } = require('../../services/admin/prodeskAdminService');
+const { listConsentLogsService } = require('../../services/prodesk/consentService');
 
 const respond = (res, result) => {
   if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
@@ -207,6 +208,14 @@ class ProdeskAdminController {
   static async getSessions(req, res) {
     try {
       return respond(res, await getSessionsAdminService(req.body));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getConsentLogs(req, res) {
+    try {
+      return respond(res, await listConsentLogsService(req.body));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }

@@ -204,6 +204,152 @@ const createSessionService = async (payload) => {
   }
 };
 
+const approveBookingRequestService = async (payload) => {
+  try {
+    console.log('Payload in approveBookingRequestService::>>', payload);
+    const { therapist_id, session_id } = payload;
+
+    const [[session]] = await db.query(
+      `SELECT ps.id, ps.status, ps.starts_at, ps.duration_min, ps.modality, ps.client_id,
+              u.phone, u.email, u.user_id AS client_user_id,
+              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM prodesk_sessions ps
+       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = ps.therapist_id
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE ps.id = ? AND ps.therapist_id = ?`,
+      [session_id, therapist_id]
+    );
+    if (!session) return { status: false, code: 404, message: 'Session not found', data: null };
+    if (session.status !== 'pending') {
+      return { status: false, code: 409, message: 'This request has already been actioned', data: null };
+    }
+
+    await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE id = ?", [session_id]);
+
+    // Only now — on approval — does the meeting get created and the client told.
+    let meetUrl = null;
+    if (session.modality === 'video') {
+      try {
+        meetUrl = await createMeetingSpace(therapist_id);
+        await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, session_id]);
+      } catch (e) {
+        console.log('Meet create (non-blocking):', e.message);
+      }
+    }
+
+    try {
+      const formattedTime = formatISTWallClock(session.starts_at);
+      const notifMeta = { session_id, client_id: session.client_id };
+
+      if (session.client_user_id) {
+        await NotificationService.createNotification({
+          user_id: session.client_user_id,
+          type: 'SESSION_SCHEDULED',
+          title: 'Booking Confirmed',
+          content: `Your session with ${session.therapist_name} is confirmed for ${formattedTime}.`,
+          meta: notifMeta
+        });
+      }
+
+      if (session.email) {
+        await NotificationService.sendSessionScheduledEmail({
+          toEmail: session.email,
+          toName: session.client_name,
+          therapistName: session.therapist_name,
+          sessionTime: formattedTime,
+          meetUrl,
+          clinicName: session.clinic_name,
+          meta: notifMeta,
+          sessionStartISO: session.starts_at,
+          durationMin: session.duration_min
+        });
+      }
+
+      if (session.phone) {
+        const digits = session.phone.replace(/\D/g, '');
+        const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+        await NotificationService.sendWhatsAppNotification({
+          to: phone_e164,
+          templateName: 'session_scheduled',
+          variables: [session.client_name, session.therapist_name, formattedTime, meetUrl || 'N/A'],
+          meta: notifMeta
+        });
+      }
+    } catch (e) {
+      console.log('Approval notification (non-blocking):', e.message);
+    }
+
+    return getSessionByIdService({ therapist_id, session_id });
+  } catch (error) {
+    console.log('Error in approveBookingRequestService::>>', error);
+    return null;
+  }
+};
+
+const declineBookingRequestService = async (payload) => {
+  try {
+    console.log('Payload in declineBookingRequestService::>>', payload);
+    const { therapist_id, session_id, reason } = payload;
+
+    const [[session]] = await db.query(
+      `SELECT ps.id, ps.status, ps.starts_at, ps.client_id,
+              CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
+              tb.brand_name AS clinic_name
+       FROM prodesk_sessions ps
+       JOIN therapists t ON ps.therapist_id = t.id
+       JOIN users tu ON t.user_id = tu.user_id
+       LEFT JOIN therapist_branding tb ON t.id = tb.therapist_id
+       WHERE ps.id = ? AND ps.therapist_id = ?`,
+      [session_id, therapist_id]
+    );
+    if (!session) return { status: false, code: 404, message: 'Session not found', data: null };
+    if (session.status !== 'pending') {
+      return { status: false, code: 409, message: 'This request has already been actioned', data: null };
+    }
+
+    await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE id = ?", [session_id]);
+
+    try {
+      const [[clientRow]] = await db.query(
+        `SELECT u.email, u.first_name, u.user_id
+         FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
+         WHERE pc.id = ?`, [session.client_id]
+      );
+      if (clientRow) {
+        const sessionTime = formatISTWallClock(session.starts_at);
+        await NotificationService.sendEmail({
+          toEmail: clientRow.email,
+          toName: clientRow.first_name,
+          template: 'prodesk_session_cancelled',
+          data: {
+            client_name: clientRow.first_name,
+            therapist_name: session.therapist_name,
+            session_time: sessionTime,
+            reason: reason || `${session.therapist_name} is unable to confirm this booking request. Please choose another time.`,
+            clinic_name: session.clinic_name || 'ProDesk'
+          }
+        });
+        await NotificationService.createNotification({
+          title: 'Booking Request Declined',
+          content: reason || `Your requested session with ${session.therapist_name} could not be confirmed.`,
+          type: 'SESSION_CANCELLED',
+          user_id: clientRow.user_id
+        });
+      }
+    } catch (_) {}
+
+    return getSessionByIdService({ therapist_id, session_id });
+  } catch (error) {
+    console.log('Error in declineBookingRequestService::>>', error);
+    return null;
+  }
+};
+
 const getSessionsService = async (payload) => {
   try {
     console.log('Payload in getSessionsService::>>', payload);
@@ -633,14 +779,30 @@ const getSlotsService = async ({ therapist_id, date, session_duration }) => {
       return { status: false, code: 400, message: 'therapist_id, date and session_duration are required', data: null };
     }
 
+    // Therapist-facing slot lookup (scheduling/rescheduling their own
+    // sessions) — allows any custom duration in 5-minute steps, e.g. 105
+    // (1hr45) or 150. The public client-booking path (getBookingSlotsService)
+    // keeps its fixed preset list separately.
     const duration = parseInt(session_duration);
-    if (![30, 45, 60, 90, 120].includes(duration)) {
-      return { status: false, code: 400, message: 'session_duration must be 30, 45, 60, 90 or 120 minutes', data: null };
+    if (!Number.isInteger(duration) || duration < 15 || duration > 240 || duration % 5 !== 0) {
+      return { status: false, code: 400, message: 'session_duration must be a multiple of 5 between 15 and 240 minutes', data: null };
     }
 
     const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const dateObj = new Date(date + 'T00:00:00');
     const dayName = DAY_NAMES[dateObj.getDay()];
+
+    // Therapist has marked this specific date unavailable (e.g. travel/OOO)
+    const [[blockedDate]] = await db.query(
+      'SELECT id FROM therapist_availability_exceptions WHERE therapist_id = ? AND date = ?',
+      [therapist_id, date]
+    );
+    if (blockedDate) {
+      return {
+        status: true, code: 200, message: 'Therapist unavailable on this day',
+        data: { date, day: dayName, is_working_day: false, available_slots: [], available_count: 0 }
+      };
+    }
 
     // Get blocks for this day
     const [[settings]] = await db.query(
@@ -661,21 +823,24 @@ const getSlotsService = async ({ therapist_id, date, session_duration }) => {
       };
     }
 
-    // Generate all possible slots across all blocks for the day
+    // Generate all possible slots across all blocks for the day.
+    // Overlapping/duplicate availability blocks can yield the same `mins`
+    // more than once, so dedupe by `mins` before sorting.
     const step = duration + buffer;
-    const allSlots = [];
+    const slotsByMins = new Map();
     for (const block of dayBlocks) {
       const [fromH, fromM] = block.from_time.slice(0, 5).split(':').map(Number);
       const [toH, toM]     = block.to_time.slice(0, 5).split(':').map(Number);
       const fromMins = fromH * 60 + fromM;
       const toMins   = toH * 60 + toM;
       for (let mins = fromMins; mins + duration <= toMins; mins += step) {
+        if (slotsByMins.has(mins)) continue;
         const h = Math.floor(mins / 60).toString().padStart(2, '0');
         const m = (mins % 60).toString().padStart(2, '0');
-        allSlots.push({ time: `${h}:${m}`, mins });
+        slotsByMins.set(mins, { time: `${h}:${m}`, mins });
       }
     }
-    allSlots.sort((a, b) => a.mins - b.mins);
+    const allSlots = [...slotsByMins.values()].sort((a, b) => a.mins - b.mins);
 
     // Get booked sessions for this therapist on this date
     const [booked] = await db.query(
@@ -772,5 +937,7 @@ module.exports = {
   getMeetingRoomService,
   sendSessionReminderService,
   getSlotsService,
-  deleteSessionService
+  deleteSessionService,
+  approveBookingRequestService,
+  declineBookingRequestService
 };

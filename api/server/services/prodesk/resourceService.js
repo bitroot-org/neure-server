@@ -1,4 +1,14 @@
 const db = require('../../../config/db');
+const axios = require('axios');
+const { getBrevoApiKey } = require('./invoiceEmailService');
+const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+
+const BREVO_SENDER = { name: 'Prodesk', email: 'prodesk@neure.co.in' };
+
+// MSG91-approved WhatsApp template for resource sharing.
+// Body: "Hi {{1}}, {{2}} has shared a resource with you: {{3}}. Open it here: {{4}} Thanks,"
+// Variables, in order: [client_first_name, therapist_brand_name, resource_title, resource_link]
+const RESOURCE_WHATSAPP_TEMPLATE = 'prodesk_resource_share';
 
 const getResourcesService = async (payload) => {
   try {
@@ -177,11 +187,185 @@ const saveResourceToLibraryService = async (payload) => {
   }
 };
 
+// ─── SEND TO CLIENT (email / WhatsApp) ─────────────────────────────────────────
+
+const fetchClientForSend = async (clientId) => {
+  const [rows] = await db.query(
+    `SELECT u.user_id, u.first_name, u.last_name, u.email, u.phone
+     FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
+    [clientId]
+  );
+  return rows && rows.length ? rows[0] : null;
+};
+
+const fetchTherapistBrand = async (therapistId) => {
+  const [rows] = await db.query(
+    `SELECT u.email, COALESCE(tb.brand_name, 'PRODESK') AS brand_name
+     FROM therapists t
+     JOIN users u ON u.user_id = t.user_id
+     LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+     WHERE t.id = ?`,
+    [therapistId]
+  );
+  return rows && rows.length ? rows[0] : { brand_name: 'PRODESK', email: 'support@neure.co.in' };
+};
+
+const sendResourceEmail = async ({ resource, client, therapist }) => {
+  const clinicName   = therapist.brand_name || 'Prodesk';
+  const supportEmail = therapist.email || 'support@neure.co.in';
+
+  const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+</head>
+<body style="margin:0;padding:20px 0;background:#f4f4f4;font-family:Arial,sans-serif;">
+<div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #ddd;border-radius:10px;overflow:hidden;">
+
+  <!-- HEADER -->
+  <div style="background:#1a1a2e;padding:24px 28px;text-align:center;">
+    <div style="font-size:18px;font-weight:700;color:#ffffff;letter-spacing:1px;">${clinicName}</div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#9898b8;text-transform:uppercase;margin-top:6px;">RESOURCE SHARED</div>
+  </div>
+
+  <!-- BODY -->
+  <div style="padding:28px;">
+    <p style="font-size:14px;color:#222;margin:0 0 12px;">Hi ${client.first_name},</p>
+    <p style="font-size:14px;color:#222;margin:0 0 20px;">${clinicName} has shared a resource with you:</p>
+
+    <div style="border:1px solid #d0d0d0;border-radius:8px;padding:16px;margin-bottom:24px;">
+      <div style="font-size:15px;font-weight:700;color:#1a1a2e;">${resource.title}</div>
+      <div style="font-size:12px;color:#666;margin-top:4px;">${resource.type}${resource.category ? ' · ' + resource.category : ''}</div>
+    </div>
+
+    <div style="text-align:center;margin:24px 0 8px;">
+      <a href="${resource.file_url}"
+         style="display:inline-block;padding:13px 32px;background:#1a1a2e;
+                color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">
+        &#128196; Open Resource
+      </a>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="background:#1a1a2e;padding:16px 28px;text-align:center;">
+    <div style="font-size:12px;color:#9898b8;">
+      ${clinicName} &nbsp;·&nbsp;
+      <a href="mailto:${supportEmail}" style="color:#7c9cbf;text-decoration:none;">${supportEmail}</a>
+    </div>
+    <div style="font-size:10px;color:#555;margin-top:6px;">
+      This is a computer-generated email and does not require a signature.
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+  try {
+    const response = await axios.post(
+      'https://api.brevo.com/v3/smtp/email',
+      {
+        sender: BREVO_SENDER,
+        to: [{ email: client.email, name: `${client.first_name} ${client.last_name}` }],
+        subject: `${clinicName} shared a resource with you: ${resource.title}`,
+        htmlContent
+      },
+      { headers: { 'api-key': await getBrevoApiKey(), 'Content-Type': 'application/json' } }
+    );
+    console.log('Resource email sent via Brevo to', client.email, '| status:', response.status);
+  } catch (err) {
+    console.error('Brevo resource email error:', err.response?.data || err.message);
+    throw new Error(err.response?.data?.message || err.message);
+  }
+};
+
+const sendResourceWhatsApp = async ({ resource, client, therapist }) => {
+  const rawPhone = (client.phone || '').replace(/\D/g, '');
+  if (!rawPhone) throw new Error('Client has no phone number on file');
+  const to = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
+
+  await NotificationService.sendWhatsAppNotification({
+    to,
+    templateName: RESOURCE_WHATSAPP_TEMPLATE,
+    variables: [client.first_name, therapist.brand_name, resource.title, resource.file_url],
+    meta: { resource_id: resource.id }
+  });
+};
+
+const sendResourceService = async (payload) => {
+  try {
+    console.log('Payload in sendResourceService::>>', payload);
+    const { therapist_id, resource_id, client_id, channels } = payload;
+
+    if (!resource_id || !client_id || !Array.isArray(channels) || !channels.length) {
+      return { status: false, code: 400, message: 'resource_id, client_id and channels are required', data: null };
+    }
+
+    const [rows] = await db.query(
+      `SELECT * FROM prodesk_resources WHERE id = ? AND (therapist_id = ? OR scope = 'catalogue') AND is_deleted = 0`,
+      [resource_id, therapist_id]
+    );
+    const resource = rows && rows.length ? rows[0] : null;
+    if (!resource) return { status: false, code: 404, message: 'Resource not found', data: null };
+    if (!resource.file_url) return { status: false, code: 409, message: 'Resource has no file to share', data: null };
+
+    const client = await fetchClientForSend(client_id);
+    if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    const therapist = await fetchTherapistBrand(therapist_id);
+
+    const sent = []; const failed = [];
+
+    if (channels.includes('email')) {
+      if (!client.email) {
+        failed.push({ channel: 'email', reason: 'Client has no email on file' });
+      } else {
+        try {
+          await sendResourceEmail({ resource, client, therapist });
+          sent.push('email');
+        } catch (e) {
+          failed.push({ channel: 'email', reason: e.message });
+        }
+      }
+    }
+
+    if (channels.includes('whatsapp')) {
+      try {
+        await sendResourceWhatsApp({ resource, client, therapist });
+        sent.push('whatsapp');
+      } catch (e) {
+        failed.push({ channel: 'whatsapp', reason: e.message });
+      }
+    }
+
+    if (!sent.length) {
+      return {
+        status: false, code: 502,
+        message: failed.map((f) => `${f.channel}: ${f.reason}`).join('; ') || 'Send failed',
+        data: { sent, failed }
+      };
+    }
+
+    return {
+      status: true, code: 200,
+      message: `Resource sent via ${sent.join(' & ')}`,
+      data: { sent, failed }
+    };
+  } catch (error) {
+    console.log('Error in sendResourceService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
   getResourcesService,
   getResourceCategoriesService,
   uploadResourceService,
   updateResourceService,
   deleteResourceService,
-  saveResourceToLibraryService
+  saveResourceToLibraryService,
+  sendResourceService,
+  sendResourceEmail
 };

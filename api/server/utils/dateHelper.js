@@ -53,10 +53,17 @@ function formatISTWallClock(naiveDateStr) {
   const [y, m, d] = datePart.split('-').map(Number);
   const [h, mi, s] = timePart.split(':').map(Number);
   const wallClock = new Date(Date.UTC(y, (m || 1) - 1, d || 1, h || 0, mi || 0, s || 0));
+  // dateStyle/timeStyle can't be combined with weekday in Intl.DateTimeFormat,
+  // so the equivalent components are spelled out explicitly.
   return new Intl.DateTimeFormat('en-IN', {
     timeZone: 'UTC',
-    dateStyle: 'medium',
-    timeStyle: 'short'
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
   }).format(wallClock);
 }
 

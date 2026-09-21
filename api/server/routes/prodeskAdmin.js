@@ -52,6 +52,9 @@ router.post('/process-payout',          authorization, Ctrl.processPayout);
 // ── SESSION DETAILS ───────────────────────────────────────────
 router.post('/get-sessions',            authorization, Ctrl.getSessions);
 
+// ── CONSENT LOGS ───────────────────────────────────────────────
+router.post('/get-consent-logs',        authorization, Ctrl.getConsentLogs);
+
 // ── SUBSCRIPTIONS ─────────────────────────────────────────────
 router.post('/get-subscriptions',       authorization, Ctrl.getSubscriptions);
 router.post('/get-subscription-detail', authorization, Ctrl.getSubscriptionDetail);

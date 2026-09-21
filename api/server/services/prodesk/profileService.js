@@ -198,6 +198,71 @@ const updateAvailabilityService = async (payload) => {
   }
 };
 
+// ─── BLOCKED DATES (full-day unavailability, e.g. travel/OOO) ───────────────
+
+const getBlockedDatesService = async (payload) => {
+  try {
+    const { therapist_id } = payload;
+
+    const [rows] = await db.query(
+      `SELECT id, date, reason FROM therapist_availability_exceptions
+       WHERE therapist_id = ? AND date >= CURDATE()
+       ORDER BY date`,
+      [therapist_id]
+    );
+
+    return { status: true, code: 200, message: 'Blocked dates fetched', data: rows || [] };
+  } catch (error) {
+    console.log('Error in getBlockedDatesService::>>', error);
+    return null;
+  }
+};
+
+const addBlockedDateService = async (payload) => {
+  try {
+    const { therapist_id, date, reason = null } = payload;
+
+    if (!date) {
+      return { status: false, code: 400, message: 'date is required', data: null };
+    }
+    if (date < new Date().toISOString().slice(0, 10)) {
+      return { status: false, code: 400, message: 'Cannot block a date in the past', data: null };
+    }
+
+    await db.query(
+      `INSERT INTO therapist_availability_exceptions (therapist_id, date, reason)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
+      [therapist_id, date, reason]
+    );
+
+    return getBlockedDatesService({ therapist_id });
+  } catch (error) {
+    console.log('Error in addBlockedDateService::>>', error);
+    return null;
+  }
+};
+
+const removeBlockedDateService = async (payload) => {
+  try {
+    const { therapist_id, id } = payload;
+
+    if (!id) {
+      return { status: false, code: 400, message: 'id is required', data: null };
+    }
+
+    await db.query(
+      'DELETE FROM therapist_availability_exceptions WHERE id = ? AND therapist_id = ?',
+      [id, therapist_id]
+    );
+
+    return getBlockedDatesService({ therapist_id });
+  } catch (error) {
+    console.log('Error in removeBlockedDateService::>>', error);
+    return null;
+  }
+};
+
 const VALID_ACCENTS          = ['sage','slate','plum','bronze','clay'];
 const VALID_GRADIENTS        = ['mist','linen','tide','dusk','mono'];
 const VALID_WALLPAPERS       = ['misty_peaks','warm_dusk','ocean_calm','forest_fog'];
@@ -415,10 +480,22 @@ const getBookingLinkService = async (payload) => {
   }
 };
 
+const REQUIRED_CONSENT_TYPES = ['terms_and_conditions', 'payment_integration', 'google_meet_integration', 'compliance'];
+
 const completeOnboardingService = async ({ therapist_id }) => {
   try {
+    const [consented] = await db.query(
+      `SELECT DISTINCT consent_type FROM consent_logs WHERE therapist_id = ? AND actor_type = 'therapist'`,
+      [therapist_id]
+    );
+    const consentedTypes = new Set((consented || []).map((r) => r.consent_type));
+    const missing = REQUIRED_CONSENT_TYPES.filter((t) => !consentedTypes.has(t));
+    if (missing.length) {
+      return { status: false, code: 400, message: `Consent required before completing onboarding: ${missing.join(', ')}`, data: null };
+    }
+
     await db.query(
-      'UPDATE therapists SET onboarding_completed = 1, onboarding_step = 6 WHERE id = ?',
+      'UPDATE therapists SET onboarding_completed = 1, onboarding_step = 7 WHERE id = ?',
       [therapist_id]
     );
     return { status: true, code: 200, message: 'Onboarding marked complete', data: null };
@@ -431,8 +508,8 @@ const completeOnboardingService = async ({ therapist_id }) => {
 const updateOnboardingStepService = async ({ therapist_id, step }) => {
   try {
     const stepNum = parseInt(step);
-    if (isNaN(stepNum) || stepNum < 0 || stepNum > 6) {
-      return { status: false, code: 400, message: 'step must be between 0 and 6', data: null };
+    if (isNaN(stepNum) || stepNum < 0 || stepNum > 7) {
+      return { status: false, code: 400, message: 'step must be between 0 and 7', data: null };
     }
     await db.query(
       'UPDATE therapists SET onboarding_step = ? WHERE id = ?',
@@ -450,6 +527,9 @@ module.exports = {
   updateProfileService,
   getAvailabilityService,
   updateAvailabilityService,
+  getBlockedDatesService,
+  addBlockedDateService,
+  removeBlockedDateService,
   getBrandingService,
   updateBrandingService,
   uploadLogoService,
