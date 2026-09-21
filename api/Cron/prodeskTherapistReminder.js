@@ -23,7 +23,7 @@ const sendTherapistSessionReminders = async () => {
        LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
        WHERE ps.status = 'scheduled'
          AND ps.therapist_reminder_sent_at IS NULL
-         AND TIMESTAMPDIFF(MINUTE, NOW(), ps.starts_at) BETWEEN 14 AND 15`,
+         AND TIMESTAMPDIFF(MINUTE, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE), ps.starts_at) BETWEEN 14 AND 15`,
       []
     );
 

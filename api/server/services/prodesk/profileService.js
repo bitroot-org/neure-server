@@ -480,10 +480,22 @@ const getBookingLinkService = async (payload) => {
   }
 };
 
+const REQUIRED_CONSENT_TYPES = ['terms_and_conditions', 'payment_integration', 'google_meet_integration', 'compliance'];
+
 const completeOnboardingService = async ({ therapist_id }) => {
   try {
+    const [consented] = await db.query(
+      `SELECT DISTINCT consent_type FROM consent_logs WHERE therapist_id = ? AND actor_type = 'therapist'`,
+      [therapist_id]
+    );
+    const consentedTypes = new Set((consented || []).map((r) => r.consent_type));
+    const missing = REQUIRED_CONSENT_TYPES.filter((t) => !consentedTypes.has(t));
+    if (missing.length) {
+      return { status: false, code: 400, message: `Consent required before completing onboarding: ${missing.join(', ')}`, data: null };
+    }
+
     await db.query(
-      'UPDATE therapists SET onboarding_completed = 1, onboarding_step = 6 WHERE id = ?',
+      'UPDATE therapists SET onboarding_completed = 1, onboarding_step = 7 WHERE id = ?',
       [therapist_id]
     );
     return { status: true, code: 200, message: 'Onboarding marked complete', data: null };
@@ -496,8 +508,8 @@ const completeOnboardingService = async ({ therapist_id }) => {
 const updateOnboardingStepService = async ({ therapist_id, step }) => {
   try {
     const stepNum = parseInt(step);
-    if (isNaN(stepNum) || stepNum < 0 || stepNum > 6) {
-      return { status: false, code: 400, message: 'step must be between 0 and 6', data: null };
+    if (isNaN(stepNum) || stepNum < 0 || stepNum > 7) {
+      return { status: false, code: 400, message: 'step must be between 0 and 7', data: null };
     }
     await db.query(
       'UPDATE therapists SET onboarding_step = ? WHERE id = ?',

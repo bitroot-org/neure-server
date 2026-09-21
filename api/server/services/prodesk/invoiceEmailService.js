@@ -313,4 +313,4 @@ const sendCustomInvoice = async ({ invoice, client, therapist }) => {
   return pdfUrl;
 };
 
-module.exports = { sendCustomInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3 };
+module.exports = { sendCustomInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };

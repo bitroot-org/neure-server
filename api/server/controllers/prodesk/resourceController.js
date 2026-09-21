@@ -4,7 +4,8 @@ const {
   uploadResourceService,
   updateResourceService,
   deleteResourceService,
-  saveResourceToLibraryService
+  saveResourceToLibraryService,
+  sendResourceService
 } = require('../../services/prodesk/resourceService');
 const { uploadGalleryFile } = require('../upload/UploadController');
 const { convertDatesToIST } = require('../../utils/dateHelper');
@@ -77,6 +78,19 @@ class ProdeskResourceController {
       const { resource_id } = req.body;
       if (!resource_id) return res.status(400).json({ status: false, code: 400, message: 'resource_id required', data: null });
       const result = await saveResourceToLibraryService({ therapist_id: req.user.therapist_id, resource_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async sendResource(req, res) {
+    try {
+      const { resource_id, client_id, channels } = req.body;
+      if (!resource_id || !client_id || !channels) {
+        return res.status(400).json({ status: false, code: 400, message: 'resource_id, client_id and channels are required', data: null });
+      }
+      const result = await sendResourceService({ therapist_id: req.user.therapist_id, resource_id, client_id, channels });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

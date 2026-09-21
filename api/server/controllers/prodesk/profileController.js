@@ -17,6 +17,7 @@ const {
   completeOnboardingService,
   updateOnboardingStepService
 } = require('../../services/prodesk/profileService');
+const { recordConsentService } = require('../../services/prodesk/consentService');
 const { uploadImage } = require('../upload/UploadController');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -196,6 +197,26 @@ class ProdeskProfileController {
       const { step } = req.body;
       if (step === undefined) return res.status(400).json({ status: false, code: 400, message: 'step is required', data: null });
       const result = await updateOnboardingStepService({ therapist_id: req.user.therapist_id, step });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async recordConsent(req, res) {
+    try {
+      const { consent_types, consent_version } = req.body;
+      if (!consent_types) return res.status(400).json({ status: false, code: 400, message: 'consent_types is required', data: null });
+      const result = await recordConsentService({
+        actor_type: 'therapist',
+        actor_id: req.user.user_id,
+        therapist_id: req.user.therapist_id,
+        email: req.user.email,
+        consent_types,
+        consent_version,
+        ip_address: req.ip,
+        user_agent: req.headers['user-agent']
+      });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

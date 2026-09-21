@@ -40,7 +40,7 @@ const createClientService = async (payload) => {
   try {
     console.log('Payload in createClientService::>>', payload);
     const { therapist_id, name, email, phone, age, gender, city, emergency_contact,
-            start_date, presenting_concerns, issues, default_fee } = payload;
+            start_date, presenting_concerns, treatment_given, issues, default_fee } = payload;
 
     if (!name) {
       return { status: false, code: 400, message: 'name is required', data: null };
@@ -120,13 +120,14 @@ const createClientService = async (payload) => {
       const [clientResult] = await conn.query(
         `INSERT INTO prodesk_clients
          (user_id, therapist_id, age, gender, city, emergency_contact, start_date,
-          presenting_concerns, issues, default_fee, avatar_color)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          presenting_concerns, treatment_given, issues, default_fee, avatar_color)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           finalUserId, therapist_id, age || null, gender || null,
           city || null, emergency_contact || null,
           start_date || new Date().toISOString().slice(0, 10),
           presenting_concerns || null,
+          treatment_given || null,
           issues ? JSON.stringify(issues) : null,
           default_fee || 0, color
         ]
@@ -220,6 +221,7 @@ const updateClientService = async (payload) => {
       age: data.age, gender: data.gender, city: data.city,
       emergency_contact: data.emergency_contact, start_date: data.start_date,
       presenting_concerns: data.presenting_concerns,
+      treatment_given: data.treatment_given,
       issues: data.issues ? JSON.stringify(data.issues) : undefined,
       default_fee: data.default_fee, status: data.status
     };

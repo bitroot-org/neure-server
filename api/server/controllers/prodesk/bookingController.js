@@ -103,11 +103,15 @@ class ProdeskBookingController {
 
   static async createBookingSession(req, res) {
     try {
-      const { slug, date, time, duration_min, modality, email, name, phone, concern } = req.body;
+      const { slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted } = req.body;
       if (!slug || !date || !time || !modality || !email) {
         return res.status(400).json({ status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null });
       }
-      const result = await createBookingSessionService({ slug, date, time, duration_min, modality, email, name, phone, concern });
+      const result = await createBookingSessionService({
+        slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted,
+        ip_address: req.ip,
+        user_agent: req.headers['user-agent']
+      });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

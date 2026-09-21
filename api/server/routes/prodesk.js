@@ -93,6 +93,7 @@ router.post('/deleteDocument',      authorization, ProfileCtrl.deleteDocument);
 router.post('/getBookingLink',        authorization, ProfileCtrl.getBookingLink);
 router.post('/completeOnboarding',    authorization, ProfileCtrl.completeOnboarding);
 router.post('/updateOnboardingStep',  authorization, ProfileCtrl.updateOnboardingStep);
+router.post('/recordConsent',         authorization, ProfileCtrl.recordConsent);
 
 // ──────────────────────────────────────────────────────────────
 // CLIENTS
@@ -116,6 +117,8 @@ router.post('/cancelSession',       authorization, SessionCtrl.cancelSession);
 router.post('/getSlots',            authorization, SessionCtrl.getSlots);
 router.post('/deleteSession',       authorization, SessionCtrl.deleteSession);
 router.post('/completeSession',     authorization, SessionCtrl.completeSession);
+router.post('/approveBookingRequest', authorization, SessionCtrl.approveBookingRequest);
+router.post('/declineBookingRequest', authorization, SessionCtrl.declineBookingRequest);
 router.post('/getCalendarSessions', authorization, SessionCtrl.getCalendarSessions);
 router.post('/getTodaySessions',    authorization, SessionCtrl.getTodaySessions);
 router.post('/getMeetingRoom',      authorization, SessionCtrl.getMeetingRoom);
@@ -159,6 +162,7 @@ router.post('/uploadResource',           authorization, resourceUpload.single('f
 router.post('/updateResource',           authorization, ResourceCtrl.updateResource);
 router.post('/deleteResource',           authorization, ResourceCtrl.deleteResource);
 router.post('/saveResourceToLibrary',    authorization, ResourceCtrl.saveResourceToLibrary);
+router.post('/sendResource',             authorization, ResourceCtrl.sendResource);
 
 // ──────────────────────────────────────────────────────────────
 // PUBLIC BOOKING (no auth)
