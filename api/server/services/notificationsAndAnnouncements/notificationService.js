@@ -98,16 +98,28 @@ class NotificationService {
   // Gmail shows "Add to Calendar", iPhone Mail shows "Add to Calendar" banner.
   static generateICS({ summary, description, startISO, durationMin, location = '' }) {
     const pad  = (n) => String(n).padStart(2, '0');
-    const toICSDate = (iso) => {
-      const d = new Date(iso);
-      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
-             `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    const formatUTC = (d) =>
+      `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
+      `T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    // startISO (like prodesk_sessions.starts_at) is a naive IST wall-clock
+    // string, not UTC — new Date(startISO) would parse it using the server
+    // process's own timezone, silently producing the wrong instant whenever
+    // that isn't IST (e.g. a server configured for UTC). Parse it explicitly
+    // and shift by IST's fixed +5:30 offset instead, same convention as
+    // formatISTWallClock in dateHelper.js.
+    const parseISTWallClock = (isoLike) => {
+      const [datePart, timePart = '00:00:00'] = String(isoLike).replace(' ', 'T').split('T');
+      const [y, m, d] = datePart.split('-').map(Number);
+      const [h, mi, s] = timePart.split(':').map(Number);
+      const utcMs = Date.UTC(y, (m || 1) - 1, d || 1, h || 0, mi || 0, s || 0) - (5 * 60 + 30) * 60000;
+      return new Date(utcMs);
     };
-    const start = toICSDate(startISO);
-    const endDate = new Date(new Date(startISO).getTime() + durationMin * 60000);
-    const end = toICSDate(endDate.toISOString());
+    const startDate = parseISTWallClock(startISO);
+    const start = formatUTC(startDate);
+    const endDate = new Date(startDate.getTime() + durationMin * 60000);
+    const end = formatUTC(endDate);
     const uid = `session-${Date.now()}@neure.co.in`;
-    const now = toICSDate(new Date().toISOString());
+    const now = formatUTC(new Date());
 
     return [
       'BEGIN:VCALENDAR',
@@ -423,7 +435,7 @@ class NotificationService {
         {
           sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
           to: [{ email: toEmail, name: toName }],
-          subject: `Reminder: Your session with ${therapistName} is tomorrow`,
+          subject: `Reminder: Your session with ${therapistName} on ${sessionTime}`,
           htmlContent
         },
         { headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" } }

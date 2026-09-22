@@ -517,6 +517,19 @@ const rescheduleSessionService = async (payload) => {
           type: 'SESSION_RESCHEDULED',
           user_id: clientRow.user_id
         });
+        if (clientRow.phone) {
+          const digits = clientRow.phone.replace(/\D/g, '');
+          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+          // Reuses the already-approved "session_scheduled" WhatsApp template
+          // (client name, therapist, time, meet link) rather than requiring
+          // a new template to be registered/approved in MSG91.
+          await NotificationService.sendWhatsAppNotification({
+            to: phone_e164,
+            templateName: 'session_scheduled',
+            variables: [clientRow.first_name, session.therapist_name, sessionTime, meetUrl || 'N/A'],
+            meta: { session_id, client_id: session.client_id }
+          });
+        }
       }
     } catch (_) {}
 
@@ -758,9 +771,12 @@ const sendSessionReminderService = async (payload) => {
     if (s.phone) {
       const digits = s.phone.replace(/\D/g, '');
       const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      // 'session_reminder' is not an actually-registered MSG91 template (confirmed
+      // via the template dashboard — it silently never delivers), so this reuses
+      // the real, approved 'session_scheduled' template instead.
       sent.whatsapp = await NotificationService.sendWhatsAppNotification({
         to: phone_e164,
-        templateName: 'session_reminder',
+        templateName: 'session_scheduled',
         variables: [s.client_name, s.therapist_name, formattedTime, s.meet_url || 'N/A'],
         meta: { session_id, type: 'reminder' }
       });

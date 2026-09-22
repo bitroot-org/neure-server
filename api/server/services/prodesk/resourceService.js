@@ -2,6 +2,7 @@ const db = require('../../../config/db');
 const axios = require('axios');
 const { getBrevoApiKey } = require('./invoiceEmailService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
+const { createShortLinkService } = require('../shortLinkService');
 
 const BREVO_SENDER = { name: 'Prodesk', email: 'prodesk@neure.co.in' };
 
@@ -281,15 +282,21 @@ const sendResourceEmail = async ({ resource, client, therapist }) => {
   }
 };
 
-const sendResourceWhatsApp = async ({ resource, client, therapist }) => {
+const sendResourceWhatsApp = async ({ resource, client, therapist, therapist_id }) => {
   const rawPhone = (client.phone || '').replace(/\D/g, '');
   if (!rawPhone) throw new Error('Client has no phone number on file');
   const to = rawPhone.startsWith('91') ? rawPhone : `91${rawPhone}`;
 
+  // WhatsApp renders template links as raw plain text, so the long signed S3
+  // URL shows up huge and ugly — shorten it. Falls back to the real URL if
+  // shortening fails for any reason, rather than silently dropping the link.
+  const shortUrl = await createShortLinkService({ target_url: resource.file_url, therapist_id });
+  const resourceLink = shortUrl || resource.file_url;
+
   await NotificationService.sendWhatsAppNotification({
     to,
     templateName: RESOURCE_WHATSAPP_TEMPLATE,
-    variables: [client.first_name, therapist.brand_name, resource.title, resource.file_url],
+    variables: [client.first_name, therapist.brand_name, resource.title, resourceLink],
     meta: { resource_id: resource.id }
   });
 };
@@ -333,7 +340,7 @@ const sendResourceService = async (payload) => {
 
     if (channels.includes('whatsapp')) {
       try {
-        await sendResourceWhatsApp({ resource, client, therapist });
+        await sendResourceWhatsApp({ resource, client, therapist, therapist_id });
         sent.push('whatsapp');
       } catch (e) {
         failed.push({ channel: 'whatsapp', reason: e.message });
