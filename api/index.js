@@ -20,6 +20,7 @@ const resourceTrackingRoutes = require('./server/routes/tracking/resourceTrackin
 const qnaRoutes = require("./server/routes/qna/qnaRoutes");
 const activityLogRoutes = require('./server/routes/logs/ActivityLogRoutes');
 const prodeskRoutes = require('./server/routes/prodesk');
+const { resolveShortLinkService } = require('./server/services/shortLinkService');
 const prodeskAdminRoutes = require('./server/routes/prodeskAdmin');
 const serverActive = require("./Cron/serverActive");
 
@@ -67,6 +68,13 @@ app.use('/api/tracking', resourceTrackingRoutes);
 app.use("/api/qna", qnaRoutes);
 app.use('/api/logs', activityLogRoutes);
 app.use('/api/prodesk', prodeskRoutes);
+
+// Short-link redirect — top-level (not under /api) so shared URLs stay short.
+app.get('/r/:code', async (req, res) => {
+  const targetUrl = await resolveShortLinkService(req.params.code);
+  if (!targetUrl) return res.status(404).send('Link not found or expired.');
+  return res.redirect(302, targetUrl);
+});
 app.use('/api/prodesk-admin', prodeskAdminRoutes);
 
 // Start server

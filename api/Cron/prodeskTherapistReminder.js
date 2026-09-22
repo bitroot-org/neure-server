@@ -47,11 +47,14 @@ const sendTherapistSessionReminders = async () => {
       if (s.therapist_phone) {
         const digits = s.therapist_phone.replace(/\D/g, '');
         const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-        // NOTE: "therapist_session_reminder" must be registered and approved
-        // as a WhatsApp template in MSG91 before this will actually deliver.
+        // 'therapist_session_reminder' is not an actually-registered MSG91
+        // template (confirmed via the template dashboard — it silently never
+        // delivers), so this reuses the real, approved 'session_scheduled'
+        // template instead. Recipient's own name goes first (body_1), same
+        // convention as the client-facing sends.
         await NotificationService.sendWhatsAppNotification({
           to: phone_e164,
-          templateName: 'therapist_session_reminder',
+          templateName: 'session_scheduled',
           variables: [s.therapist_name, s.client_name, sessionTime, s.meet_url || 'N/A'],
           meta: { session_id: s.id, type: 'therapist_reminder' }
         });
