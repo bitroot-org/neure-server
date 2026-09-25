@@ -270,7 +270,9 @@ const initProdeskSubscriptionJobs = () => {
   cron.schedule('0 2 * * *',  expireHaltedSubscriptions);           // 2:00 AM daily
   cron.schedule('5 2 * * *',  safetyNetCancelExpiredSubscriptions); // 2:05 AM daily
   cron.schedule('10 2 * * *', executePendingDowngrades);            // 2:10 AM daily
-  cron.schedule('30 3 * * *', sendRenewalReminders);                // 9:00 AM IST (3:30 UTC)
+  // Renewal reminder emails (T-7/T-3/T-1) disabled per request — kept the
+  // function itself intact below in case they're needed again later.
+  // cron.schedule('30 3 * * *', sendRenewalReminders);              // 9:00 AM IST (3:30 UTC)
   cron.schedule('30 4 * * *', sendGracePeriodReminders);            // 10:00 AM IST (4:30 UTC)
 };
 
