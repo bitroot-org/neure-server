@@ -276,7 +276,7 @@ const getBrandingService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT brand_name, theme, accent, background_type, background_preset,
-              wallpaper_id, wallpaper_url, logo_url, invoice_prefix
+              wallpaper_id, wallpaper_url, logo_url, invoice_prefix, clinic_address
        FROM therapist_branding WHERE therapist_id = ?`,
       [therapist_id]
     );
@@ -292,7 +292,7 @@ const updateBrandingService = async (payload) => {
   try {
     console.log('Payload in updateBrandingService::>>', payload);
     const { therapist_id, brand_name, theme, accent, background_type,
-            background_preset, wallpaper_id, wallpaper_url, logo_url, invoice_prefix } = payload;
+            background_preset, wallpaper_id, wallpaper_url, logo_url, invoice_prefix, clinic_address } = payload;
 
     // Validations
     if (theme && !VALID_THEMES.includes(theme))
@@ -328,6 +328,7 @@ const updateBrandingService = async (payload) => {
     if (background_type !== undefined) addField('wallpaper_url',     finalWallpaperUrl);
     if (logo_url        !== undefined) addField('logo_url',          logo_url);
     if (invoice_prefix  !== undefined) addField('invoice_prefix',    invoice_prefix);
+    if (clinic_address  !== undefined) addField('clinic_address',    clinic_address ? String(clinic_address).slice(0, 500) : null);
 
     if (!setClause.length)
       return { status: false, code: 400, message: 'No fields to update', data: null };

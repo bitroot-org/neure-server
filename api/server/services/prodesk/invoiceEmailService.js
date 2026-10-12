@@ -4,7 +4,15 @@ const { s3Client } = require('../../../config/s3Client');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
-const LOGO_URL = 'https://neure-staging.s3.ap-south-1.amazonaws.com/prodesk/assets/neure-white-strip-logo.png';
+const fs = require('fs');
+const path = require('path');
+let NEURE_LOGO_DATA_URI = '';
+try {
+  NEURE_LOGO_DATA_URI = 'data:image/png;base64,' +
+    fs.readFileSync(path.join(__dirname, '../../../templates/assets/neure-white-strip-logo.png')).toString('base64');
+} catch (e) {
+  console.log('Neure invoice logo not loaded:', e.message);
+}
 
 const TERMS = `
   <ul style="margin:0;padding-left:18px;list-style:disc;">
@@ -83,7 +91,17 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
       <td style="${TDR}font-weight:700;font-size:14px;">₹${formatINR(invoice.total)}</td>
     </tr>`;
 
-  const logoHtml = `<img src="${LOGO_URL}" alt="Neure" style="height:64px;margin-bottom:6px;" />`;
+  // Header: the Neure logo, centred, on every invoice (clinic name appears in the FROM block and footer).
+  // PDF embeds the logo from the local file; email can't use data: URIs so it links to the app's public file.
+  const neureLogoSrc = forPDF
+    ? NEURE_LOGO_DATA_URI
+    : (process.env.PRODESK_PUBLIC_URL || process.env.PRODESK_DASHBOARD_URL
+        ? `${String(process.env.PRODESK_PUBLIC_URL || process.env.PRODESK_DASHBOARD_URL).replace(/\/$/, '')}/neure-white-strip-logo.png`
+        : '');
+  const logoHtml = neureLogoSrc
+    ? `<img src="${neureLogoSrc}" alt="Neure" onerror="this.style.display='none'" style="height:72px;width:72px;display:block;margin:0 auto;" />`
+    : '';
+  const clinicAddress = therapist.clinic_address ? String(therapist.clinic_address).replace(/\n/g, '<br>') : '';
 
   const downloadBtn = (!forPDF && invoice.invoice_pdf_url) ? `
     <div style="text-align:center;margin:24px 0 8px;">
@@ -107,7 +125,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
   <!-- HEADER -->
   <div style="background:#1a1a2e;padding:24px 28px;text-align:center;">
     ${logoHtml}
-    <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#9898b8;text-transform:uppercase;">TAX INVOICE</div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#9898b8;text-transform:uppercase;margin-top:8px;">TAX INVOICE</div>
   </div>
 
   <!-- INVOICE META -->
@@ -118,6 +136,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
           <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:4px;">FROM</div>
           <div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clinicName}</div>
           <div style="font-size:12px;color:#666;margin-top:2px;">${supportEmail}</div>
+          ${clinicAddress ? `<div style="font-size:12px;color:#666;margin-top:2px;line-height:1.5;">${clinicAddress}</div>` : ''}
         </td>
         <td style="vertical-align:top;text-align:right;">
           <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:4px;">INVOICE NO.</div>
@@ -182,6 +201,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
       ${clinicName} &nbsp;·&nbsp;
       <a href="mailto:${supportEmail}" style="color:#7c9cbf;text-decoration:none;">${supportEmail}</a>
     </div>
+    ${clinicAddress ? `<div style="font-size:11px;color:#9898b8;margin-top:6px;line-height:1.5;">${clinicAddress}</div>` : ''}
     <div style="font-size:10px;color:#555;margin-top:6px;">
       This is a computer-generated invoice and does not require a signature.
     </div>

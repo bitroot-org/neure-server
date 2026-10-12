@@ -131,7 +131,7 @@ const fetchClientInfo = async (clientId) => {
 
 const fetchTherapistInfo = async (therapistId) => {
   const [rows] = await db.query(
-    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name
+    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
      FROM therapists t
      JOIN users u ON u.user_id = t.user_id
      LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
@@ -485,6 +485,21 @@ const markInvoicePaidService = async (payload) => {
       source: 'therapist',
       meta: { method: method || 'offline', paid_at: paidDate }
     });
+
+    // Invoices marked paid without ever being sent (e.g. prepaid sessions) have no
+    // PDF yet — generate and store one so it can be downloaded. Non-fatal.
+    if (!inv.data.invoice_pdf_url && !RAZORPAY_INVOICE_ENABLED) {
+      try {
+        const clientInfo = await fetchClientInfo(inv.data.client_id);
+        const therapist = await fetchTherapistInfo(therapist_id);
+        const html = InvoiceEmailService.buildInvoiceHTML({ invoice: inv.data, client: clientInfo, therapist, forPDF: true });
+        const pdfBuffer = await InvoiceEmailService.generatePDF(html);
+        const pdfUrl = await InvoiceEmailService.uploadPDFToS3(pdfBuffer, inv.data.invoice_number);
+        await db.query('UPDATE prodesk_invoices SET invoice_pdf_url = ? WHERE id = ?', [pdfUrl, invoice_id]);
+      } catch (e) {
+        console.log('PDF generation on mark-paid failed (non-fatal)::>>', e.message);
+      }
+    }
 
     return getInvoiceByIdService({ therapist_id, invoice_id });
   } catch (error) {
