@@ -118,8 +118,8 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
 </head>
-<body style="margin:0;padding:${forPDF ? '24px' : '20px 0'};background:#f4f4f4;font-family:Arial,sans-serif;">
-<div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #ddd;
+<body style="margin:0;padding:${forPDF ? '0' : '20px 0'};background:${forPDF ? '#ffffff' : '#f4f4f4'};font-family:Arial,sans-serif;">
+<div style="max-width:620px;margin:0 auto;background:#ffffff;border:${forPDF ? '0' : '1px solid #ddd'};
             border-radius:${forPDF ? '0' : '10px'};overflow:hidden;">
 
   <!-- HEADER -->
@@ -197,11 +197,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
 
   <!-- FOOTER -->
   <div style="background:#1a1a2e;padding:16px 28px;text-align:center;">
-    <div style="font-size:12px;color:#9898b8;">
-      ${clinicName} &nbsp;·&nbsp;
-      <a href="mailto:${supportEmail}" style="color:#7c9cbf;text-decoration:none;">${supportEmail}</a>
-    </div>
-    ${clinicAddress ? `<div style="font-size:11px;color:#9898b8;margin-top:6px;line-height:1.5;">${clinicAddress}</div>` : ''}
+    <div style="font-size:12px;color:#9898b8;">${clinicName}</div>
     <div style="font-size:10px;color:#555;margin-top:6px;">
       This is a computer-generated invoice and does not require a signature.
     </div>
@@ -222,10 +218,17 @@ const generatePDF = async (html) => {
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
     });
     const page = await browser.newPage();
+    // Size the PDF page to the invoice itself (620px wide, as tall as the content) — no A4 white space.
+    await page.setViewport({ width: 620, height: 800 });
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    const contentHeight = await page.evaluate(() =>
+      Math.ceil(document.querySelector('body > div').getBoundingClientRect().height)
+    );
     const pdf = await page.pdf({
-      format: 'A4',
+      width: '620px',
+      height: `${contentHeight + 1}px`,
       printBackground: true,
+      pageRanges: '1',
       margin: { top: '0', bottom: '0', left: '0', right: '0' }
     });
     return pdf;
