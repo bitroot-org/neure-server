@@ -55,7 +55,7 @@ const getSessionByIdService = async (payload) => {
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
-    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl } = payload;
+    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl, skip_notifications = false } = payload;
 
     if (!client_id || !starts_at || !modality) {
       return { status: false, code: 400, message: 'client_id, starts_at and modality are required', data: null };
@@ -131,8 +131,9 @@ const createSessionService = async (payload) => {
       }
     }
 
-    // Send email + WhatsApp notifications after session is scheduled (both best-effort)
-    try {
+    // Send email + WhatsApp notifications after session is scheduled (both best-effort).
+    // Multi-session bookings skip this and send ONE combined message instead.
+    if (!skip_notifications) try {
       const [clientRow] = await db.query(
         `SELECT u.phone, u.email,
                 CONCAT(u.first_name, ' ', u.last_name) AS client_name,
@@ -201,6 +202,179 @@ const createSessionService = async (payload) => {
     return getSessionByIdService({ therapist_id, session_id: result.insertId });
   } catch (error) {
     console.log('Error in createSessionService::>>', error);
+    return null;
+  }
+};
+
+// ─── MULTI-SESSION BOOKING ───────────────────────────────────────────────────
+// Books several sessions for one client in one go, sends the client ONE confirmation
+// (email + WhatsApp) listing all of them, and can create ONE package invoice (PDF).
+//   sessions: [{ starts_at, duration_min, modality, meet_url? }]
+//   invoice:  'none' | 'send' (email the PDF invoice) | 'paid' (prepaid — email the PAID invoice)
+const createSessionBatchService = async (payload) => {
+  const created = [];
+  try {
+    console.log('Payload in createSessionBatchService::>>', payload);
+    const { therapist_id, client_id, sessions, package_total, invoice = 'none', apply_gst = false } = payload;
+
+    if (!client_id || !Array.isArray(sessions) || sessions.length < 2) {
+      return { status: false, code: 400, message: 'client_id and at least 2 sessions are required', data: null };
+    }
+    if (sessions.length > 24) {
+      return { status: false, code: 400, message: 'You can book up to 24 sessions at once', data: null };
+    }
+    if (!['none', 'send', 'paid'].includes(invoice)) {
+      return { status: false, code: 400, message: "invoice must be 'none', 'send' or 'paid'", data: null };
+    }
+
+    // Reject sessions that overlap each other before touching the database
+    const spans = sessions.map((s) => {
+      const start = Date.parse(String(s.starts_at).replace(' ', 'T') + 'Z');
+      return { start, end: start + (Number(s.duration_min) || 60) * 60000 };
+    });
+    for (let i = 0; i < spans.length; i++) {
+      for (let j = i + 1; j < spans.length; j++) {
+        if (spans[i].start < spans[j].end && spans[j].start < spans[i].end) {
+          return { status: false, code: 409, message: `Sessions ${i + 1} and ${j + 1} overlap each other`, data: null };
+        }
+      }
+    }
+
+    const total = package_total !== undefined && package_total !== null && package_total !== '' ? Number(package_total) : null;
+    if (total !== null && (!Number.isFinite(total) || total < 0)) {
+      return { status: false, code: 400, message: 'package_total must be a valid amount', data: null };
+    }
+    const perSessionFee = total !== null ? Math.round((total / sessions.length) * 100) / 100 : undefined;
+
+    // Create each session (no per-session messages). If one fails, undo the ones already made.
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      const r = await createSessionService({
+        therapist_id, client_id,
+        starts_at: s.starts_at, duration_min: s.duration_min || 60, modality: s.modality,
+        fee: perSessionFee, meet_url: s.meet_url, skip_notifications: true
+      });
+      if (!r || !r.status) {
+        if (created.length) await db.query('DELETE FROM prodesk_sessions WHERE id IN (?)', [created.map(c => c.id)]);
+        return { status: false, code: r?.code || 500, message: `Session ${i + 1}: ${r?.message || 'could not be created'} — no sessions were booked`, data: null };
+      }
+      created.push(r.data);
+    }
+
+    // ONE combined confirmation to the client — fire-and-forget: the booking never waits for
+    // (or fails because of) email / WhatsApp. Any error is only logged.
+    (async () => {
+    try {
+      const [clientRow] = await db.query(
+        `SELECT u.phone, u.email,
+                CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+                CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+                tu.user_id AS therapist_user_id,
+                COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+         FROM prodesk_clients pc
+         JOIN users u ON u.user_id = pc.user_id
+         JOIN therapists t ON t.id = ?
+         JOIN users tu ON tu.user_id = t.user_id
+         LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+         WHERE pc.id = ?`,
+        [therapist_id, client_id]
+      );
+      if (clientRow && clientRow.length) {
+        const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
+        const list = created.map((c, i) => ({
+          sessionTime: formatISTWallClock(c.starts_at || sessions[i].starts_at),
+          startISO: c.starts_at || sessions[i].starts_at,
+          durationMin: c.duration_min || sessions[i].duration_min || 60,
+          meetUrl: c.meet_url || null,
+          modality: c.modality || sessions[i].modality
+        }));
+        const notifMeta = { client_id, session_ids: created.map(c => c.id) };
+
+        await NotificationService.createNotification({
+          user_id: therapist_user_id,
+          type: 'SESSION_SCHEDULED',
+          title: `${created.length} Sessions Scheduled with ${client_name}`,
+          content: `${created.length} sessions with ${client_name} scheduled, starting ${list[0].sessionTime}.`,
+          meta: notifMeta
+        });
+
+        if (email) {
+          await NotificationService.sendMultipleSessionsScheduledEmail({
+            toEmail: email, toName: client_name, therapistName: therapist_name,
+            clinicName: clinic_name, sessions: list, meta: notifMeta
+          });
+        }
+
+        if (phone) {
+          const digits = phone.replace(/\D/g, '');
+          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+          const sameLink = list.every(x => x.meetUrl && x.meetUrl === list[0].meetUrl);
+          const linkText = sameLink ? list[0].meetUrl : (list.some(x => x.meetUrl) ? 'Shared before each session' : 'Not applicable (in person)');
+          // Dedicated MSG91 template "multiple_sessions_scheduled":
+          // {{1}} client, {{2}} number of sessions, {{3}} therapist, {{4}} dates (one line), {{5}} link
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          const compact = (iso) => {
+            const m = String(iso).replace('T', ' ').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+            if (!m) return String(iso);
+            const dow = DAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+            const h = +m[4];
+            return `${dow} ${+m[3]} ${MONTHS[+m[2] - 1]}, ${h % 12 || 12}:${m[5]} ${h >= 12 ? 'PM' : 'AM'}`;
+          };
+          await NotificationService.sendWhatsAppNotification({
+            to: phone_e164,
+            templateName: 'multiple_sessions_scheduled',
+            variables: [
+              client_name,
+              String(list.length),
+              therapist_name,
+              list.map((x, i) => `${i + 1}) ${compact(x.startISO)}`).join(' | '),
+              linkText
+            ],
+            meta: notifMeta
+          });
+        }
+      }
+    } catch (e) {
+      console.log('Multi-session notification (non-blocking):', e.message);
+    }
+    })().catch((e) => console.log('Multi-session notification (non-blocking):', e.message));
+
+    // ONE package invoice (PDF)
+    let invoiceResult = null;
+    if (invoice !== 'none') {
+      try {
+        const billing = require('./billingService');
+        const invoiceTotal = total !== null ? total : created.reduce((sum, c) => sum + (Number(c.fee) || 0), 0);
+        const datesNote = created.map((c, i) => `${i + 1}. ${formatISTWallClock(c.starts_at || sessions[i].starts_at)}`).join('; ');
+        const created_inv = await billing.createInvoiceService({
+          therapist_id, client_id, session_id: created[0].id,
+          due_date: String(created[0].starts_at || sessions[0].starts_at).slice(0, 10),
+          line_items: [{ description: `Therapy sessions — package of ${created.length}`, duration: `${created.length} sessions`, qty: 1, rate: invoiceTotal }],
+          tax_percent: apply_gst ? 18 : 0,
+          notes: `Sessions: ${datesNote}`,
+          action: 'draft'
+        });
+        if (created_inv?.status) {
+          const invoiceId = created_inv.data.id;
+          invoiceResult = invoice === 'paid'
+            ? await billing.markInvoicePaidService({ therapist_id, invoice_id: invoiceId })
+            : await billing.sendInvoiceService({ therapist_id, invoice_id: invoiceId });
+        } else {
+          invoiceResult = created_inv;
+        }
+      } catch (e) {
+        console.log('Package invoice error (non-blocking):', e.message);
+      }
+    }
+
+    return {
+      status: true, code: 201, message: `${created.length} sessions booked`,
+      data: { sessions: created, invoice: invoiceResult?.data || null, invoice_error: invoice !== 'none' && !invoiceResult?.status ? (invoiceResult?.message || 'Invoice could not be created') : null }
+    };
+  } catch (error) {
+    console.log('Error in createSessionBatchService::>>', error);
+    if (created.length) { try { await db.query('DELETE FROM prodesk_sessions WHERE id IN (?)', [created.map(c => c.id)]); } catch (e) { /* ignore */ } }
     return null;
   }
 };
@@ -945,6 +1119,7 @@ const deleteSessionService = async ({ therapist_id, session_id }) => {
 
 module.exports = {
   createSessionService,
+  createSessionBatchService,
   getSessionsService,
   getSessionByIdService,
   updateSessionService,

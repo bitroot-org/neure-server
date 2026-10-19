@@ -1,5 +1,6 @@
 const {
   createSessionService,
+  createSessionBatchService,
   getSessionsService,
   getSessionByIdService,
   updateSessionService,
@@ -23,6 +24,15 @@ const respond = (res, result) => {
 };
 
 class ProdeskSessionController {
+  static async createSessionBatch(req, res) {
+    try {
+      const result = await createSessionBatchService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async createSession(req, res) {
     try {
       const result = await createSessionService({ therapist_id: req.user.therapist_id, ...req.body });

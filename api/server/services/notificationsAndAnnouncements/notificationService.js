@@ -96,7 +96,7 @@ class NotificationService {
   // ─── ICS CALENDAR FILE GENERATOR ─────────────────────────────────────────
   // Generates a .ics file content string for a session.
   // Gmail shows "Add to Calendar", iPhone Mail shows "Add to Calendar" banner.
-  static generateICS({ summary, description, startISO, durationMin, location = '' }) {
+  static generateICS({ summary, description, startISO, durationMin, location = '', uid: uidOverride = null }) {
     const pad  = (n) => String(n).padStart(2, '0');
     const formatUTC = (d) =>
       `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
@@ -118,7 +118,7 @@ class NotificationService {
     const start = formatUTC(startDate);
     const endDate = new Date(startDate.getTime() + durationMin * 60000);
     const end = formatUTC(endDate);
-    const uid = `session-${Date.now()}@neure.co.in`;
+    const uid = uidOverride || `session-${Date.now()}@neure.co.in`;
     const now = formatUTC(new Date());
 
     return [
@@ -140,6 +140,100 @@ class NotificationService {
       'END:VEVENT',
       'END:VCALENDAR'
     ].filter(Boolean).join('\r\n');
+  }
+
+  /**
+   * ONE email confirming several sessions booked together (package / multi-session booking).
+   * sessions: [{ sessionTime (formatted IST string), startISO, durationMin, meetUrl|null, modality }]
+   * All sessions go in a single calendar (.ics) attachment.
+   */
+  static async sendMultipleSessionsScheduledEmail({ toEmail, toName, therapistName, clinicName = "Neure Prodesk", sessions = [], meta = null }) {
+    const rows = sessions.map((s, i) => `
+      <tr>
+        <td style="padding:12px 16px;border-bottom:1px solid #E5EAF0;">
+          <p style="margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session ${i + 1}</p>
+          <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${s.sessionTime}</p>
+          ${s.meetUrl ? `<a href="${s.meetUrl}" style="font-size:13px;font-weight:600;color:#5EA89A;text-decoration:none;">Join link &rarr;</a>` : `<p style="margin:2px 0 0;font-size:12px;color:#6B7280;">${s.modality === 'in_person' ? 'In person' : (s.modality === 'phone' ? 'Phone' : 'Link will be shared before the session')}</p>`}
+        </td>
+      </tr>`).join('');
+
+    const htmlContent = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F4F8;padding:32px 16px;"><tr><td align="center">
+    <table cellpadding="0" cellspacing="0" style="width:100%;max-width:540px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+      <tr><td style="background:#1A2332;padding:22px 28px;"><span style="font-size:13px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#5EA89A;">${clinicName}</span></td></tr>
+      <tr><td style="background:#5EA89A;height:3px;line-height:3px;font-size:0;">&nbsp;</td></tr>
+      <tr><td style="background:#FFFFFF;padding:28px 28px 24px;">
+        <p style="margin:0 0 4px;font-size:22px;font-weight:700;color:#111827;">${sessions.length} Sessions Confirmed ✓</p>
+        <p style="margin:0 0 22px;font-size:13px;color:#5EA89A;font-weight:500;">All your upcoming sessions are below</p>
+        <p style="margin:0 0 22px;font-size:15px;color:#4B5563;line-height:1.7;">
+          Hi <strong style="color:#111827;">${toName}</strong>,<br>
+          Your ${sessions.length} sessions with <strong style="color:#111827;">${therapistName}</strong> have been scheduled. You will get a reminder before each one.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFB;border:1px solid #E5EAF0;border-radius:10px;margin-bottom:20px;">${rows}</table>
+        <p style="margin:0 0 18px;font-size:13px;color:#374151;line-height:1.65;">Please be ready <strong style="color:#5EA89A;">5 minutes</strong> before each session. Reach out to your therapist if you need to reschedule.</p>
+        <p style="margin:0;border-top:1px solid #E5EAF0;padding-top:16px;text-align:center;font-size:12px;color:#9CA3AF;">${clinicName} &nbsp;&bull;&nbsp; Powered by <span style="color:#5EA89A;font-weight:600;">Neure Prodesk</span></p>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+
+    let status = "SUCCESS";
+    let statusCode = 200;
+    let errorMsg = null;
+
+    // One calendar file holding every session (each event gets its own UID)
+    const attachments = [];
+    try {
+      const events = sessions.filter(x => x.startISO).map((x, i) => {
+        const ics = NotificationService.generateICS({
+          summary: `Session with ${therapistName}`,
+          description: x.meetUrl ? `Your therapy session with ${therapistName}.\nJoin: ${x.meetUrl}` : `Your therapy session with ${therapistName}.`,
+          startISO: x.startISO,
+          durationMin: x.durationMin || 60,
+          location: x.meetUrl || '',
+          uid: `session-${Date.now()}-${i}@neure.co.in`
+        });
+        return ics.split('\r\n').filter(l => !['BEGIN:VCALENDAR', 'END:VCALENDAR', 'VERSION:2.0', 'CALSCALE:GREGORIAN', 'METHOD:REQUEST'].includes(l) && !l.startsWith('PRODID:')).join('\r\n');
+      });
+      if (events.length) {
+        const calendar = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Neure Prodesk//Session//EN', 'CALSCALE:GREGORIAN', 'METHOD:REQUEST', ...events, 'END:VCALENDAR'].join('\r\n');
+        attachments.push({ content: Buffer.from(calendar).toString('base64'), name: 'sessions.ics' });
+      }
+    } catch (e) {
+      console.log('ICS generation failed (non-fatal):', e.message);
+    }
+
+    try {
+      const payload = {
+        sender: { name: BREVO_SENDER_NAME, email: BREVO_SENDER_EMAIL },
+        to: [{ email: toEmail, name: toName }],
+        subject: `Your ${sessions.length} sessions with ${therapistName} are confirmed`,
+        htmlContent
+      };
+      if (attachments.length) payload.attachment = attachments;
+      const response = await axios.post("https://api.brevo.com/v3/smtp/email", payload, {
+        headers: { "api-key": await getBrevoApiKey(), "Content-Type": "application/json" }
+      });
+      statusCode = response.status;
+      console.log("Multi-session email sent to", toEmail, "| status:", statusCode);
+    } catch (err) {
+      status = "FAILED";
+      statusCode = err.response?.status || 500;
+      errorMsg = err.message;
+      console.error("sendMultipleSessionsScheduledEmail error:", err.message, err.response?.data);
+    }
+
+    await NotificationService.logNotification({
+      platform: "EMAIL", status_code: statusCode, status,
+      type: "SESSION_SCHEDULED",
+      message: `Multi-session scheduled email to ${toEmail}`,
+      error: errorMsg,
+      template_name: "multi_session_scheduled_email",
+      meta
+    });
+    return status === "SUCCESS";
   }
 
   /**
