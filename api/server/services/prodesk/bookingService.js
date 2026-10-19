@@ -5,6 +5,7 @@ const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { formatISTWallClock } = require('../../utils/dateHelper');
 const { recordConsentService } = require('./consentService');
+const { modesForModality } = require('../../utils/availabilityMode');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -91,7 +92,7 @@ const getPublicProfileService = async (payload) => {
 const getAvailableSlotsService = async (payload) => {
   try {
     console.log('Payload in getAvailableSlotsService::>>', payload);
-    const { slug, from, to } = payload;
+    const { slug, from, to, modality } = payload;
 
     if (!from || !to) {
       return { status: false, code: 400, message: 'from and to are required', data: null };
@@ -111,9 +112,10 @@ const getAvailableSlotsService = async (payload) => {
     const slotMins   = settings?.slot_minutes   || 60;
     const bufferMins = settings?.buffer_minutes || 0;
 
+    const modes = modesForModality(modality);
     const [allBlocks] = await db.query(
-      'SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY from_time',
-      [therapistId]
+      `SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ${modes ? 'AND mode IN (?)' : ''} ORDER BY from_time`,
+      modes ? [therapistId, modes] : [therapistId]
     );
     if (!allBlocks || !allBlocks.length) {
       return { status: true, code: 200, message: 'No availability set', data: { days: [] } };
@@ -411,7 +413,7 @@ const verifyBookingPaymentService = async (payload) => {
 
 // ─── Public direct-booking APIs ──────────────────────────────────────────────
 
-const getBookingSlotsService = async ({ slug, date, session_duration }) => {
+const getBookingSlotsService = async ({ slug, date, session_duration, modality }) => {
   try {
     if (!slug || !date || !session_duration) {
       return { status: false, code: 400, message: 'slug, date and session_duration are required', data: null };
@@ -450,9 +452,11 @@ const getBookingSlotsService = async ({ slug, date, session_duration }) => {
       };
     }
 
+    // Online slots only for video bookings, Offline only for in-person, Both for either
+    const modes = modesForModality(modality);
     const [dayBlocks] = await db.query(
-      'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
-      [therapist_id, dayName]
+      `SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ${modes ? 'AND mode IN (?)' : ''} ORDER BY from_time`,
+      modes ? [therapist_id, dayName, modes] : [therapist_id, dayName]
     );
 
     if (!dayBlocks || !dayBlocks.length) {
@@ -592,6 +596,22 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       [therapist_id, starts_at, duration_min, starts_at]
     );
     if (overlap && overlap.length) return { status: false, code: 409, message: 'That slot was just taken. Please pick another.', data: null };
+
+    // The chosen time must not sit inside a slot reserved for the other format
+    // (e.g. an Online-only slot can't be booked as an in-person session).
+    {
+      const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const dayName = DAY_NAMES[new Date(`${date}T00:00:00`).getDay()];
+      const [coveringBlocks] = await db.query(
+        `SELECT mode FROM therapist_availability_blocks
+         WHERE therapist_id = ? AND day = ? AND from_time <= ? AND to_time >= SEC_TO_TIME(TIME_TO_SEC(?) + ? * 60)`,
+        [therapist_id, dayName, `${time}:00`, `${time}:00`, duration_min]
+      );
+      const allowed = modesForModality(modality);
+      if (coveringBlocks && coveringBlocks.length && allowed && !coveringBlocks.some(b => allowed.includes(b.mode))) {
+        return { status: false, code: 422, message: `That time isn't available for ${modality === 'in_person' ? 'in-person' : 'video'} sessions. Please pick another slot.`, data: null };
+      }
+    }
 
     const conn = await db.getConnection();
     try {

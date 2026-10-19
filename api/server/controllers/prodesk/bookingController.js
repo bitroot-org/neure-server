@@ -29,9 +29,9 @@ class ProdeskBookingController {
 
   static async getAvailableSlots(req, res) {
     try {
-      const { slug, from, to } = req.body;
+      const { slug, from, to, modality } = req.body;
       if (!slug) return res.status(400).json({ status: false, code: 400, message: 'slug required', data: null });
-      const result = await getAvailableSlotsService({ slug, from, to });
+      const result = await getAvailableSlotsService({ slug, from, to, modality });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
@@ -77,11 +77,11 @@ class ProdeskBookingController {
 
   static async getBookingSlots(req, res) {
     try {
-      const { slug, date, session_duration } = req.body;
+      const { slug, date, session_duration, modality } = req.body;
       if (!slug || !date || !session_duration) {
         return res.status(400).json({ status: false, code: 400, message: 'slug, date and session_duration are required', data: null });
       }
-      const result = await getBookingSlotsService({ slug, date, session_duration });
+      const result = await getBookingSlotsService({ slug, date, session_duration, modality });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { VALID_MODES } = require('../../utils/availabilityMode');
 
 const toSlugBase = (firstName, lastName) =>
   `${firstName}-${lastName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -127,7 +128,7 @@ const getAvailabilityService = async (payload) => {
     );
 
     const [blockRows] = await db.query(
-      'SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time',
+      'SELECT day, from_time, to_time, mode FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time',
       [therapist_id]
     );
 
@@ -135,7 +136,7 @@ const getAvailabilityService = async (payload) => {
     const blocks = {};
     for (const row of (blockRows || [])) {
       if (!blocks[row.day]) blocks[row.day] = [];
-      blocks[row.day].push({ from: row.from_time.slice(0, 5), to: row.to_time.slice(0, 5) });
+      blocks[row.day].push({ from: row.from_time.slice(0, 5), to: row.to_time.slice(0, 5), mode: row.mode || 'both' });
     }
 
     return {
@@ -179,14 +180,14 @@ const updateAvailabilityService = async (payload) => {
       if (!VALID_DAYS.includes(day)) continue;
       for (const block of (dayBlocks || [])) {
         if (block.from && block.to && block.from < block.to) {
-          insertRows.push([therapist_id, day, block.from, block.to]);
+          insertRows.push([therapist_id, day, block.from, block.to, VALID_MODES.includes(block.mode) ? block.mode : 'both']);
         }
       }
     }
 
     if (insertRows.length) {
       await db.query(
-        'INSERT IGNORE INTO therapist_availability_blocks (therapist_id, day, from_time, to_time) VALUES ?',
+        'INSERT IGNORE INTO therapist_availability_blocks (therapist_id, day, from_time, to_time, mode) VALUES ?',
         [insertRows]
       );
     }

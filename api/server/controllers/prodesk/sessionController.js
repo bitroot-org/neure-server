@@ -137,8 +137,8 @@ class ProdeskSessionController {
   }
   static async getSlots(req, res) {
     try {
-      const { date, session_duration } = req.body;
-      const result = await getSlotsService({ therapist_id: req.user.therapist_id, date, session_duration });
+      const { date, session_duration, modality } = req.body;
+      const result = await getSlotsService({ therapist_id: req.user.therapist_id, date, session_duration, modality });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

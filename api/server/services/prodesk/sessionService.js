@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { modesForModality } = require('../../utils/availabilityMode');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
 const { formatISTWallClock } = require('../../utils/dateHelper');
@@ -789,7 +790,7 @@ const sendSessionReminderService = async (payload) => {
   }
 };
 
-const getSlotsService = async ({ therapist_id, date, session_duration }) => {
+const getSlotsService = async ({ therapist_id, date, session_duration, modality }) => {
   try {
     if (!therapist_id || !date || !session_duration) {
       return { status: false, code: 400, message: 'therapist_id, date and session_duration are required', data: null };
@@ -827,9 +828,11 @@ const getSlotsService = async ({ therapist_id, date, session_duration }) => {
     );
     const buffer = settings?.buffer_minutes || 0;
 
+    // Online slots only for video sessions, Offline only for in-person, Both for either
+    const modes = modesForModality(modality);
     const [dayBlocks] = await db.query(
-      'SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ORDER BY from_time',
-      [therapist_id, dayName]
+      `SELECT from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? AND day = ? ${modes ? 'AND mode IN (?)' : ''} ORDER BY from_time`,
+      modes ? [therapist_id, dayName, modes] : [therapist_id, dayName]
     );
 
     if (!dayBlocks || dayBlocks.length === 0) {
