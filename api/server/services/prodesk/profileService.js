@@ -327,7 +327,10 @@ const updateBrandingService = async (payload) => {
     if (background_type !== undefined) addField('wallpaper_id',      finalWallpaperId);
     if (background_type !== undefined) addField('wallpaper_url',     finalWallpaperUrl);
     if (logo_url        !== undefined) addField('logo_url',          logo_url);
-    if (invoice_prefix  !== undefined) addField('invoice_prefix',    invoice_prefix);
+    if (invoice_prefix  !== undefined) {
+      const cleanPrefix = String(invoice_prefix || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').replace(/^-+|-+$/g, '').slice(0, 10);
+      addField('invoice_prefix', cleanPrefix || null);
+    }
     if (clinic_address  !== undefined) addField('clinic_address',    clinic_address ? String(clinic_address).slice(0, 500) : null);
 
     if (!setClause.length)

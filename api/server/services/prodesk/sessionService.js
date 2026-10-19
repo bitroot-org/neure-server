@@ -31,7 +31,7 @@ const getSessionByIdService = async (payload) => {
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-              pc.avatar_color AS client_avatar_color,
+              pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
        JOIN prodesk_clients pc ON pc.id = ps.client_id
@@ -393,7 +393,7 @@ const getSessionsService = async (payload) => {
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
               CONCAT(u.first_name,' ',u.last_name) AS client_name,
-              pc.avatar_color AS client_avatar_color,
+              pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps ${joins}
        WHERE ${where}
@@ -636,7 +636,7 @@ const getCalendarSessionsService = async (payload) => {
               ps.duration_min, ps.modality, ps.status, ps.title,
               ps.meet_url, ps.session_number,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-              pc.avatar_color AS client_avatar_color,
+              pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
        JOIN prodesk_clients pc ON pc.id = ps.client_id
@@ -671,7 +671,7 @@ const getTodaySessionsService = async (payload) => {
               ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-              pc.avatar_color, pc.id AS client_id,
+              pc.avatar_color, pc.profile_url AS client_profile_url, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
        JOIN prodesk_clients pc ON pc.id = ps.client_id

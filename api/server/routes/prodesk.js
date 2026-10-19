@@ -103,6 +103,8 @@ router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, ClientCtrl.updateClient);
 router.post('/archiveClient',   authorization, ClientCtrl.archiveClient);
+router.post('/uploadClientPhoto', authorization, imageUpload.single('file'), ClientCtrl.uploadClientPhoto);
+router.post('/removeClientPhoto', authorization, ClientCtrl.removeClientPhoto);
 router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestRecordHistoryUpdate);
 
 // ──────────────────────────────────────────────────────────────
@@ -129,6 +131,7 @@ router.post('/sendSessionReminder', authorization, SessionCtrl.sendSessionRemind
 // ──────────────────────────────────────────────────────────────
 router.post('/createNote',              authorization, NoteCtrl.createNote);
 router.post('/getNote',                 authorization, NoteCtrl.getNote);
+router.post('/exportNotePdf',           authorization, NoteCtrl.exportNotePdf);
 router.post('/updateNote',              authorization, NoteCtrl.updateNote);
 router.post('/getClientNotes',          authorization, NoteCtrl.getClientNotes);
 router.post('/uploadNoteAttachment',    authorization, resourceUpload.single('file'), NoteCtrl.uploadNoteAttachment);

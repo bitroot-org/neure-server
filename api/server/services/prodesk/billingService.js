@@ -8,9 +8,15 @@ const InvoiceEmailService = require('./invoiceEmailService');
 // false → Custom PDF generated, uploaded to S3, emailed + WhatsApp'd to client
 const RAZORPAY_INVOICE_ENABLED = false;
 
-const generateInvoiceNumber = (id) => {
+// Prefix is the therapist's own (Profile → Billing); falls back to INV. Letters, numbers and dashes only.
+const sanitizeInvoicePrefix = (raw) => {
+  const clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').replace(/^-+|-+$/g, '').slice(0, 10);
+  return clean || 'INV';
+};
+
+const generateInvoiceNumber = (id, prefix) => {
   const year = new Date().getFullYear();
-  return `INV-${year}-${String(id).padStart(3, '0')}`;
+  return `${sanitizeInvoicePrefix(prefix)}-${year}-${String(id).padStart(3, '0')}`;
 };
 
 const computeTotals = (lineItems, taxPercent = 18) => {
@@ -104,7 +110,8 @@ const createInvoiceService = async (payload) => {
        JSON.stringify(enriched), subtotal, tax_percent, tax, total, notes || null]
     );
 
-    const invoiceNumber = generateInvoiceNumber(result.insertId);
+    const [prefixRows] = await db.query('SELECT invoice_prefix FROM therapist_branding WHERE therapist_id = ?', [therapist_id]);
+    const invoiceNumber = generateInvoiceNumber(result.insertId, prefixRows && prefixRows[0] && prefixRows[0].invoice_prefix);
     await db.query('UPDATE prodesk_invoices SET invoice_number = ? WHERE id = ?', [invoiceNumber, result.insertId]);
 
     if (action === 'send') {
