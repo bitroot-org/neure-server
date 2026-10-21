@@ -1,5 +1,6 @@
 const {
   createSessionService,
+  createSessionBatchService,
   getSessionsService,
   getSessionByIdService,
   updateSessionService,
@@ -15,6 +16,7 @@ const {
   approveBookingRequestService,
   declineBookingRequestService
 } = require('../../services/prodesk/sessionService');
+const { getReminderSettingService, updateReminderSettingService } = require('../../services/prodesk/clientReminderService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
 const respond = (res, result) => {
@@ -23,6 +25,31 @@ const respond = (res, result) => {
 };
 
 class ProdeskSessionController {
+  static async getReminderSetting(req, res) {
+    try {
+      return respond(res, await getReminderSettingService({ therapist_id: req.user.therapist_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async updateReminderSetting(req, res) {
+    try {
+      return respond(res, await updateReminderSettingService({ therapist_id: req.user.therapist_id, offsets: req.body.offsets, email: req.body.email !== false, whatsapp: req.body.whatsapp !== false }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async createSessionBatch(req, res) {
+    try {
+      const result = await createSessionBatchService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async createSession(req, res) {
     try {
       const result = await createSessionService({ therapist_id: req.user.therapist_id, ...req.body });
@@ -137,8 +164,8 @@ class ProdeskSessionController {
   }
   static async getSlots(req, res) {
     try {
-      const { date, session_duration } = req.body;
-      const result = await getSlotsService({ therapist_id: req.user.therapist_id, date, session_duration });
+      const { date, session_duration, modality } = req.body;
+      const result = await getSlotsService({ therapist_id: req.user.therapist_id, date, session_duration, modality });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

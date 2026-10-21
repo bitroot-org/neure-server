@@ -103,12 +103,17 @@ router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, ClientCtrl.updateClient);
 router.post('/archiveClient',   authorization, ClientCtrl.archiveClient);
+router.post('/uploadClientPhoto', authorization, imageUpload.single('file'), ClientCtrl.uploadClientPhoto);
+router.post('/removeClientPhoto', authorization, ClientCtrl.removeClientPhoto);
 router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestRecordHistoryUpdate);
 
 // ──────────────────────────────────────────────────────────────
 // SESSIONS
 // ──────────────────────────────────────────────────────────────
 router.post('/createSession',       authorization, SessionCtrl.createSession);
+router.post('/createSessionBatch',  authorization, SessionCtrl.createSessionBatch);
+router.post('/getReminderSetting',  authorization, SessionCtrl.getReminderSetting);
+router.post('/updateReminderSetting', authorization, SessionCtrl.updateReminderSetting);
 router.post('/getSessions',         authorization, SessionCtrl.getSessions);
 router.post('/getSessionById',      authorization, SessionCtrl.getSessionById);
 router.post('/updateSession',       authorization, SessionCtrl.updateSession);
@@ -129,6 +134,7 @@ router.post('/sendSessionReminder', authorization, SessionCtrl.sendSessionRemind
 // ──────────────────────────────────────────────────────────────
 router.post('/createNote',              authorization, NoteCtrl.createNote);
 router.post('/getNote',                 authorization, NoteCtrl.getNote);
+router.post('/exportNotePdf',           authorization, NoteCtrl.exportNotePdf);
 router.post('/updateNote',              authorization, NoteCtrl.updateNote);
 router.post('/getClientNotes',          authorization, NoteCtrl.getClientNotes);
 router.post('/uploadNoteAttachment',    authorization, resourceUpload.single('file'), NoteCtrl.uploadNoteAttachment);

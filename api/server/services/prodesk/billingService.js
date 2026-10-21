@@ -8,9 +8,15 @@ const InvoiceEmailService = require('./invoiceEmailService');
 // false → Custom PDF generated, uploaded to S3, emailed + WhatsApp'd to client
 const RAZORPAY_INVOICE_ENABLED = false;
 
-const generateInvoiceNumber = (id) => {
+// Prefix is the therapist's own (Profile → Billing); falls back to INV. Letters, numbers and dashes only.
+const sanitizeInvoicePrefix = (raw) => {
+  const clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').replace(/^-+|-+$/g, '').slice(0, 10);
+  return clean || 'INV';
+};
+
+const generateInvoiceNumber = (id, prefix) => {
   const year = new Date().getFullYear();
-  return `INV-${year}-${String(id).padStart(3, '0')}`;
+  return `${sanitizeInvoicePrefix(prefix)}-${year}-${String(id).padStart(3, '0')}`;
 };
 
 const computeTotals = (lineItems, taxPercent = 18) => {
@@ -104,7 +110,8 @@ const createInvoiceService = async (payload) => {
        JSON.stringify(enriched), subtotal, tax_percent, tax, total, notes || null]
     );
 
-    const invoiceNumber = generateInvoiceNumber(result.insertId);
+    const [prefixRows] = await db.query('SELECT invoice_prefix FROM therapist_branding WHERE therapist_id = ?', [therapist_id]);
+    const invoiceNumber = generateInvoiceNumber(result.insertId, prefixRows && prefixRows[0] && prefixRows[0].invoice_prefix);
     await db.query('UPDATE prodesk_invoices SET invoice_number = ? WHERE id = ?', [invoiceNumber, result.insertId]);
 
     if (action === 'send') {
@@ -131,7 +138,7 @@ const fetchClientInfo = async (clientId) => {
 
 const fetchTherapistInfo = async (therapistId) => {
   const [rows] = await db.query(
-    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name
+    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
      FROM therapists t
      JOIN users u ON u.user_id = t.user_id
      LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
@@ -139,6 +146,30 @@ const fetchTherapistInfo = async (therapistId) => {
     [therapistId]
   );
   return rows && rows.length ? rows[0] : { brand_name: 'NEURE INNOVATIONS LLP', email: 'support@neure.co.in' };
+};
+
+// ─── PAID INVOICE FINALISE ────────────────────────────────────────────────────
+// Called whenever an invoice becomes paid (manual / prepaid / webhook): rebuilds the PDF
+// with the PAID stamp, saves it as the invoice's PDF, and emails the paid copy to the client.
+// Never throws — a PDF/email problem must not undo a recorded payment.
+
+const finalizePaidInvoice = async (invoice_id) => {
+  try {
+    if (RAZORPAY_INVOICE_ENABLED) return;
+    const [rows] = await db.query('SELECT therapist_id FROM prodesk_invoices WHERE id = ?', [invoice_id]);
+    if (!rows || !rows.length) return;
+    const therapist_id = rows[0].therapist_id;
+
+    const inv = await getInvoiceByIdService({ therapist_id, invoice_id });
+    if (!inv || !inv.status) return;
+    const client = await fetchClientInfo(inv.data.client_id);
+    const therapist = await fetchTherapistInfo(therapist_id);
+
+    const pdfUrl = await InvoiceEmailService.sendPaidInvoice({ invoice: inv.data, client, therapist });
+    await db.query('UPDATE prodesk_invoices SET invoice_pdf_url = ? WHERE id = ?', [pdfUrl, invoice_id]);
+  } catch (e) {
+    console.log('finalizePaidInvoice failed (non-fatal)::>>', e.message);
+  }
 };
 
 // ─── SEND INVOICE ─────────────────────────────────────────────────────────────
@@ -486,6 +517,8 @@ const markInvoicePaidService = async (payload) => {
       meta: { method: method || 'offline', paid_at: paidDate }
     });
 
+    await finalizePaidInvoice(invoice_id);
+
     return getInvoiceByIdService({ therapist_id, invoice_id });
   } catch (error) {
     console.log('Error in markInvoicePaidService::>>', error);
@@ -767,10 +800,13 @@ const handleRazorpayWebhookService = async (payload) => {
       const invoiceId = extractInvoiceId(entity);
       if (!invoiceId) return { status: true, code: 200, message: 'Ignored: no prodesk_invoice_id', data: null };
 
+      const [prevInv] = await db.query("SELECT status FROM prodesk_invoices WHERE id = ?", [invoiceId]);
+      const wasPaid = prevInv && prevInv.length && prevInv[0].status === 'paid';
       await db.query(
         "UPDATE prodesk_invoices SET status = 'paid', paid_at = NOW() WHERE id = ?",
         [invoiceId]
       );
+      if (!wasPaid) finalizePaidInvoice(invoiceId);
 
       const paymentEntity = eventPayload?.payment?.entity;
       const [payRows] = await db.query(
@@ -939,6 +975,7 @@ const handleRazorpayWebhookService = async (payload) => {
             "UPDATE prodesk_invoices SET status = 'paid', paid_at = NOW() WHERE id = ?",
             [invoiceId]
           );
+          finalizePaidInvoice(invoiceId);
         }
 
         const [payRows] = await db.query(

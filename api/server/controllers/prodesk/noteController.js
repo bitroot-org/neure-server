@@ -6,6 +6,7 @@ const {
   uploadNoteAttachmentService,
   deleteNoteAttachmentService
 } = require('../../services/prodesk/noteService');
+const { exportNotePdfService } = require('../../services/prodesk/noteExportService');
 const { uploadGalleryFile } = require('../upload/UploadController');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -15,6 +16,23 @@ const respond = (res, result) => {
 };
 
 class ProdeskNoteController {
+  static async exportNotePdf(req, res) {
+    try {
+      const { session_id } = req.body;
+      if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
+      const result = await exportNotePdfService({ therapist_id: req.user.therapist_id, session_id });
+      if (!result) return res.status(500).json({ status: false, code: 500, message: 'Could not create the PDF', data: null });
+      if (!result.status) return res.status(result.code).json(result);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.data.filename}"`);
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition'); // so the browser can read the file name
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(result.data.buffer);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async getNote(req, res) {
     try {
       const { session_id } = req.body;

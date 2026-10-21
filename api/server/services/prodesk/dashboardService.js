@@ -71,8 +71,20 @@ const getMetricsService = async (payload) => {
     const range = getPeriodRange(period);
     const startDate = from || range.start;
     const endDate   = to   || range.end;
-    const prevStart = range.prevStart;
-    const prevEnd   = range.prevEnd;
+    let prevStart = range.prevStart;
+    let prevEnd   = range.prevEnd;
+
+    // Custom range: compare against the equally long period right before it
+    if (from && to) {
+      const DAY = 24 * 60 * 60 * 1000;
+      const fromMs = Date.parse(`${from}T00:00:00Z`);
+      const toMs = Date.parse(`${to}T00:00:00Z`);
+      if (Number.isNaN(fromMs) || Number.isNaN(toMs) || toMs < fromMs)
+        return { status: false, code: 400, message: 'Invalid date range', data: null };
+      const days = Math.round((toMs - fromMs) / DAY) + 1;
+      prevEnd = new Date(fromMs - DAY).toISOString().slice(0, 10);
+      prevStart = new Date(fromMs - days * DAY).toISOString().slice(0, 10);
+    }
 
     // ── Current period ────────────────────────────────────────────────────
     // "sessions" counts everything booked this period (scheduled + completed,
@@ -192,7 +204,7 @@ const getTodaySessionsForDashboard = async (therapistId) => {
               ps.starts_at AS starts_at,
               ps.duration_min, ps.modality, ps.status, ps.title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-              pc.avatar_color, pc.id AS client_id,
+              pc.avatar_color, pc.profile_url AS client_profile_url, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
        JOIN prodesk_clients pc ON pc.id = ps.client_id

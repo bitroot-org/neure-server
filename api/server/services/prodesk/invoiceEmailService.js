@@ -4,7 +4,15 @@ const { s3Client } = require('../../../config/s3Client');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
-const LOGO_URL = 'https://neure-staging.s3.ap-south-1.amazonaws.com/prodesk/assets/neure-white-strip-logo.png';
+const fs = require('fs');
+const path = require('path');
+let NEURE_LOGO_DATA_URI = '';
+try {
+  NEURE_LOGO_DATA_URI = 'data:image/png;base64,' +
+    fs.readFileSync(path.join(__dirname, '../../../templates/assets/neure-white-strip-logo.png')).toString('base64');
+} catch (e) {
+  console.log('Neure invoice logo not loaded:', e.message);
+}
 
 const TERMS = `
   <ul style="margin:0;padding-left:18px;list-style:disc;">
@@ -53,6 +61,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
   const clinicName   = therapist.brand_name || 'NEURE INNOVATIONS LLP';
   const supportEmail = therapist.email || 'support@neure.co.in';
   const hasGST       = parseFloat(invoice.tax_percent) > 0 && parseFloat(invoice.tax) > 0;
+  const isPaid       = invoice.status === 'paid';
 
   const TD  = 'padding:10px 14px;border:1px solid #d0d0d0;font-size:13px;color:#222;';
   const TDC = TD + 'text-align:center;';
@@ -83,7 +92,17 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
       <td style="${TDR}font-weight:700;font-size:14px;">₹${formatINR(invoice.total)}</td>
     </tr>`;
 
-  const logoHtml = `<img src="${LOGO_URL}" alt="Neure" style="height:64px;margin-bottom:6px;" />`;
+  // Header: the Neure logo, centred, on every invoice (clinic name appears in the FROM block and footer).
+  // PDF embeds the logo from the local file; email can't use data: URIs so it links to the app's public file.
+  const neureLogoSrc = forPDF
+    ? NEURE_LOGO_DATA_URI
+    : (process.env.PRODESK_PUBLIC_URL || process.env.PRODESK_DASHBOARD_URL
+        ? `${String(process.env.PRODESK_PUBLIC_URL || process.env.PRODESK_DASHBOARD_URL).replace(/\/$/, '')}/neure-white-strip-logo.png`
+        : '');
+  const logoHtml = neureLogoSrc
+    ? `<img src="${neureLogoSrc}" alt="Neure" onerror="this.style.display='none'" style="height:72px;width:72px;display:block;margin:0 auto;" />`
+    : '';
+  const clinicAddress = therapist.clinic_address ? String(therapist.clinic_address).replace(/\n/g, '<br>') : '';
 
   const downloadBtn = (!forPDF && invoice.invoice_pdf_url) ? `
     <div style="text-align:center;margin:24px 0 8px;">
@@ -100,14 +119,14 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
 </head>
-<body style="margin:0;padding:${forPDF ? '24px' : '20px 0'};background:#f4f4f4;font-family:Arial,sans-serif;">
-<div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #ddd;
+<body style="margin:0;padding:${forPDF ? '0' : '20px 0'};background:${forPDF ? '#ffffff' : '#f4f4f4'};font-family:Arial,sans-serif;">
+<div style="max-width:620px;margin:0 auto;background:#ffffff;border:${forPDF ? '0' : '1px solid #ddd'};
             border-radius:${forPDF ? '0' : '10px'};overflow:hidden;">
 
   <!-- HEADER -->
   <div style="background:#1a1a2e;padding:24px 28px;text-align:center;">
     ${logoHtml}
-    <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#9898b8;text-transform:uppercase;">TAX INVOICE</div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#9898b8;text-transform:uppercase;margin-top:8px;">TAX INVOICE</div>
   </div>
 
   <!-- INVOICE META -->
@@ -118,6 +137,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
           <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:4px;">FROM</div>
           <div style="font-size:15px;font-weight:700;color:#1a1a2e;">${clinicName}</div>
           <div style="font-size:12px;color:#666;margin-top:2px;">${supportEmail}</div>
+          ${clinicAddress ? `<div style="font-size:12px;color:#666;margin-top:2px;line-height:1.5;">${clinicAddress}</div>` : ''}
         </td>
         <td style="vertical-align:top;text-align:right;">
           <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:4px;">INVOICE NO.</div>
@@ -125,9 +145,13 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
           <div style="font-size:12px;color:#666;margin-top:6px;">
             <span style="font-weight:700;">Issue date:</span> ${formatDate(invoice.issue_date)}
           </div>
-          ${invoice.due_date ? `<div style="font-size:12px;color:#c0603a;margin-top:2px;">
+          ${isPaid
+            ? `<div style="font-size:12px;color:#2e9e6b;margin-top:2px;">
+            <span style="font-weight:700;">Paid on:</span> ${formatDate(invoice.paid_at || new Date())}
+          </div>`
+            : (invoice.due_date ? `<div style="font-size:12px;color:#c0603a;margin-top:2px;">
             <span style="font-weight:700;">Due date:</span> ${formatDate(invoice.due_date)}
-          </div>` : ''}
+          </div>` : '')}
         </td>
       </tr>
     </table>
@@ -135,10 +159,21 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
 
   <!-- BILLING TO -->
   <div style="padding:16px 28px;border-bottom:1px solid #eee;background:#fafafa;">
-    <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:6px;">BILLED TO</div>
-    <div style="font-size:14px;font-weight:700;color:#1a1a2e;">${client.first_name} ${client.last_name}</div>
-    ${client.phone ? `<div style="font-size:12px;color:#555;margin-top:2px;">${client.phone}</div>` : ''}
-    <div style="font-size:12px;color:#555;margin-top:2px;">${client.email}</div>
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="vertical-align:top;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:6px;">BILLED TO</div>
+        <div style="font-size:14px;font-weight:700;color:#1a1a2e;">${client.first_name} ${client.last_name}</div>
+        ${client.phone ? `<div style="font-size:12px;color:#555;margin-top:2px;">${client.phone}</div>` : ''}
+        <div style="font-size:12px;color:#555;margin-top:2px;">${client.email}</div>
+      </td>
+      ${isPaid ? `<td style="width:120px;vertical-align:middle;text-align:right;">
+        <div style="display:inline-block;width:92px;height:92px;box-sizing:border-box;border:4px solid #2e9e6b;border-radius:50%;
+                    color:#2e9e6b;text-align:center;transform:rotate(-12deg);padding-top:20px;">
+          <div style="font-size:24px;font-weight:800;letter-spacing:2px;line-height:1;">PAID</div>
+          <div style="font-size:9px;font-weight:700;margin-top:6px;">${formatDate(invoice.paid_at || new Date())}</div>
+        </div>
+      </td>` : ''}
+    </tr></table>
   </div>
 
   <!-- LINE ITEMS TABLE -->
@@ -178,10 +213,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
 
   <!-- FOOTER -->
   <div style="background:#1a1a2e;padding:16px 28px;text-align:center;">
-    <div style="font-size:12px;color:#9898b8;">
-      ${clinicName} &nbsp;·&nbsp;
-      <a href="mailto:${supportEmail}" style="color:#7c9cbf;text-decoration:none;">${supportEmail}</a>
-    </div>
+    <div style="font-size:12px;color:#9898b8;">${clinicName}</div>
     <div style="font-size:10px;color:#555;margin-top:6px;">
       This is a computer-generated invoice and does not require a signature.
     </div>
@@ -202,10 +234,17 @@ const generatePDF = async (html) => {
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage']
     });
     const page = await browser.newPage();
+    // Size the PDF page to the invoice itself (620px wide, as tall as the content) — no A4 white space.
+    await page.setViewport({ width: 620, height: 800 });
     await page.setContent(html, { waitUntil: 'networkidle0' });
+    const contentHeight = await page.evaluate(() =>
+      Math.ceil(document.querySelector('body > div').getBoundingClientRect().height)
+    );
     const pdf = await page.pdf({
-      format: 'A4',
+      width: '620px',
+      height: `${contentHeight + 1}px`,
       printBackground: true,
+      pageRanges: '1',
       margin: { top: '0', bottom: '0', left: '0', right: '0' }
     });
     return pdf;
@@ -238,7 +277,7 @@ const getInvoiceShortUrl = (invoiceNumber) => {
 
 // ─── EMAIL (via Brevo) ────────────────────────────────────────────────────────
 
-const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl }) => {
+const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl, paid = false }) => {
   const invoiceWithUrl = { ...invoice, invoice_pdf_url: pdfUrl };
   const htmlContent = buildInvoiceHTML({ invoice: invoiceWithUrl, client, therapist, forPDF: false });
   const clinicName = therapist.brand_name || 'Neure';
@@ -249,7 +288,9 @@ const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl }) => {
       {
         sender: { name: 'Prodesk Invoice', email: BREVO_SENDER.email },
         to: [{ email: client.email, name: `${client.first_name} ${client.last_name}` }],
-        subject: `Invoice ${invoice.invoice_number} from ${clinicName} — INR ${formatINR(invoice.total)}`,
+        subject: paid
+          ? `Payment received — Invoice ${invoice.invoice_number} from ${clinicName} (INR ${formatINR(invoice.total)})`
+          : `Invoice ${invoice.invoice_number} from ${clinicName} — INR ${formatINR(invoice.total)}`,
         htmlContent
       },
       {
@@ -313,4 +354,21 @@ const sendCustomInvoice = async ({ invoice, client, therapist }) => {
   return pdfUrl;
 };
 
-module.exports = { sendCustomInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };
+// Regenerates the PDF with the PAID stamp, stores it, and emails the paid copy to the client.
+// `invoice` must already have status 'paid' and paid_at set. Returns the new pdfUrl.
+const sendPaidInvoice = async ({ invoice, client, therapist, notify = true }) => {
+  const pdfHtml   = buildInvoiceHTML({ invoice, client, therapist, forPDF: true });
+  const pdfBuffer = await generatePDF(pdfHtml);
+  const pdfUrl    = await uploadPDFToS3(pdfBuffer, invoice.invoice_number);
+
+  if (notify && client?.email) {
+    try {
+      await sendInvoiceEmail({ invoice, client, therapist, pdfUrl, paid: true });
+    } catch (e) {
+      console.log('Paid invoice email failed (non-fatal):', e.message);
+    }
+  }
+  return pdfUrl;
+};
+
+module.exports = { sendCustomInvoice, sendPaidInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };

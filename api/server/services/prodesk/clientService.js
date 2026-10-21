@@ -172,6 +172,7 @@ const getClientsService = async (payload) => {
               (SELECT ps2.starts_at
                FROM prodesk_sessions ps2
                WHERE ps2.client_id = pc.id AND ps2.status = 'scheduled'
+                 AND ps2.starts_at >= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
@@ -312,7 +313,27 @@ const requestRecordHistoryUpdateService = async (payload) => {
   }
 };
 
+// Set (or clear, with profile_url = null) a client's profile photo. Therapist must own the client.
+const setClientPhotoService = async ({ therapist_id, client_id, profile_url }) => {
+  try {
+    const [rows] = await db.query('SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ?', [client_id, therapist_id]);
+    if (!rows || !rows.length) return { status: false, code: 404, message: 'Client not found', data: null };
+    await db.query('UPDATE prodesk_clients SET profile_url = ? WHERE id = ?', [profile_url || null, client_id]);
+    return { status: true, code: 200, message: profile_url ? 'Photo updated' : 'Photo removed', data: { profile_url: profile_url || null } };
+  } catch (error) {
+    console.log('Error in setClientPhotoService::>>', error);
+    return null;
+  }
+};
+
+const clientBelongsToTherapist = async (therapist_id, client_id) => {
+  const [rows] = await db.query('SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ?', [client_id, therapist_id]);
+  return !!(rows && rows.length);
+};
+
 module.exports = {
+  clientBelongsToTherapist,
+  setClientPhotoService,
   createClientService,
   getClientsService,
   getClientByIdService,

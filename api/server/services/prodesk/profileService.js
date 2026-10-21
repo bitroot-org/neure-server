@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { VALID_MODES } = require('../../utils/availabilityMode');
 
 const toSlugBase = (firstName, lastName) =>
   `${firstName}-${lastName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -127,7 +128,7 @@ const getAvailabilityService = async (payload) => {
     );
 
     const [blockRows] = await db.query(
-      'SELECT day, from_time, to_time FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time',
+      'SELECT day, from_time, to_time, mode FROM therapist_availability_blocks WHERE therapist_id = ? ORDER BY FIELD(day,"Mon","Tue","Wed","Thu","Fri","Sat","Sun"), from_time',
       [therapist_id]
     );
 
@@ -135,7 +136,7 @@ const getAvailabilityService = async (payload) => {
     const blocks = {};
     for (const row of (blockRows || [])) {
       if (!blocks[row.day]) blocks[row.day] = [];
-      blocks[row.day].push({ from: row.from_time.slice(0, 5), to: row.to_time.slice(0, 5) });
+      blocks[row.day].push({ from: row.from_time.slice(0, 5), to: row.to_time.slice(0, 5), mode: row.mode || 'both' });
     }
 
     return {
@@ -179,14 +180,14 @@ const updateAvailabilityService = async (payload) => {
       if (!VALID_DAYS.includes(day)) continue;
       for (const block of (dayBlocks || [])) {
         if (block.from && block.to && block.from < block.to) {
-          insertRows.push([therapist_id, day, block.from, block.to]);
+          insertRows.push([therapist_id, day, block.from, block.to, VALID_MODES.includes(block.mode) ? block.mode : 'both']);
         }
       }
     }
 
     if (insertRows.length) {
       await db.query(
-        'INSERT IGNORE INTO therapist_availability_blocks (therapist_id, day, from_time, to_time) VALUES ?',
+        'INSERT IGNORE INTO therapist_availability_blocks (therapist_id, day, from_time, to_time, mode) VALUES ?',
         [insertRows]
       );
     }
@@ -276,7 +277,7 @@ const getBrandingService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT brand_name, theme, accent, background_type, background_preset,
-              wallpaper_id, wallpaper_url, logo_url, invoice_prefix
+              wallpaper_id, wallpaper_url, logo_url, invoice_prefix, clinic_address
        FROM therapist_branding WHERE therapist_id = ?`,
       [therapist_id]
     );
@@ -292,7 +293,7 @@ const updateBrandingService = async (payload) => {
   try {
     console.log('Payload in updateBrandingService::>>', payload);
     const { therapist_id, brand_name, theme, accent, background_type,
-            background_preset, wallpaper_id, wallpaper_url, logo_url, invoice_prefix } = payload;
+            background_preset, wallpaper_id, wallpaper_url, logo_url, invoice_prefix, clinic_address } = payload;
 
     // Validations
     if (theme && !VALID_THEMES.includes(theme))
@@ -327,7 +328,11 @@ const updateBrandingService = async (payload) => {
     if (background_type !== undefined) addField('wallpaper_id',      finalWallpaperId);
     if (background_type !== undefined) addField('wallpaper_url',     finalWallpaperUrl);
     if (logo_url        !== undefined) addField('logo_url',          logo_url);
-    if (invoice_prefix  !== undefined) addField('invoice_prefix',    invoice_prefix);
+    if (invoice_prefix  !== undefined) {
+      const cleanPrefix = String(invoice_prefix || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').replace(/^-+|-+$/g, '').slice(0, 10);
+      addField('invoice_prefix', cleanPrefix || null);
+    }
+    if (clinic_address  !== undefined) addField('clinic_address',    clinic_address ? String(clinic_address).slice(0, 500) : null);
 
     if (!setClause.length)
       return { status: false, code: 400, message: 'No fields to update', data: null };
