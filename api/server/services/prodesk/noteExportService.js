@@ -34,7 +34,7 @@ const fmtTime = (s) => {
 };
 const MODALITY = { video: 'Video', phone: 'Phone', in_person: 'In person' };
 
-const buildNoteHtml = ({ clientName, startsAt, modality, title, body }) => `<!DOCTYPE html>
+const buildNoteHtml = ({ clientName, startsAt, modality, sessionTitle, title, body }) => `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
   @page { size: A4; margin: 14mm 0 16mm 0; }
@@ -49,6 +49,7 @@ const buildNoteHtml = ({ clientName, startsAt, modality, title, body }) => `<!DO
   .brand .by { font-size: 9px; opacity: .85; margin-top: 3px; }
   .meta { display: flex; justify-content: space-between; padding: 22px 36px 0; font-size: 15px; line-height: 1.7; }
   .meta .fmt { font-weight: 700; font-size: 14px; }
+  .meta .stitle { font-size: 19px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
   .client { text-align: center; font-size: 28px; font-weight: 700; margin: 4px 36px 0; }
   .rule { border-top: 4px solid #111; margin: 12px 36px 22px; }
   .title { margin: 0 36px 10px; font-size: 16px; font-weight: 700; }
@@ -63,12 +64,15 @@ const buildNoteHtml = ({ clientName, startsAt, modality, title, body }) => `<!DO
     </div>
   </div>
   <div class="meta">
-    <div>Session Date : ${esc(fmtDate(startsAt))}<br>Session Time : ${esc(fmtTime(startsAt))}</div>
+    <div>
+      ${sessionTitle ? `<div class="stitle">${esc(sessionTitle)}</div>` : ''}
+      Session Date : ${esc(fmtDate(startsAt))}<br>Session Time : ${esc(fmtTime(startsAt))}
+    </div>
     <div class="fmt">Session format : ${esc(MODALITY[modality] || modality || '—')}</div>
   </div>
   <div class="client">${esc(clientName)}</div>
   <div class="rule"></div>
-  ${title ? `<div class="title">${esc(title)}</div>` : ''}
+  ${title && String(title).trim() !== String(sessionTitle || '').trim() ? `<div class="title">${esc(title)}</div>` : ''}
   <div class="body">${esc(body)}</div>
 </body></html>`;
 
@@ -99,7 +103,7 @@ const generateNotePdf = async (html) => {
 const exportNotePdfService = async ({ therapist_id, session_id }) => {
   try {
     const [rows] = await db.query(
-      `SELECT s.starts_at, s.modality, s.session_number,
+      `SELECT s.starts_at, s.modality, s.session_number, s.title AS session_title,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               n.title, n.body
        FROM prodesk_sessions s
@@ -115,7 +119,7 @@ const exportNotePdfService = async ({ therapist_id, session_id }) => {
       return { status: false, code: 404, message: 'There are no session notes to export yet', data: null };
 
     const html = buildNoteHtml({
-      clientName: r.client_name, startsAt: r.starts_at, modality: r.modality, title: r.title, body: r.body
+      clientName: r.client_name, startsAt: r.starts_at, modality: r.modality, sessionTitle: r.session_title, title: r.title, body: r.body
     });
     const buffer = await generateNotePdf(html);
     const safeName = String(r.client_name).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'Client';
