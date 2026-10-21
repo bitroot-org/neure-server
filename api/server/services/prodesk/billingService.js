@@ -1145,7 +1145,20 @@ const handleRazorpayWebhookService = async (payload) => {
       }
       const cycleEnd = cycleEndDate.toISOString().slice(0, 10);
       const amount   = payEntity?.amount ? payEntity.amount / 100 : 0;
-      const newCycleCount = (sub.cycle_count || 0) + 1;
+      // Razorpay re-sends a webhook when it doesn't get a quick 200. The same payment must only
+      // count once: one cycle, one payment record, one "activated/renewed" email.
+      const payId = payEntity?.id || null;
+      const invId = payEntity?.invoice_id || null;
+      let alreadyProcessed = false;
+      if (payId || invId) {
+        const [[dup]] = await db.query(
+          `SELECT id FROM prodesk_subscription_payments
+           WHERE (? IS NOT NULL AND razorpay_payment_id = ?) OR (? IS NOT NULL AND razorpay_invoice_id = ?) LIMIT 1`,
+          [payId, payId, invId, invId]
+        );
+        alreadyProcessed = !!dup;
+      }
+      const newCycleCount = alreadyProcessed ? (sub.cycle_count || 0) : (sub.cycle_count || 0) + 1;
 
       const conn = await db.getConnection();
       try {
@@ -1154,9 +1167,14 @@ const handleRazorpayWebhookService = async (payload) => {
         await conn.query(
           `UPDATE prodesk_subscriptions
              SET status = 'active', current_period_start = ?, current_period_end = ?,
-                 halted_at = NULL, grace_period_end = NULL, cycle_count = ?
+                 halted_at = NULL, grace_period_end = NULL, cycle_count = ?,
+                 cancel_at_period_end = IF(?, 1, cancel_at_period_end),
+                 cancelled_at = IF(?, COALESCE(cancelled_at, NOW()), cancelled_at),
+                 cancellation_reason = IF(?, COALESCE(cancellation_reason, 'Auto-pay cancelled (bank / UPI app)'), cancellation_reason)
            WHERE id = ?`,
-          [cycleStart, cycleEnd, newCycleCount, sub.id]
+          // If Razorpay already cancelled auto-pay by the time the charge arrives (the customer switched it
+          // off straight after paying), activate the paid period but make sure it is not renewed.
+          [cycleStart, cycleEnd, newCycleCount, subEntity?.status === 'cancelled' ? 1 : 0, subEntity?.status === 'cancelled' ? 1 : 0, subEntity?.status === 'cancelled' ? 1 : 0, sub.id]
         );
 
         // First charge confirmed — now safe to retire the plan this one replaced
@@ -1181,11 +1199,7 @@ const handleRazorpayWebhookService = async (payload) => {
         }
 
         // Idempotent payment record
-        const [[existingPmt]] = await conn.query(
-          `SELECT id FROM prodesk_subscription_payments WHERE razorpay_invoice_id = ? LIMIT 1`,
-          [payEntity?.invoice_id || null]
-        );
-        if (!existingPmt) {
+        if (!alreadyProcessed) {
           await conn.query(
             `INSERT INTO prodesk_subscription_payments
                (subscription_id, therapist_id, amount, razorpay_payment_id, razorpay_invoice_id,
@@ -1202,7 +1216,7 @@ const handleRazorpayWebhookService = async (payload) => {
         // First successful charge on an offer-linked subscription — mark the
         // offer redeemed now (not at mandate-creation) so a failed/abandoned
         // mandate never falsely burns the user's redemption.
-        if (newCycleCount === 1 && sub.offer_id) {
+        if (!alreadyProcessed && newCycleCount === 1 && sub.offer_id) {
           const [[offerRow]] = await conn.query(`SELECT is_email_restricted FROM prodesk_offers WHERE id = ?`, [sub.offer_id]);
           if (offerRow) {
             if (offerRow.is_email_restricted) {
@@ -1246,8 +1260,8 @@ const handleRazorpayWebhookService = async (payload) => {
         conn.release();
       }
 
-      // Send renewal confirmation email
-      try {
+      // Send renewal confirmation email (not again for a re-delivered webhook)
+      if (!alreadyProcessed) try {
         const [[therapistRow]] = await db.query(
           `SELECT u.email, u.first_name FROM therapists t JOIN users u ON t.user_id = u.user_id WHERE t.id = ?`,
           [sub.therapist_id]
@@ -1319,11 +1333,39 @@ const handleRazorpayWebhookService = async (payload) => {
       const rzpSubId  = subEntity?.id;
       if (!rzpSubId) return { status: true, code: 200, message: 'Ignored: no subscription id', data: null };
 
-      await db.query(
-        `UPDATE prodesk_subscriptions SET status = 'cancelled'
-         WHERE razorpay_subscription_id = ? AND status NOT IN ('expired')`,
+      // Razorpay sends this when auto-pay is switched off — including when the customer revokes
+      // the mandate in their bank / UPI app (e.g. Google Pay) right after paying. If they already
+      // paid for the current period they keep access until it ends (same as our own "cancel at
+      // period end"); the daily safety-net job then closes it. Only a subscription with no paid
+      // period left is cancelled straight away.
+      const [[existing]] = await db.query(
+        `SELECT id, status, current_period_end, cancel_at_period_end FROM prodesk_subscriptions
+         WHERE razorpay_subscription_id = ?`,
         [rzpSubId]
       );
+      if (!existing) return { status: true, code: 200, message: 'Ignored: subscription not found in DB', data: null };
+
+      const paidPeriodRunning =
+        ['active', 'authenticated'].includes(existing.status) &&
+        existing.current_period_end &&
+        String(existing.current_period_end).slice(0, 10) >= new Date().toISOString().slice(0, 10);
+
+      if (paidPeriodRunning) {
+        await db.query(
+          `UPDATE prodesk_subscriptions
+             SET cancel_at_period_end = 1,
+                 cancelled_at = COALESCE(cancelled_at, NOW()),
+                 cancellation_reason = COALESCE(cancellation_reason, 'Auto-pay cancelled (bank / UPI app)')
+           WHERE id = ?`,
+          [existing.id]
+        );
+      } else {
+        await db.query(
+          `UPDATE prodesk_subscriptions SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW())
+           WHERE razorpay_subscription_id = ? AND status NOT IN ('expired')`,
+          [rzpSubId]
+        );
+      }
     }
 
     // ── subscription.completed — all billing cycles done (annual) ────────────
