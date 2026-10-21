@@ -112,6 +112,8 @@ router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestReco
 // ──────────────────────────────────────────────────────────────
 router.post('/createSession',       authorization, SessionCtrl.createSession);
 router.post('/createSessionBatch',  authorization, SessionCtrl.createSessionBatch);
+router.post('/getReminderSetting',  authorization, SessionCtrl.getReminderSetting);
+router.post('/updateReminderSetting', authorization, SessionCtrl.updateReminderSetting);
 router.post('/getSessions',         authorization, SessionCtrl.getSessions);
 router.post('/getSessionById',      authorization, SessionCtrl.getSessionById);
 router.post('/updateSession',       authorization, SessionCtrl.updateSession);

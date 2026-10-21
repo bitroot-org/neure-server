@@ -1,5 +1,6 @@
 const db = require('../../../config/db');
 const { modesForModality } = require('../../utils/availabilityMode');
+const { sendClientReminder } = require('./clientReminderService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
 const { formatISTWallClock } = require('../../utils/dateHelper');
@@ -662,6 +663,8 @@ const rescheduleSessionService = async (payload) => {
       'UPDATE prodesk_sessions SET starts_at = ?, duration_min = ? WHERE id = ?',
       [starts_at, dur, session_id]
     );
+    // New time = fresh reminders (the ones already sent were for the old time)
+    await db.query('DELETE FROM prodesk_session_reminders WHERE session_id = ?', [session_id]);
 
     // Send email + in-app notification to client
     try {
@@ -927,35 +930,8 @@ const sendSessionReminderService = async (payload) => {
       return { status: false, code: 409, message: 'Cannot send reminder for a cancelled session', data: null };
     }
 
-    const formattedTime = formatISTWallClock(s.starts_at);
-
-    const sent = { email: false, whatsapp: false };
-
-    if (s.email) {
-      sent.email = await NotificationService.sendSessionReminderEmail({
-        toEmail: s.email,
-        toName: s.client_name,
-        therapistName: s.therapist_name,
-        sessionTime: formattedTime,
-        meetUrl: s.meet_url || null,
-        clinicName: s.clinic_name,
-        meta: { session_id, type: 'reminder' }
-      });
-    }
-
-    if (s.phone) {
-      const digits = s.phone.replace(/\D/g, '');
-      const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-      // 'session_reminder' is not an actually-registered MSG91 template (confirmed
-      // via the template dashboard — it silently never delivers), so this reuses
-      // the real, approved 'session_scheduled' template instead.
-      sent.whatsapp = await NotificationService.sendWhatsAppNotification({
-        to: phone_e164,
-        templateName: 'session_scheduled',
-        variables: [s.client_name, s.therapist_name, formattedTime, s.meet_url || 'N/A'],
-        meta: { session_id, type: 'reminder' }
-      });
-    }
+    // Same message the automatic reminders use (email + WhatsApp)
+    const sent = await sendClientReminder({ ...s, id: session_id });
 
     return { status: true, code: 200, message: 'Reminder sent', data: sent };
   } catch (error) {

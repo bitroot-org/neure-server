@@ -436,7 +436,15 @@ class NotificationService {
   /**
    * Send a session reminder email — same design as confirmation but with reminder messaging.
    */
-  static async sendSessionReminderEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null }) {
+  static async sendSessionReminderEmail({ toEmail, toName, therapistName, sessionTime, meetUrl = null, clinicName = "Neure Prodesk", meta = null, modality = null }) {
+    const formatLabel = modality ? ({ video: 'Video', in_person: 'In person', phone: 'Phone' }[modality] || modality) : null;
+    const formatRowHtml = formatLabel ? `
+      <tr>
+        <td style="padding:14px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Session format</p>
+          <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${formatLabel}</p>
+        </td>
+      </tr>` : '';
     const meetRowHtml = meetUrl ? `
       <tr>
         <td style="padding:14px 20px;">
@@ -487,11 +495,12 @@ class NotificationService {
                 </td>
               </tr>
               <tr>
-                <td style="padding:14px 20px;${meetUrl ? 'border-bottom:1px solid #E5EAF0;' : ''}">
+                <td style="padding:14px 20px;${(meetUrl || formatLabel) ? 'border-bottom:1px solid #E5EAF0;' : ''}">
                   <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#9CA3AF;">Date &amp; Time</p>
                   <p style="margin:0;font-size:15px;font-weight:600;color:#111827;">${sessionTime} IST</p>
                 </td>
               </tr>
+              ${formatRowHtml}
               ${meetRowHtml}
             </table>
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
