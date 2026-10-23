@@ -164,7 +164,7 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:6px;">BILLED TO</div>
         <div style="font-size:14px;font-weight:700;color:#1a1a2e;">${client.first_name} ${client.last_name}</div>
         ${client.phone ? `<div style="font-size:12px;color:#555;margin-top:2px;">${client.phone}</div>` : ''}
-        <div style="font-size:12px;color:#555;margin-top:2px;">${client.email}</div>
+        ${client.email ? `<div style="font-size:12px;color:#555;margin-top:2px;">${client.email}</div>` : ''}
       </td>
       ${isPaid ? `<td style="width:120px;vertical-align:middle;text-align:right;">
         <div style="display:inline-block;width:92px;height:92px;box-sizing:border-box;border:4px solid #2e9e6b;border-radius:50%;
@@ -339,11 +339,18 @@ const sendInvoiceWhatsApp = async ({ invoice, client, pdfUrl }) => {
 // ─── MAIN ORCHESTRATOR ────────────────────────────────────────────────────────
 
 const sendCustomInvoice = async ({ invoice, client, therapist }) => {
+  // A client may have no email and/or no phone: send on whatever they have, and stop clearly if neither
+  const hasEmail = !!(client.email && String(client.email).trim());
+  const hasPhone = !!String(client.phone || '').replace(/\D/g, '');
+  if (!hasEmail && !hasPhone) {
+    throw new Error("this client has no email or phone number saved, so the invoice can't be sent. Add one to the client's profile, or download the PDF and share it yourself");
+  }
+
   const pdfHtml   = buildInvoiceHTML({ invoice, client, therapist, forPDF: true });
   const pdfBuffer = await generatePDF(pdfHtml);
   const pdfUrl    = await uploadPDFToS3(pdfBuffer, invoice.invoice_number);
 
-  await sendInvoiceEmail({ invoice, client, therapist, pdfUrl });
+  if (hasEmail) await sendInvoiceEmail({ invoice, client, therapist, pdfUrl });
 
   try {
     await sendInvoiceWhatsApp({ invoice, client, pdfUrl });

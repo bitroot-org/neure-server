@@ -496,7 +496,7 @@ const declineBookingRequestService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
-      if (clientRow) {
+      if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
           toEmail: clientRow.email,
@@ -747,7 +747,7 @@ const cancelSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
-      if (clientRow) {
+      if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
           toEmail: clientRow.email,

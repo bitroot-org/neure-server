@@ -36,6 +36,9 @@ const getClientByIdService = async (payload) => {
   }
 };
 
+// users.gender only accepts male / female / other (and cannot be empty); clients use F / M / NB / U
+const USER_GENDER = { F: 'female', M: 'male', NB: 'other', U: 'other' };
+
 const createClientService = async (payload) => {
   try {
     console.log('Payload in createClientService::>>', payload);
@@ -111,7 +114,7 @@ const createClientService = async (payload) => {
         const [userResult] = await conn.query(
           `INSERT INTO users (first_name, last_name, email, phone, password, role_id, gender)
            VALUES (?, ?, ?, ?, ?, 5, ?)`,
-          [firstName, lastName, email || null, cleanPhone || null, tempPassword, gender || null]
+          [firstName, lastName, email || null, cleanPhone || null, tempPassword, USER_GENDER[gender] || 'other']
         );
         finalUserId = userResult.insertId;
       }
@@ -143,6 +146,13 @@ const createClientService = async (payload) => {
     }
   } catch (error) {
     console.log('Error in createClientService::>>', error);
+    // Give the therapist a clear message instead of a bare "Internal server error"
+    if (error && error.code === 'ER_BAD_NULL_ERROR' && /email/i.test(error.sqlMessage || '')) {
+      return { status: false, code: 422, message: 'An email is still required for new clients on this system. Please enter the client\'s email.', data: null };
+    }
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return { status: false, code: 409, message: 'A client with this email already exists.', data: null };
+    }
     return null;
   }
 };
@@ -208,7 +218,9 @@ const updateClientService = async (payload) => {
 
     const userId = check[0].user_id;
 
-    const userMap = { first_name: data.first_name, last_name: data.last_name, email: data.email, phone: data.phone };
+    // An emptied email/phone is stored as NULL (not '') so it never clashes with the unique email rule
+    const blankToNull = (v) => (typeof v === 'string' && v.trim() === '' ? null : v);
+    const userMap = { first_name: data.first_name, last_name: data.last_name, email: blankToNull(data.email), phone: blankToNull(data.phone) };
     const uFields = []; const uVals = [];
     for (const [k, v] of Object.entries(userMap)) {
       if (v !== undefined) { uFields.push(`${k} = ?`); uVals.push(v); }
