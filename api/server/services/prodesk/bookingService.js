@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
-const { formatISTWallClock } = require('../../utils/dateHelper');
+const { formatISTWallClock, istNowParts } = require('../../utils/dateHelper');
 const { recordConsentService } = require('./consentService');
 const { modesForModality } = require('../../utils/availabilityMode');
 
@@ -473,9 +473,9 @@ const getBookingSlotsService = async ({ slug, date, session_duration, modality }
       [therapist_id, date]
     );
 
-    const now = new Date();
-    const isToday = date === now.toISOString().slice(0, 10);
-    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const istNow = istNowParts();
+    const isToday = date === istNow.date;
+    const nowMins = istNow.mins;
 
     const bookedSlotTimes = booked.map(sess => {
       const d = new Date(sess.starts_at);

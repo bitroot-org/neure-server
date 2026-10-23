@@ -3,7 +3,7 @@ const { modesForModality } = require('../../utils/availabilityMode');
 const { sendClientReminder } = require('./clientReminderService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
-const { formatISTWallClock } = require('../../utils/dateHelper');
+const { formatISTWallClock, istNowParts } = require('../../utils/dateHelper');
 
 const checkOverlap = async (therapistId, startsAt, durationMin, excludeId = null) => {
   const query = `
@@ -496,7 +496,7 @@ const declineBookingRequestService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
-      if (clientRow) {
+      if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
           toEmail: clientRow.email,
@@ -747,7 +747,7 @@ const cancelSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
-      if (clientRow) {
+      if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
           toEmail: clientRow.email,
@@ -1018,9 +1018,9 @@ const getSlotsService = async ({ therapist_id, date, session_duration, modality 
       [therapist_id, date]
     );
 
-    const now = new Date();
-    const isToday = date === now.toISOString().slice(0, 10);
-    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const istNow = istNowParts();
+    const isToday = date === istNow.date;
+    const nowMins = istNow.mins;
 
     const bookedSlotTimes = booked.map(sess => {
       const d = new Date(sess.starts_at);

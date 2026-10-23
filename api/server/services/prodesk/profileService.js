@@ -264,7 +264,7 @@ const removeBlockedDateService = async (payload) => {
   }
 };
 
-const VALID_ACCENTS          = ['sage','slate','plum','bronze','clay'];
+const VALID_ACCENTS          = ['sage','slate','plum','bronze','clay','mint','sky','lavender','sand','rose','white','grey','black'];
 const VALID_GRADIENTS        = ['mist','linen','tide','dusk','mono'];
 const VALID_WALLPAPERS       = ['misty_peaks','warm_dusk','ocean_calm','forest_fog'];
 const VALID_THEMES           = ['dark','light'];

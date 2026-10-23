@@ -67,4 +67,11 @@ function formatISTWallClock(naiveDateStr) {
   }).format(wallClock);
 }
 
-module.exports = { toIST, convertDatesToIST, formatISTWallClock };
+// Current date and minutes-since-midnight in IST, whatever timezone the server itself runs in
+// (session times are stored as IST wall-clock, so "is this slot already past?" must use IST).
+const istNowParts = () => {
+  const ist = new Date(Date.now() + (5 * 60 + 30) * 60000);
+  return { date: ist.toISOString().slice(0, 10), mins: ist.getUTCHours() * 60 + ist.getUTCMinutes() };
+};
+
+module.exports = { toIST, convertDatesToIST, formatISTWallClock, istNowParts };
