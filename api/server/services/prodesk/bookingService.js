@@ -44,7 +44,7 @@ const getPublicProfileService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT t.id, t.booking_slug, t.about_me, t.specialization, t.rating,
-              t.experience_years, t.registration_number,
+              t.experience_years, t.registration_number, t.booking_preview_url,
               u.first_name, u.last_name, u.profile_url,
               b.brand_name, b.theme, b.accent, b.background_type, b.background_preset,
               b.logo_url, b.wallpaper_id, b.wallpaper_url
@@ -75,6 +75,7 @@ const getPublicProfileService = async (payload) => {
         about_me: t.about_me,
         rating: t.rating,
         profile_url: t.profile_url,
+        preview_image_url: t.booking_preview_url || null,
         branding: {
           brand_name: t.brand_name, theme: t.theme, accent: t.accent,
           background_type: t.background_type, background_preset: t.background_preset,

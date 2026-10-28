@@ -59,6 +59,7 @@ const updateProfileService = async (payload) => {
 
       const [thRow] = await conn.query('SELECT user_id FROM therapists WHERE id = ?', [therapist_id]);
       const userId = thRow[0].user_id;
+      const [[prevNames]] = await conn.query('SELECT first_name, last_name FROM users WHERE user_id = ?', [userId]);
 
       const userMap = {
         first_name: data.first_name, last_name: data.last_name,
@@ -104,6 +105,15 @@ const updateProfileService = async (payload) => {
       }
 
       await conn.commit();
+
+      // Name changed -> make the link-preview picture again (background, only when the name really changed)
+      const nameChanged = prevNames && (
+        (data.first_name !== undefined && data.first_name !== prevNames.first_name) ||
+        (data.last_name !== undefined && data.last_name !== prevNames.last_name)
+      );
+      if (nameChanged) {
+        try { require('./bookingPreviewService').scheduleBookingPreview(therapist_id); } catch (_) { /* non-fatal */ }
+      }
       return getProfileService({ therapist_id });
     } catch (e) {
       await conn.rollback();
@@ -316,6 +326,13 @@ const updateBrandingService = async (payload) => {
     if (background_type === 'preset_wallpaper') { finalPreset = null; finalWallpaperUrl = null; }
     if (background_type === 'custom_wallpaper') { finalPreset = null; finalWallpaperId = null; }
 
+    // Remember the current clinic name, to know later whether it really changed
+    let prevBrandName;
+    if (brand_name !== undefined) {
+      const [[prevRow]] = await db.query('SELECT brand_name FROM therapist_branding WHERE therapist_id = ?', [therapist_id]);
+      prevBrandName = prevRow ? prevRow.brand_name : null;
+    }
+
     const setClause = [];
     const vals = [];
     const addField = (col, val) => { setClause.push(`${col} = ?`); vals.push(val); };
@@ -344,6 +361,11 @@ const updateBrandingService = async (payload) => {
        ON DUPLICATE KEY UPDATE ${setClause.join(', ')}`,
       [therapist_id, ...vals, ...vals]
     );
+
+    // Clinic name changed -> make the link-preview picture again (background)
+    if (brand_name !== undefined && String(brand_name || '').trim() !== String(prevBrandName || '').trim()) {
+      try { require('./bookingPreviewService').scheduleBookingPreview(therapist_id); } catch (_) { /* non-fatal */ }
+    }
 
     return { status: true, code: 200, message: 'Branding updated', data: null };
   } catch (error) {

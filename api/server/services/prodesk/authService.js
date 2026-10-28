@@ -305,6 +305,9 @@ const registerService = async (payload) => {
       }
 
       await conn.commit();
+
+      // Make the link-preview picture for this therapist's booking link (background, never blocks sign-up)
+      try { require('./bookingPreviewService').scheduleBookingPreview(therapistId, 0); } catch (_) { /* non-fatal */ }
     } catch (e) {
       await conn.rollback();
       throw e;
