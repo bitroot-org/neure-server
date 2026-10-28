@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
+const planGuard = require('./planGuard');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -49,28 +50,9 @@ const createClientService = async (payload) => {
       return { status: false, code: 400, message: 'name is required', data: null };
     }
 
-    // Plan limit check
-    const [[subRow]] = await db.query(
-      `SELECT pp.client_limit, pp.plan_type FROM prodesk_subscriptions ps
-       JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE ps.therapist_id = ? AND ps.status = 'active'
-       ORDER BY ps.created_at DESC LIMIT 1`,
-      [therapist_id]
-    );
-
-    if (subRow && subRow.client_limit !== null) {
-      const [[{ active_clients }]] = await db.query(
-        `SELECT COUNT(*) AS active_clients FROM prodesk_clients WHERE therapist_id = ? AND status = 'active'`,
-        [therapist_id]
-      );
-      if (active_clients >= subRow.client_limit) {
-        return {
-          status: false, code: 403,
-          message: `Your ${subRow.plan_type === 'starter' ? 'Starter (Free)' : ''} plan allows a maximum of ${subRow.client_limit} active clients. Please upgrade to Professional to add unlimited clients.`,
-          data: { client_limit: subRow.client_limit, current_count: active_clients, upgrade_required: true }
-        };
-      }
-    }
+    // Plan limit: one shared check (also used by the booking link and by approving requests)
+    const gate = await planGuard.checkAddClient(therapist_id);
+    if (!gate.ok) return gate.response;
 
     // Normalise phone — strip all non-digits, keep country code if present
     const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
@@ -123,8 +105,8 @@ const createClientService = async (payload) => {
       const [clientResult] = await conn.query(
         `INSERT INTO prodesk_clients
          (user_id, therapist_id, age, gender, city, emergency_contact, start_date,
-          presenting_concerns, treatment_given, issues, default_fee, avatar_color)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          presenting_concerns, treatment_given, issues, default_fee, avatar_color, last_activity_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           finalUserId, therapist_id, age || null, gender || null,
           city || null, emergency_contact || null,
@@ -137,6 +119,7 @@ const createClientService = async (payload) => {
       );
 
       await conn.commit();
+      await planGuard.markClientActive(therapist_id, clientResult.insertId, gate.access); // takes one of the active places on Starter
       return getClientByIdService({ therapist_id, client_id: clientResult.insertId });
     } catch (e) {
       await conn.rollback();
@@ -171,7 +154,7 @@ const getClientsService = async (payload) => {
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? ${statusCond} ${searchCond}`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 ${statusCond} ${searchCond}`,
       [therapist_id, ...statusVals, ...searchVals]
     );
 
@@ -186,8 +169,8 @@ const getClientsService = async (payload) => {
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? ${statusCond} ${searchCond}
-       ORDER BY pc.created_at DESC LIMIT ? OFFSET ?`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 ${statusCond} ${searchCond}
+       ORDER BY COALESCE(pc.last_activity_at, pc.created_at) DESC, pc.id DESC LIMIT ? OFFSET ?`,
       [therapist_id, ...statusVals, ...searchVals, limit, offset]
     );
 
@@ -230,13 +213,29 @@ const updateClientService = async (payload) => {
       await db.query(`UPDATE users SET ${uFields.join(', ')} WHERE user_id = ?`, uVals);
     }
 
+    // Archiving / restoring is never a plain field edit: it goes through the plan rules
+    if (data.status !== undefined) {
+      if (data.status === 'archived') {
+        const a = await archiveClientService({ therapist_id, client_id });
+        if (!a || !a.status) return a;
+      } else if (data.status === 'active') {
+        const [[cur]] = await db.query('SELECT status FROM prodesk_clients WHERE id = ?', [client_id]);
+        if (cur && cur.status !== 'active') {
+          const gate = await planGuard.checkRestore(therapist_id);
+          if (!gate.ok) return gate.response;
+          await db.query("UPDATE prodesk_clients SET status = 'active' WHERE id = ?", [client_id]);
+          await planGuard.markClientActive(therapist_id, client_id, gate.access);
+        }
+      }
+    }
+
     const clientMap = {
       age: data.age, gender: data.gender, city: data.city,
       emergency_contact: data.emergency_contact, start_date: data.start_date,
       presenting_concerns: data.presenting_concerns,
       treatment_given: data.treatment_given,
       issues: data.issues ? JSON.stringify(data.issues) : undefined,
-      default_fee: data.default_fee, status: data.status
+      default_fee: data.default_fee
     };
     const cFields = []; const cVals = [];
     for (const [k, v] of Object.entries(clientMap)) {
@@ -268,7 +267,12 @@ const archiveClientService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
-    await db.query("UPDATE prodesk_clients SET status = 'archived' WHERE id = ?", [client_id]);
+    // Plan rule: archiving one of the active Starter clients frees a place — allowed once every 30 days
+    const gate = await planGuard.checkArchive(therapist_id, client_id);
+    if (!gate.ok) return gate.response;
+
+    await db.query("UPDATE prodesk_clients SET status = 'archived', starter_active = 0 WHERE id = ?", [client_id]);
+    if (gate.counts) await planGuard.recordSwap(therapist_id);
     return { status: true, code: 200, message: 'Client archived', data: null };
   } catch (error) {
     console.log('Error in archiveClientService::>>', error);

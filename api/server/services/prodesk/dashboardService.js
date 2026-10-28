@@ -105,7 +105,7 @@ const getMetricsService = async (payload) => {
     const [[clientStats]] = await db.query(
       `SELECT COUNT(*) AS lives_impacted
        FROM prodesk_clients
-       WHERE therapist_id = ? AND status = 'active'`,
+       WHERE therapist_id = ? AND status = 'active' AND is_confirmed = 1`,
       [therapist_id]
     );
 
@@ -130,12 +130,12 @@ const getMetricsService = async (payload) => {
     // (lives_impacted itself is a total-active snapshot, not period-scoped).
     const [[curNewClients]] = await db.query(
       `SELECT COUNT(*) AS cnt FROM prodesk_clients
-       WHERE therapist_id = ? AND DATE(created_at) BETWEEN ? AND ?`,
+       WHERE therapist_id = ? AND is_confirmed = 1 AND DATE(created_at) BETWEEN ? AND ?`,
       [therapist_id, startDate, endDate]
     );
     const [[prevNewClients]] = await db.query(
       `SELECT COUNT(*) AS cnt FROM prodesk_clients
-       WHERE therapist_id = ? AND DATE(created_at) BETWEEN ? AND ?`,
+       WHERE therapist_id = ? AND is_confirmed = 1 AND DATE(created_at) BETWEEN ? AND ?`,
       [therapist_id, prevStart, prevEnd]
     );
 

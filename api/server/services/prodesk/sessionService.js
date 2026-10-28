@@ -1,5 +1,7 @@
 const db = require('../../../config/db');
 const { modesForModality } = require('../../utils/availabilityMode');
+const { touchClient, touchClientBySession } = require('./clientActivity');
+const planGuard = require('./planGuard');
 const { sendClientReminder } = require('./clientReminderService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
@@ -70,6 +72,10 @@ const createSessionService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
+    // Plan limit: new sessions only for the clients the plan allows
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
+
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
     }
@@ -115,6 +121,7 @@ const createSessionService = async (payload) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null]
     );
+    touchClient(client_id); // client moves to the top of the Clients list
 
     // For video sessions — use manually provided URL first, else auto-generate via Google Meet.
     let meetUrl = null;
@@ -227,6 +234,10 @@ const createSessionBatchService = async (payload) => {
     if (!['none', 'send', 'paid'].includes(invoice)) {
       return { status: false, code: 400, message: "invoice must be 'none', 'send' or 'paid'", data: null };
     }
+
+    // Plan limit: check once up front so nothing is half-booked
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
 
     // Reject sessions that overlap each other before touching the database
     const spans = sessions.map((s) => {
@@ -405,7 +416,13 @@ const approveBookingRequestService = async (payload) => {
       return { status: false, code: 409, message: 'This request has already been actioned', data: null };
     }
 
+    // Plan limit: a new person needs a free place; on a full Starter plan the therapist must upgrade first
+    const gate = await planGuard.checkApprove(therapist_id, session.client_id);
+    if (!gate.ok) return gate.response;
+
     await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE id = ?", [session_id]);
+    await planGuard.confirmClientOnApproval(therapist_id, session.client_id, gate.access);
+    touchClient(session.client_id);
 
     // Only now — on approval — does the meeting get created and the client told.
     let meetUrl = null;
@@ -665,6 +682,7 @@ const rescheduleSessionService = async (payload) => {
     );
     // New time = fresh reminders (the ones already sent were for the old time)
     await db.query('DELETE FROM prodesk_session_reminders WHERE session_id = ?', [session_id]);
+    touchClientBySession(session_id);
 
     // Send email + in-app notification to client
     try {

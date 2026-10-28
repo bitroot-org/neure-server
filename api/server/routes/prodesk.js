@@ -103,6 +103,8 @@ router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, ClientCtrl.updateClient);
 router.post('/archiveClient',   authorization, ClientCtrl.archiveClient);
+router.post('/getPlanAccess',   authorization, ClientCtrl.getPlanAccess);
+router.post('/setActiveClients', authorization, ClientCtrl.setActiveClients);
 router.post('/uploadClientPhoto', authorization, imageUpload.single('file'), ClientCtrl.uploadClientPhoto);
 router.post('/removeClientPhoto', authorization, ClientCtrl.removeClientPhoto);
 router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestRecordHistoryUpdate);

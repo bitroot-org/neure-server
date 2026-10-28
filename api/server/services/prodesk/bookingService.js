@@ -6,6 +6,8 @@ const NotificationService = require('../notificationsAndAnnouncements/notificati
 const { formatISTWallClock, istNowParts } = require('../../utils/dateHelper');
 const { recordConsentService } = require('./consentService');
 const { modesForModality } = require('../../utils/availabilityMode');
+const { touchClient } = require('./clientActivity');
+const planGuard = require('./planGuard');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -264,7 +266,13 @@ const confirmBookingService = async (payload) => {
       }
     }
 
+    let legacyGate = null;
     if (!clientId) {
+      // New person through the older pay-and-book flow: same plan limit as everywhere else
+      legacyGate = await planGuard.checkAddClient(hold.therapist_id);
+      if (!legacyGate.ok) {
+        return { status: false, code: 409, message: 'This therapist is not available for booking right now. Please try again later.', data: null };
+      }
       const nameParts = name.trim().split(/\s+/);
       const tempPwd = await bcrypt.hash(crypto.randomBytes(8).toString('hex'), 10);
       const [uResult] = await db.query(
@@ -277,6 +285,7 @@ const confirmBookingService = async (payload) => {
         [userId, hold.therapist_id, concern || null, avatarColor(name)]
       );
       clientId = cResult.insertId;
+      await planGuard.markClientActive(hold.therapist_id, clientId, legacyGate.access);
     }
 
     const fee = 0;
@@ -645,8 +654,8 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       if (!clientRow) {
         const color = avatarColor(clientName || email);
         const [cRes] = await conn.query(
-          `INSERT INTO prodesk_clients (user_id, therapist_id, presenting_concerns, default_fee, avatar_color, start_date)
-           VALUES (?, ?, ?, ?, ?, CURDATE())`,
+          `INSERT INTO prodesk_clients (user_id, therapist_id, presenting_concerns, default_fee, avatar_color, start_date, is_confirmed)
+           VALUES (?, ?, ?, ?, ?, CURDATE(), 0)`,
           [userId, therapist_id, concern || null, fee || 0, color]
         );
         clientRow = { id: cRes.insertId };
@@ -666,6 +675,8 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       const session_id = sessRes.insertId;
 
       await conn.commit();
+      touchClient(client_id); // new booking request: client moves to the top of the Clients list
+      planGuard.notifyPlanFullRequest(therapist_id, client_id); // background: nudge the therapist if their plan is full
 
       // Log the client's consent to the booking form (same audit trail the
       // superadmin dashboard's Consent Logs page shows for therapists).

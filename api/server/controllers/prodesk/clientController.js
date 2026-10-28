@@ -9,6 +9,7 @@ const {
   clientBelongsToTherapist
 } = require('../../services/prodesk/clientService');
 const { uploadImage } = require('../upload/UploadController');
+const planGuard = require('../../services/prodesk/planGuard');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
 const respond = (res, result) => {
@@ -17,6 +18,28 @@ const respond = (res, result) => {
 };
 
 class ProdeskClientController {
+  // Plan, which clients are active / view-only, waiting requests and when the next swap is allowed
+  static async getPlanAccess(req, res) {
+    try {
+      const data = await planGuard.getPlanOverview(req.user.therapist_id);
+      return res.status(200).json({ status: true, code: 200, message: 'Plan access fetched', data });
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  // The therapist picks which clients are active on the Starter plan (once every 30 days)
+  static async setActiveClients(req, res) {
+    try {
+      const result = await planGuard.setActiveClients(req.user.therapist_id, req.body.client_ids);
+      if (!result.ok) return res.status(result.response.code).json(result.response);
+      const data = await planGuard.getPlanOverview(req.user.therapist_id);
+      return res.status(200).json({ status: true, code: 200, message: result.changed ? 'Active clients updated' : 'No change', data });
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async uploadClientPhoto(req, res) {
     try {
       if (!req.file) return res.status(400).json({ status: false, code: 400, message: 'Photo file is required (JPG, PNG or WebP)', data: null });
