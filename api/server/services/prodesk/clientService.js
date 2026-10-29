@@ -201,6 +201,20 @@ const updateClientService = async (payload) => {
 
     const userId = check[0].user_id;
 
+    // Starter plan: a client's name is locked (renaming one client into another person would be a way round the 2-client limit)
+    if (data.first_name !== undefined || data.last_name !== undefined) {
+      const info = await planGuard.getPlanInfo(therapist_id);
+      if (info.plan === 'starter') {
+        const [[cur]] = await db.query('SELECT first_name, last_name FROM users WHERE user_id = ?', [userId]);
+        const same = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+        const changed = (data.first_name !== undefined && !same(data.first_name, cur.first_name)) ||
+                        (data.last_name !== undefined && !same(data.last_name, cur.last_name));
+        if (changed) {
+          return { status: false, code: 403, message: "A client's name can't be changed on the Starter plan. Upgrade to Professional, or contact support to correct a mistake.", data: null };
+        }
+      }
+    }
+
     // An emptied email/phone is stored as NULL (not '') so it never clashes with the unique email rule
     const blankToNull = (v) => (typeof v === 'string' && v.trim() === '' ? null : v);
     const userMap = { first_name: data.first_name, last_name: data.last_name, email: blankToNull(data.email), phone: blankToNull(data.phone) };
@@ -221,7 +235,7 @@ const updateClientService = async (payload) => {
       } else if (data.status === 'active') {
         const [[cur]] = await db.query('SELECT status FROM prodesk_clients WHERE id = ?', [client_id]);
         if (cur && cur.status !== 'active') {
-          const gate = await planGuard.checkRestore(therapist_id);
+          const gate = await planGuard.checkRestore(therapist_id, client_id);
           if (!gate.ok) return gate.response;
           await db.query("UPDATE prodesk_clients SET status = 'active' WHERE id = ?", [client_id]);
           await planGuard.markClientActive(therapist_id, client_id, gate.access);
@@ -267,12 +281,8 @@ const archiveClientService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
-    // Plan rule: archiving one of the active Starter clients frees a place — allowed once every 30 days
-    const gate = await planGuard.checkArchive(therapist_id, client_id);
-    if (!gate.ok) return gate.response;
-
-    await db.query("UPDATE prodesk_clients SET status = 'archived', starter_active = 0 WHERE id = ?", [client_id]);
-    if (gate.counts) await planGuard.recordSwap(therapist_id);
+    // Plan rule: archiving does not free a Starter place (the flag stays), so it is not a way to swap clients
+    await db.query("UPDATE prodesk_clients SET status = 'archived' WHERE id = ?", [client_id]);
     return { status: true, code: 200, message: 'Client archived', data: null };
   } catch (error) {
     console.log('Error in archiveClientService::>>', error);
