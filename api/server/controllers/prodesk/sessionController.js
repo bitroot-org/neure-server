@@ -1,4 +1,6 @@
 const {
+  createQuickNoteSessionService,
+  discardEmptyQuickSessionService,
   createSessionService,
   createSessionBatchService,
   getSessionsService,
@@ -44,6 +46,24 @@ class ProdeskSessionController {
   static async createSessionBatch(req, res) {
     try {
       const result = await createSessionBatchService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async createQuickNoteSession(req, res) {
+    try {
+      const result = await createQuickNoteSessionService({ therapist_id: req.user.therapist_id, client_id: req.body.client_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async discardQuickNoteSession(req, res) {
+    try {
+      const result = await discardEmptyQuickSessionService({ therapist_id: req.user.therapist_id, session_id: req.body.session_id });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

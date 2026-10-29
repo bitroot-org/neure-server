@@ -1111,7 +1111,79 @@ const deleteSessionService = async ({ therapist_id, session_id }) => {
   }
 };
 
+// ─── Quick session note ──────────────────────────────────────────────────────
+// For urgent / walk-in sessions: no scheduling, no emails. Creates a session that is already
+// "completed" and starts now, so the therapist can go straight to its note.
+// If the therapist opens one and writes nothing, the empty session is removed again.
+const QUICK_NOTE_TITLE = 'Quick note';
+
+const removeEmptyQuickSessions = async (therapist_id, minutesOld = 60) => {
+  await db.query(
+    `DELETE FROM prodesk_sessions
+     WHERE therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL
+       AND created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE)`,
+    [therapist_id, QUICK_NOTE_TITLE, minutesOld]
+  );
+};
+
+const createQuickNoteSessionService = async (payload) => {
+  try {
+    const { therapist_id, client_id } = payload;
+    if (!client_id) return { status: false, code: 400, message: 'client_id is required', data: null };
+
+    const [[client]] = await db.query(
+      'SELECT id, default_fee FROM prodesk_clients WHERE id = ? AND therapist_id = ?',
+      [client_id, therapist_id]
+    );
+    if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    // A quick note creates a session, so the same plan rule applies as for any new session
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
+
+    removeEmptyQuickSessions(therapist_id).catch(() => {});
+
+    const [[last]] = await db.query(
+      'SELECT modality, duration_min FROM prodesk_sessions WHERE client_id = ? AND therapist_id = ? ORDER BY starts_at DESC LIMIT 1',
+      [client_id, therapist_id]
+    );
+    const [[{ cnt }]] = await db.query('SELECT COUNT(*) AS cnt FROM prodesk_sessions WHERE client_id = ?', [client_id]);
+
+    // starts_at is stored as an IST wall-clock string
+    const startsAt = new Date(Date.now() + (5 * 60 + 30) * 60000).toISOString().slice(0, 19).replace('T', ' ');
+
+    const [result] = await db.query(
+      `INSERT INTO prodesk_sessions
+       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')`,
+      [therapist_id, client_id, cnt + 1, QUICK_NOTE_TITLE, startsAt, last?.duration_min || 45, last?.modality || 'in_person', client.default_fee || 0]
+    );
+    touchClient(client_id);
+    return getSessionByIdService({ therapist_id, session_id: result.insertId });
+  } catch (error) {
+    console.log('Error in createQuickNoteSessionService::>>', error);
+    return null;
+  }
+};
+
+// The therapist left a quick note without writing anything: remove the empty session
+const discardEmptyQuickSessionService = async ({ therapist_id, session_id }) => {
+  try {
+    const [res] = await db.query(
+      `DELETE FROM prodesk_sessions
+       WHERE id = ? AND therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL`,
+      [session_id, therapist_id, QUICK_NOTE_TITLE]
+    );
+    return { status: true, code: 200, message: res.affectedRows ? 'Removed' : 'Nothing to remove', data: null };
+  } catch (error) {
+    console.log('Error in discardEmptyQuickSessionService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
+  createQuickNoteSessionService,
+  discardEmptyQuickSessionService,
   createSessionService,
   createSessionBatchService,
   getSessionsService,

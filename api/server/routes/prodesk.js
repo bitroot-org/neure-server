@@ -112,6 +112,8 @@ router.post('/requestClientRecordHistory', authorization, ClientCtrl.requestReco
 // ──────────────────────────────────────────────────────────────
 // SESSIONS
 // ──────────────────────────────────────────────────────────────
+router.post('/createQuickNoteSession', authorization, SessionCtrl.createQuickNoteSession);
+router.post('/discardQuickNoteSession', authorization, SessionCtrl.discardQuickNoteSession);
 router.post('/createSession',       authorization, SessionCtrl.createSession);
 router.post('/createSessionBatch',  authorization, SessionCtrl.createSessionBatch);
 router.post('/getReminderSetting',  authorization, SessionCtrl.getReminderSetting);
