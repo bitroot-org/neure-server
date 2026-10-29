@@ -54,7 +54,7 @@ class ProdeskSessionController {
 
   static async createQuickNoteSession(req, res) {
     try {
-      const result = await createQuickNoteSessionService({ therapist_id: req.user.therapist_id, client_id: req.body.client_id });
+      const result = await createQuickNoteSessionService({ therapist_id: req.user.therapist_id, client_id: req.body.client_id, modality: req.body.modality });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

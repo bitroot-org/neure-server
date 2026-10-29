@@ -55,6 +55,81 @@ const getSessionByIdService = async (payload) => {
   }
 };
 
+// Email + WhatsApp + therapist bell notification for ONE session (all best-effort).
+// Returns what was sent so callers can tell the therapist when the client could not be reached.
+const sendSessionScheduledMessages = async ({ therapist_id, client_id, session_id, starts_at, duration_min, meetUrl }) => {
+  const sent = { email: false, whatsapp: false };
+  try {
+    const [clientRow] = await db.query(
+      `SELECT u.phone, u.email,
+              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              tu.user_id AS therapist_user_id,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM prodesk_clients pc
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = ?
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE pc.id = ?`,
+      [therapist_id, client_id]
+    );
+
+    if (clientRow && clientRow.length) {
+      const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
+      const formattedTime = formatISTWallClock(starts_at);
+      const notifMeta = { session_id: session_id, client_id };
+
+      // In-app notification for the therapist's own dashboard bell.
+      await NotificationService.createNotification({
+        user_id: therapist_user_id,
+        type: 'SESSION_SCHEDULED',
+        title: `Session Scheduled with ${client_name}`,
+        content: `Session with ${client_name} scheduled for ${formattedTime}.`,
+        meta: notifMeta
+      });
+
+      // Email (primary — always fires while WhatsApp template is pending)
+      if (email) {
+        sent.email = true;
+        await NotificationService.sendSessionScheduledEmail({
+          toEmail: email,
+          toName: client_name,
+          therapistName: therapist_name,
+          sessionTime: formattedTime,
+          meetUrl: meetUrl || null,
+          clinicName: clinic_name,
+          meta: notifMeta,
+          sessionStartISO: starts_at,
+          durationMin: duration_min || 60
+        });
+      }
+
+      // WhatsApp
+      if (phone) {
+        sent.whatsapp = true;
+        const digits = phone.replace(/\D/g, '');
+        const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+        await NotificationService.sendWhatsAppNotification({
+          to: phone_e164,
+          templateName: 'session_scheduled',
+          variables: [
+            client_name,                     // {{1}} Hi *{{1}}*
+            therapist_name,                  // {{2}} session with *{{2}}*
+            formattedTime,                   // {{3}} Date & Time
+            meetUrl || 'N/A'                 // {{4}} Session Link
+          ],
+          meta: notifMeta
+        });
+      }
+    }
+  } catch (e) {
+    console.log('Notification (non-blocking):', e.message);
+  }
+  return sent;
+};
+
+
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
@@ -139,72 +214,9 @@ const createSessionService = async (payload) => {
       }
     }
 
-    // Send email + WhatsApp notifications after session is scheduled (both best-effort).
     // Multi-session bookings skip this and send ONE combined message instead.
-    if (!skip_notifications) try {
-      const [clientRow] = await db.query(
-        `SELECT u.phone, u.email,
-                CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-                CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
-                tu.user_id AS therapist_user_id,
-                COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
-         FROM prodesk_clients pc
-         JOIN users u ON u.user_id = pc.user_id
-         JOIN therapists t ON t.id = ?
-         JOIN users tu ON tu.user_id = t.user_id
-         LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
-         WHERE pc.id = ?`,
-        [therapist_id, client_id]
-      );
-
-      if (clientRow && clientRow.length) {
-        const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
-        const formattedTime = formatISTWallClock(starts_at);
-        const notifMeta = { session_id: result.insertId, client_id };
-
-        // In-app notification for the therapist's own dashboard bell.
-        await NotificationService.createNotification({
-          user_id: therapist_user_id,
-          type: 'SESSION_SCHEDULED',
-          title: `Session Scheduled with ${client_name}`,
-          content: `Session with ${client_name} scheduled for ${formattedTime}.`,
-          meta: notifMeta
-        });
-
-        // Email (primary — always fires while WhatsApp template is pending)
-        if (email) {
-          await NotificationService.sendSessionScheduledEmail({
-            toEmail: email,
-            toName: client_name,
-            therapistName: therapist_name,
-            sessionTime: formattedTime,
-            meetUrl: meetUrl || null,
-            clinicName: clinic_name,
-            meta: notifMeta,
-            sessionStartISO: starts_at,
-            durationMin: duration_min || 60
-          });
-        }
-
-        // WhatsApp
-        if (phone) {
-          const digits = phone.replace(/\D/g, '');
-          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-          await NotificationService.sendWhatsAppNotification({
-            to: phone_e164,
-            templateName: 'session_scheduled',
-            variables: [
-              client_name,                     // {{1}} Hi *{{1}}*
-              therapist_name,                  // {{2}} session with *{{2}}*
-              formattedTime,                   // {{3}} Date & Time
-              meetUrl || 'N/A'                 // {{4}} Session Link
-            ],
-            meta: notifMeta
-          });
-        }
-      }
-    } catch (e) {
-      console.log('Notification (non-blocking):', e.message);
+    if (!skip_notifications) {
+      await sendSessionScheduledMessages({ therapist_id, client_id, session_id: result.insertId, starts_at, duration_min: duration_min || 60, meetUrl });
     }
 
     return getSessionByIdService({ therapist_id, session_id: result.insertId });
@@ -1120,7 +1132,7 @@ const QUICK_NOTE_TITLE = 'Quick note';
 const removeEmptyQuickSessions = async (therapist_id, minutesOld = 60) => {
   await db.query(
     `DELETE FROM prodesk_sessions
-     WHERE therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL
+     WHERE therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL AND meet_url IS NULL
        AND created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE)`,
     [therapist_id, QUICK_NOTE_TITLE, minutesOld]
   );
@@ -1130,9 +1142,12 @@ const createQuickNoteSessionService = async (payload) => {
   try {
     const { therapist_id, client_id } = payload;
     if (!client_id) return { status: false, code: 400, message: 'client_id is required', data: null };
+    const wantVideo = payload.modality === 'video';
 
     const [[client]] = await db.query(
-      'SELECT id, default_fee FROM prodesk_clients WHERE id = ? AND therapist_id = ?',
+      `SELECT pc.id, pc.default_fee, u.email, u.phone
+       FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id
+       WHERE pc.id = ? AND pc.therapist_id = ?`,
       [client_id, therapist_id]
     );
     if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
@@ -1140,6 +1155,11 @@ const createQuickNoteSessionService = async (payload) => {
     // A quick note creates a session, so the same plan rule applies as for any new session
     const useGate = await planGuard.checkUseClient(therapist_id, client_id);
     if (!useGate.ok) return useGate.response;
+
+    // A video link has to reach the client, so they need an email or a mobile number
+    if (wantVideo && !client.email && !client.phone) {
+      return { status: false, code: 422, message: 'This client has no email or mobile number, so the video link cannot be sent. Add one to their profile, or choose in-person.', data: null };
+    }
 
     removeEmptyQuickSessions(therapist_id).catch(() => {});
 
@@ -1156,10 +1176,30 @@ const createQuickNoteSessionService = async (payload) => {
       `INSERT INTO prodesk_sessions
        (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')`,
-      [therapist_id, client_id, cnt + 1, QUICK_NOTE_TITLE, startsAt, last?.duration_min || 45, last?.modality || 'in_person', client.default_fee || 0]
+      [therapist_id, client_id, cnt + 1, QUICK_NOTE_TITLE, startsAt, last?.duration_min || 45, wantVideo ? 'video' : 'in_person', client.default_fee || 0]
     );
     touchClient(client_id);
-    return getSessionByIdService({ therapist_id, session_id: result.insertId });
+
+    // Video: make a Google Meet link and send it to the client right now (email + WhatsApp)
+    let sent = null;
+    if (wantVideo) {
+      let meetUrl = null;
+      try {
+        meetUrl = await createMeetingSpace(therapist_id);
+      } catch (e) {
+        console.log('Quick note Meet create failed:', e.message);
+      }
+      if (!meetUrl) {
+        await db.query('DELETE FROM prodesk_sessions WHERE id = ?', [result.insertId]);
+        return { status: false, code: 502, message: 'Could not create the Google Meet link. Please check your Google connection in Settings, or choose in-person.', data: null };
+      }
+      await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
+      sent = await sendSessionScheduledMessages({ therapist_id, client_id, session_id: result.insertId, starts_at: startsAt, duration_min: last?.duration_min || 45, meetUrl });
+    }
+
+    const out = await getSessionByIdService({ therapist_id, session_id: result.insertId });
+    if (out && out.data && sent) out.data.link_sent = sent;
+    return out;
   } catch (error) {
     console.log('Error in createQuickNoteSessionService::>>', error);
     return null;
@@ -1171,7 +1211,7 @@ const discardEmptyQuickSessionService = async ({ therapist_id, session_id }) => 
   try {
     const [res] = await db.query(
       `DELETE FROM prodesk_sessions
-       WHERE id = ? AND therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL`,
+       WHERE id = ? AND therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL AND meet_url IS NULL`,
       [session_id, therapist_id, QUICK_NOTE_TITLE]
     );
     return { status: true, code: 200, message: res.affectedRows ? 'Removed' : 'Nothing to remove', data: null };
