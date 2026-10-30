@@ -34,6 +34,7 @@ const initProdeskOverdueInvoices   = require("./Cron/prodeskOverdueInvoices");
 const initProdeskSubscriptionJobs  = require("./Cron/prodeskSubscriptionJobs");
 const initProdeskTherapistReminder = require("./Cron/prodeskTherapistReminder");
 const initProdeskClientReminder = require("./Cron/prodeskClientReminder");
+const initProdeskPrivacyJobs = require("./Cron/prodeskPrivacyJobs");
 // NOTE: Inactive — uncomment to activate old renewal reminders
 // const initProdeskSubscriptionRenewal = require("./Cron/prodeskSubscriptionRenewal");
 
@@ -100,6 +101,7 @@ initProdeskOverdueInvoices();
 initProdeskSubscriptionJobs();
 initProdeskTherapistReminder();
 initProdeskClientReminder();
+initProdeskPrivacyJobs();
 // initProdeskSubscriptionRenewal(); // INACTIVE — old order-based renewal, replaced by initProdeskSubscriptionJobs
 
 app.get("*", (req, res) => {

@@ -2,6 +2,15 @@ const express = require('express');
 const multer = require('multer');
 const router = express.Router();
 const { authorization } = require('../../auth/tokenValidator');
+
+// Everything under /prodesk-admin is for Neure superadmins only. A therapist's token is valid for
+// authorization too, so the role must be checked here, before any admin route (incl. the bank-account ones).
+router.use(authorization, (req, res, next) => {
+  if (req.user?.role_id !== 1) {
+    return res.status(403).json({ status: false, code: 403, message: 'Access denied. Only superadmins can perform this action', data: null });
+  }
+  next();
+});
 const Ctrl            = require('../controllers/admin/prodeskAdminController');
 const BankAccountCtrl = require('../controllers/prodesk/bankAccountController');
 

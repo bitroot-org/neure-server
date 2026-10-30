@@ -6,7 +6,9 @@ const {
   verifyBookingPaymentService,
   getBookingSlotsService,
   lookupBookingClientService,
-  createBookingSessionService
+  createBookingSessionService,
+  sendBookingParentOtpService,
+  verifyBookingParentOtpService
 } = require('../../services/prodesk/bookingService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -101,14 +103,32 @@ class ProdeskBookingController {
     }
   }
 
+  static async sendBookingParentOtp(req, res) {
+    try {
+      const { slug, parent_name, parent_phone, parent_email } = req.body;
+      return respond(res, await sendBookingParentOtpService({ slug, parent_name, parent_phone, parent_email, ip_address: req.ip }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async verifyBookingParentOtp(req, res) {
+    try {
+      const { slug, consent_id, otp } = req.body;
+      return respond(res, await verifyBookingParentOtpService({ slug, consent_id, otp }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async createBookingSession(req, res) {
     try {
-      const { slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted } = req.body;
+      const { slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id } = req.body;
       if (!slug || !date || !time || !modality || !email) {
         return res.status(400).json({ status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null });
       }
       const result = await createBookingSessionService({
-        slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted,
+        slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id,
         ip_address: req.ip,
         user_agent: req.headers['user-agent']
       });

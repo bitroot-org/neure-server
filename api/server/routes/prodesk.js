@@ -1,7 +1,20 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
-const { authorization } = require('../../auth/tokenValidator');
+const { authorization: verifyToken } = require('../../auth/tokenValidator');
+
+// Whose data is this? ALWAYS the logged-in therapist's, never whatever the request body claims.
+// (Many services read therapist_id from the body, so without this any therapist could pass another
+// therapist's id and read or change their clients, sessions and invoices.)
+const pinTherapist = (req, res, next) => {
+  if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+    if (req.user && req.user.therapist_id) req.body.therapist_id = req.user.therapist_id;
+    else delete req.body.therapist_id;
+  }
+  next();
+};
+const authorization = [verifyToken, pinTherapist];
+const { accessLog } = require('../services/prodesk/accessLogService');
 
 // Controllers
 const AuthCtrl      = require('../controllers/prodesk/authController');
@@ -93,16 +106,26 @@ router.post('/deleteDocument',      authorization, ProfileCtrl.deleteDocument);
 router.post('/getBookingLink',        authorization, ProfileCtrl.getBookingLink);
 router.post('/completeOnboarding',    authorization, ProfileCtrl.completeOnboarding);
 router.post('/updateOnboardingStep',  authorization, ProfileCtrl.updateOnboardingStep);
+router.post('/getPolicyStatus',       authorization, ProfileCtrl.getPolicyStatus);
+router.post('/acceptPolicy',          authorization, ProfileCtrl.acceptPolicy);
 router.post('/recordConsent',         authorization, ProfileCtrl.recordConsent);
 
 // ──────────────────────────────────────────────────────────────
 // CLIENTS
 // ──────────────────────────────────────────────────────────────
+router.post('/sendParentOtp',   authorization, ClientCtrl.sendParentOtp);
+router.post('/verifyParentOtp', authorization, ClientCtrl.verifyParentOtp);
 router.post('/createClient',    authorization, ClientCtrl.createClient);
 router.post('/getClients',      authorization, ClientCtrl.getClients);
-router.post('/getClientById',   authorization, ClientCtrl.getClientById);
-router.post('/updateClient',    authorization, ClientCtrl.updateClient);
-router.post('/archiveClient',   authorization, ClientCtrl.archiveClient);
+router.post('/getClientById',   authorization, accessLog('view_client', 'client', 'client_id'), ClientCtrl.getClientById);
+router.post('/updateClient',    authorization, accessLog('edit_client', 'client', 'client_id'), ClientCtrl.updateClient);
+router.post('/archiveClient',   authorization, accessLog('archive_client', 'client', 'client_id'), ClientCtrl.archiveClient);
+router.post('/getAccountDeletionStatus', authorization, ClientCtrl.getAccountDeletionStatus);
+router.post('/requestAccountDeletion',   authorization, ClientCtrl.requestAccountDeletion);
+router.post('/cancelAccountDeletion',    authorization, ClientCtrl.cancelAccountDeletion);
+router.post('/exportAllData',   authorization, accessLog('export_all_data', 'therapist', 'none'), ClientCtrl.exportAllData);
+router.post('/deleteClient',    authorization, accessLog('delete_client', 'client', 'client_id'), ClientCtrl.deleteClient);
+router.post('/getAccessLogs',   authorization, ClientCtrl.getAccessLogs);
 router.post('/getPlanAccess',   authorization, ClientCtrl.getPlanAccess);
 router.post('/setActiveClients', authorization, ClientCtrl.setActiveClients);
 router.post('/uploadClientPhoto', authorization, imageUpload.single('file'), ClientCtrl.uploadClientPhoto);
@@ -136,22 +159,22 @@ router.post('/sendSessionReminder', authorization, SessionCtrl.sendSessionRemind
 // ──────────────────────────────────────────────────────────────
 // SESSION NOTES
 // ──────────────────────────────────────────────────────────────
-router.post('/createNote',              authorization, NoteCtrl.createNote);
-router.post('/getNote',                 authorization, NoteCtrl.getNote);
-router.post('/exportNotePdf',           authorization, NoteCtrl.exportNotePdf);
-router.post('/updateNote',              authorization, NoteCtrl.updateNote);
-router.post('/getClientNotes',          authorization, NoteCtrl.getClientNotes);
+router.post('/createNote',              authorization, accessLog('edit_note', 'session', 'session_id'), NoteCtrl.createNote);
+router.post('/getNote',                 authorization, accessLog('view_note', 'session', 'session_id'), NoteCtrl.getNote);
+router.post('/exportNotePdf',           authorization, accessLog('export_note', 'session', 'session_id'), NoteCtrl.exportNotePdf);
+router.post('/updateNote',              authorization, accessLog('edit_note', 'session', 'session_id'), NoteCtrl.updateNote);
+router.post('/getClientNotes',          authorization, accessLog('view_client_notes', 'client', 'client_id'), NoteCtrl.getClientNotes);
 router.post('/uploadNoteAttachment',    authorization, resourceUpload.single('file'), NoteCtrl.uploadNoteAttachment);
 router.post('/deleteNoteAttachment',    authorization, NoteCtrl.deleteNoteAttachment);
 
 // ──────────────────────────────────────────────────────────────
 // BILLING & INVOICES
 // ──────────────────────────────────────────────────────────────
-router.post('/createInvoice',          authorization, BillingCtrl.createInvoice);
+router.post('/createInvoice',          authorization, accessLog('create_invoice', 'client', 'client_id'), BillingCtrl.createInvoice);
 router.post('/updateInvoice',          authorization, BillingCtrl.updateInvoice);
 router.post('/getInvoices',            authorization, BillingCtrl.getInvoices);
-router.post('/getInvoiceById',         authorization, BillingCtrl.getInvoiceById);
-router.post('/sendInvoice',            authorization, BillingCtrl.sendInvoice);
+router.post('/getInvoiceById',         authorization, accessLog('view_invoice', 'invoice', 'invoice_id'), BillingCtrl.getInvoiceById);
+router.post('/sendInvoice',            authorization, accessLog('send_invoice', 'invoice', 'invoice_id'), BillingCtrl.sendInvoice);
 router.post('/resendInvoice',          authorization, BillingCtrl.resendInvoice);
 router.post('/getInvoicePaymentLink',  authorization, BillingCtrl.getInvoicePaymentLink);
 router.post('/cancelInvoice',          authorization, BillingCtrl.cancelInvoice);
@@ -185,6 +208,8 @@ router.post('/verifyBookingPayment',  BookingCtrl.verifyBookingPayment);
 router.post('/getBookingSlots',       BookingCtrl.getBookingSlots);
 router.post('/lookupBookingClient',   BookingCtrl.lookupBookingClient);
 router.post('/createBookingSession',  BookingCtrl.createBookingSession);
+router.post('/sendBookingParentOtp',  BookingCtrl.sendBookingParentOtp);
+router.post('/verifyBookingParentOtp', BookingCtrl.verifyBookingParentOtp);
 
 // ──────────────────────────────────────────────────────────────
 // NOTIFICATIONS

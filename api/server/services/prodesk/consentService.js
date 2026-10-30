@@ -93,7 +93,41 @@ const listConsentLogsService = async (payload) => {
   }
 };
 
+// ─── PRIVACY POLICY VERSION (accept again after every change) ────────────────
+// Change this value whenever the Privacy Policy / Terms change materially and deploy:
+// every therapist then sees an "accept the updated policy" pop-up on their dashboard.
+const CURRENT_POLICY_VERSION = 'v1';
+
+// Consent given at sign-up is stored as "signup-<version>", so both spellings count as accepted
+const getPolicyStatusService = async ({ user_id }) => {
+  try {
+    const [[row]] = await db.query(
+      `SELECT COUNT(*) AS n FROM consent_logs
+       WHERE actor_type = 'therapist' AND actor_id = ? AND consent_type = 'compliance'
+         AND consent_version IN (?, ?)`,
+      [user_id, CURRENT_POLICY_VERSION, `signup-${CURRENT_POLICY_VERSION}`]
+    );
+    return {
+      status: true, code: 200, message: 'Policy status fetched',
+      data: { current_version: CURRENT_POLICY_VERSION, needs_acceptance: !row || row.n === 0 }
+    };
+  } catch (error) {
+    console.log('Error in getPolicyStatusService::>>', error);
+    return null;
+  }
+};
+
+const acceptPolicyService = async ({ user_id, therapist_id, email, ip_address, user_agent }) => {
+  return recordConsentService({
+    actor_type: 'therapist', actor_id: user_id, therapist_id, email,
+    consent_types: ['terms_and_conditions', 'compliance'],
+    consent_version: CURRENT_POLICY_VERSION, ip_address, user_agent
+  });
+};
+
 module.exports = {
+  getPolicyStatusService,
+  acceptPolicyService,
   recordConsentService,
   listConsentLogsService
 };

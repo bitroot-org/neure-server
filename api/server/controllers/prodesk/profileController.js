@@ -17,7 +17,7 @@ const {
   completeOnboardingService,
   updateOnboardingStepService
 } = require('../../services/prodesk/profileService');
-const { recordConsentService } = require('../../services/prodesk/consentService');
+const { recordConsentService, getPolicyStatusService, acceptPolicyService } = require('../../services/prodesk/consentService');
 const { uploadImage } = require('../upload/UploadController');
 const { convertDatesToIST } = require('../../utils/dateHelper');
 
@@ -198,6 +198,25 @@ class ProdeskProfileController {
       if (step === undefined) return res.status(400).json({ status: false, code: 400, message: 'step is required', data: null });
       const result = await updateOnboardingStepService({ therapist_id: req.user.therapist_id, step });
       return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getPolicyStatus(req, res) {
+    try {
+      return respond(res, await getPolicyStatusService({ user_id: req.user.user_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async acceptPolicy(req, res) {
+    try {
+      return respond(res, await acceptPolicyService({
+        user_id: req.user.user_id, therapist_id: req.user.therapist_id, email: req.user.email,
+        ip_address: req.ip, user_agent: req.headers['user-agent']
+      }));
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }

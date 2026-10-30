@@ -133,3 +133,4 @@ api/config/google-service-account.json
 .mcp.json
 # contains DB credentials + dumps — whole folder stays local only
 scripts/
+docs/

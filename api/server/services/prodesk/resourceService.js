@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { applyParentContact } = require('./clientContact');
 const { touchClient } = require('./clientActivity');
 const planGuard = require('./planGuard');
 const axios = require('axios');
@@ -198,7 +199,7 @@ const fetchClientForSend = async (clientId) => {
      FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
     [clientId]
   );
-  return rows && rows.length ? rows[0] : null;
+  return rows && rows.length ? applyParentContact(clientId, rows[0]) : null;
 };
 
 const fetchTherapistBrand = async (therapistId) => {

@@ -105,7 +105,7 @@ const getMetricsService = async (payload) => {
     const [[clientStats]] = await db.query(
       `SELECT COUNT(*) AS lives_impacted
        FROM prodesk_clients
-       WHERE therapist_id = ? AND status = 'active' AND is_confirmed = 1`,
+       WHERE therapist_id = ? AND status = 'active' AND is_confirmed = 1 AND deleted_at IS NULL`,
       [therapist_id]
     );
 
@@ -130,12 +130,12 @@ const getMetricsService = async (payload) => {
     // (lives_impacted itself is a total-active snapshot, not period-scoped).
     const [[curNewClients]] = await db.query(
       `SELECT COUNT(*) AS cnt FROM prodesk_clients
-       WHERE therapist_id = ? AND is_confirmed = 1 AND DATE(created_at) BETWEEN ? AND ?`,
+       WHERE therapist_id = ? AND is_confirmed = 1 AND deleted_at IS NULL AND DATE(created_at) BETWEEN ? AND ?`,
       [therapist_id, startDate, endDate]
     );
     const [[prevNewClients]] = await db.query(
       `SELECT COUNT(*) AS cnt FROM prodesk_clients
-       WHERE therapist_id = ? AND is_confirmed = 1 AND DATE(created_at) BETWEEN ? AND ?`,
+       WHERE therapist_id = ? AND is_confirmed = 1 AND deleted_at IS NULL AND DATE(created_at) BETWEEN ? AND ?`,
       [therapist_id, prevStart, prevEnd]
     );
 
@@ -207,7 +207,7 @@ const getTodaySessionsForDashboard = async (therapistId) => {
               pc.avatar_color, pc.profile_url AS client_profile_url, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
        JOIN users u ON u.user_id = pc.user_id
        WHERE ps.therapist_id = ? AND DATE(ps.starts_at) = CURDATE()
        AND ps.status IN ('scheduled', 'completed')

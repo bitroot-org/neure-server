@@ -1,6 +1,7 @@
 const db = require('../../../config/db');
 const { modesForModality } = require('../../utils/availabilityMode');
 const { touchClient, touchClientBySession } = require('./clientActivity');
+const { applyParentContact } = require('./clientContact');
 const planGuard = require('./planGuard');
 const { sendClientReminder } = require('./clientReminderService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
@@ -76,6 +77,7 @@ const sendSessionScheduledMessages = async ({ therapist_id, client_id, session_i
     );
 
     if (clientRow && clientRow.length) {
+      await applyParentContact(client_id, clientRow[0]);
       const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
       const formattedTime = formatISTWallClock(starts_at);
       const notifMeta = { session_id: session_id, client_id };
@@ -304,6 +306,7 @@ const createSessionBatchService = async (payload) => {
         [therapist_id, client_id]
       );
       if (clientRow && clientRow.length) {
+        await applyParentContact(client_id, clientRow[0]);
         const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
         const list = created.map((c, i) => ({
           sessionTime: formatISTWallClock(c.starts_at || sessions[i].starts_at),
@@ -448,6 +451,7 @@ const approveBookingRequestService = async (payload) => {
     }
 
     try {
+      await applyParentContact(session.client_id, session); // under 18: the parent is contacted
       const formattedTime = formatISTWallClock(session.starts_at);
       const notifMeta = { session_id, client_id: session.client_id };
 
@@ -525,6 +529,7 @@ const declineBookingRequestService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
@@ -582,7 +587,7 @@ const getSessionsService = async (payload) => {
                   : 'ps.starts_at';
     const sortDir = order === 'asc' ? 'ASC' : 'DESC';
 
-    const joins = `JOIN prodesk_clients pc ON pc.id = ps.client_id
+    const joins = `JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
                    JOIN users u ON u.user_id = pc.user_id`;
 
     const [[{ total }]] = await db.query(
@@ -703,6 +708,7 @@ const rescheduleSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow) {
         const sessionTime = formatISTWallClock(starts_at);
         if (clientRow.email) {
@@ -777,6 +783,7 @@ const cancelSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
@@ -847,7 +854,7 @@ const getCalendarSessionsService = async (payload) => {
               pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
        JOIN users u ON u.user_id = pc.user_id
        WHERE ps.therapist_id = ? AND DATE(ps.starts_at) BETWEEN ? AND ?
        ORDER BY ps.starts_at ASC`,
@@ -882,7 +889,7 @@ const getTodaySessionsService = async (payload) => {
               pc.avatar_color, pc.profile_url AS client_profile_url, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
        JOIN users u ON u.user_id = pc.user_id
        WHERE ps.therapist_id = ? AND DATE(ps.starts_at) = CURDATE()
        AND ps.status IN ('scheduled', 'completed')
@@ -935,7 +942,7 @@ const sendSessionReminderService = async (payload) => {
     const [rows] = await db.query(
       `SELECT ps.id,
               ps.starts_at AS starts_at,
-              ps.modality, ps.meet_url, ps.status,
+              ps.modality, ps.meet_url, ps.status, ps.client_id,
               u.email, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
               COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name,
@@ -959,6 +966,7 @@ const sendSessionReminderService = async (payload) => {
     if (s.status === 'cancelled') {
       return { status: false, code: 409, message: 'Cannot send reminder for a cancelled session', data: null };
     }
+    await applyParentContact(s.client_id, s);
 
     // Same message the automatic reminders use (email + WhatsApp)
     const sent = await sendClientReminder({ ...s, id: session_id });
@@ -1156,7 +1164,8 @@ const createQuickNoteSessionService = async (payload) => {
     const useGate = await planGuard.checkUseClient(therapist_id, client_id);
     if (!useGate.ok) return useGate.response;
 
-    // A video link has to reach the client, so they need an email or a mobile number
+    await applyParentContact(client_id, client);
+    // A video link has to reach the client (their parent, if under 18), so they need an email or a mobile number
     if (wantVideo && !client.email && !client.phone) {
       return { status: false, code: 422, message: 'This client has no email or mobile number, so the video link cannot be sent. Add one to their profile, or choose in-person.', data: null };
     }

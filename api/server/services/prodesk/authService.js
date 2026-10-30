@@ -204,10 +204,15 @@ const generateReferralCode = (firstName, userId) => {
 const registerService = async (payload) => {
   try {
     console.log('Payload in registerService::>>', payload);
-    const { first_name, last_name = '', email, password, phone, referral_code } = payload;
+    const { first_name, last_name = '', email, password, phone, referral_code, consent_accepted, ip_address = null, user_agent = null } = payload;
 
     if (!first_name || !email || !password) {
       return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
+    }
+
+    // DPDP: nobody gets an account without agreeing to the Privacy Policy and Terms
+    if (consent_accepted !== true) {
+      return { status: false, code: 400, message: 'Please agree to the Privacy Policy and Terms to create your account.', data: null };
     }
 
     // New signups are paused during an active maintenance window; existing
@@ -286,6 +291,14 @@ const registerService = async (payload) => {
         [userId, slug, uniqueReferralCode]
       );
       const therapistId = therapistResult.insertId;
+
+      // Proof of consent given at sign-up (terms + privacy policy), saved together with the account
+      await conn.query(
+        `INSERT INTO consent_logs (actor_type, actor_id, therapist_id, email, consent_type, consent_version, ip_address, user_agent)
+         VALUES ('therapist', ?, ?, ?, 'terms_and_conditions', 'signup-v1', ?, ?),
+                ('therapist', ?, ?, ?, 'compliance', 'signup-v1', ?, ?)`,
+        [userId, therapistId, email, ip_address, (user_agent || '').slice(0, 255), userId, therapistId, email, ip_address, (user_agent || '').slice(0, 255)]
+      );
 
       // Create referral wallet for this new therapist
       await conn.query(

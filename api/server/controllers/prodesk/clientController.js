@@ -10,7 +10,13 @@ const {
 } = require('../../services/prodesk/clientService');
 const { uploadImage } = require('../upload/UploadController');
 const planGuard = require('../../services/prodesk/planGuard');
+const { buildAllDataZip } = require('../../services/prodesk/dataExportService');
+const { deleteClientService, getAccountDeletionStatusService, requestAccountDeletionService, cancelAccountDeletionService } = require('../../services/prodesk/privacyService');
+const { getAccessLogsService } = require('../../services/prodesk/accessLogService');
+const { sendParentOtpService, verifyParentOtpService } = require('../../services/prodesk/parentConsentService');
 const { convertDatesToIST } = require('../../utils/dateHelper');
+
+const exportRuns = new Map();   // therapist_id -> { running, at }
 
 const respond = (res, result) => {
   if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
@@ -64,6 +70,92 @@ class ProdeskClientController {
   static async removeClientPhoto(req, res) {
     try {
       const result = await setClientPhotoService({ therapist_id: req.user.therapist_id, client_id: parseInt(req.body.client_id), profile_url: null });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getAccountDeletionStatus(req, res) {
+    try {
+      return respond(res, await getAccountDeletionStatusService({ therapist_id: req.user.therapist_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async requestAccountDeletion(req, res) {
+    try {
+      return respond(res, await requestAccountDeletionService({ therapist_id: req.user.therapist_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async cancelAccountDeletion(req, res) {
+    try {
+      return respond(res, await cancelAccountDeletionService({ therapist_id: req.user.therapist_id }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async exportAllData(req, res) {
+    // One download at a time per therapist, and not more often than every 30 seconds (it is heavy: it renders every note as a PDF)
+    const key = req.user.therapist_id;
+    const last = exportRuns.get(key);
+    if (last && (last.running || Date.now() - last.at < 30000)) {
+      return res.status(429).json({ status: false, code: 429, message: 'Your download is already being prepared. Please wait a moment and try again.', data: null });
+    }
+    exportRuns.set(key, { running: true, at: Date.now() });
+    try {
+      const { buffer } = await buildAllDataZip({ therapist_id: req.user.therapist_id });
+      const day = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="ProDesk-data-${day}.zip"`);
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(buffer);
+    } catch (e) {
+      console.log('exportAllData failed::>>', e);
+      return res.status(500).json({ status: false, code: 500, message: 'Could not create the download. Please try again.', data: null });
+    } finally {
+      exportRuns.set(key, { running: false, at: Date.now() });
+    }
+  }
+
+  static async deleteClient(req, res) {
+    try {
+      const { client_id } = req.body;
+      if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id required', data: null });
+      const result = await deleteClientService({ therapist_id: req.user.therapist_id, client_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getAccessLogs(req, res) {
+    try {
+      const result = await getAccessLogsService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async sendParentOtp(req, res) {
+    try {
+      const result = await sendParentOtpService({ therapist_id: req.user.therapist_id, ...req.body, ip_address: req.ip });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async verifyParentOtp(req, res) {
+    try {
+      const result = await verifyParentOtpService({ therapist_id: req.user.therapist_id, consent_id: req.body.consent_id, otp: req.body.otp });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

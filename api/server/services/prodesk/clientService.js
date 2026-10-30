@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
+const parentConsent = require('./parentConsentService');
 const planGuard = require('./planGuard');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
@@ -19,10 +20,11 @@ const getClientByIdService = async (payload) => {
     const [rows] = await db.query(
       `SELECT pc.*, u.first_name, u.last_name, u.email, u.phone,
               CONCAT(u.first_name, ' ', u.last_name) AS name,
-              (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count
+              (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count,
+              EXISTS(SELECT 1 FROM prodesk_parent_consents x WHERE x.client_id = pc.id AND x.verified_at IS NOT NULL) AS has_parent_consent
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.id = ? AND pc.therapist_id = ?`,
+       WHERE pc.id = ? AND pc.therapist_id = ? AND pc.deleted_at IS NULL`,
       [client_id, therapist_id]
     );
 
@@ -44,7 +46,7 @@ const createClientService = async (payload) => {
   try {
     console.log('Payload in createClientService::>>', payload);
     const { therapist_id, name, email, phone, age, gender, city, emergency_contact,
-            start_date, presenting_concerns, treatment_given, issues, default_fee } = payload;
+            start_date, presenting_concerns, treatment_given, issues, default_fee, parent_consent_id } = payload;
 
     if (!name) {
       return { status: false, code: 400, message: 'name is required', data: null };
@@ -53,6 +55,13 @@ const createClientService = async (payload) => {
     // Plan limit: one shared check (also used by the booking link and by approving requests)
     const gate = await planGuard.checkAddClient(therapist_id);
     if (!gate.ok) return gate.response;
+
+    // DPDP: a client under 18 needs the parent's OTP consent first
+    const minor = parentConsent.isMinor(age);
+    if (minor) {
+      const pc = await parentConsent.checkParentConsent({ therapist_id, consent_id: parent_consent_id, client_phone: phone });
+      if (!pc.ok) return pc.response;
+    }
 
     // Normalise phone — strip all non-digits, keep country code if present
     const cleanPhone = phone ? phone.replace(/\D/g, '') : null;
@@ -119,6 +128,7 @@ const createClientService = async (payload) => {
       );
 
       await conn.commit();
+      if (minor) await parentConsent.attachParentConsent(parent_consent_id, clientResult.insertId);
       await planGuard.markClientActive(therapist_id, clientResult.insertId, gate.access); // takes one of the active places on Starter
       return getClientByIdService({ therapist_id, client_id: clientResult.insertId });
     } catch (e) {
@@ -154,7 +164,7 @@ const getClientsService = async (payload) => {
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 ${statusCond} ${searchCond}`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${searchCond}`,
       [therapist_id, ...statusVals, ...searchVals]
     );
 
@@ -169,7 +179,7 @@ const getClientsService = async (payload) => {
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 ${statusCond} ${searchCond}
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${searchCond}
        ORDER BY COALESCE(pc.last_activity_at, pc.created_at) DESC, pc.id DESC LIMIT ? OFFSET ?`,
       [therapist_id, ...statusVals, ...searchVals, limit, offset]
     );
@@ -200,6 +210,16 @@ const updateClientService = async (payload) => {
     }
 
     const userId = check[0].user_id;
+
+    // DPDP: setting a client's age to under 18 needs the parent's OTP consent, unless it is already on file
+    if (data.age !== undefined && data.age !== null && data.age !== '' && parentConsent.isMinor(data.age)) {
+      if (!(await parentConsent.hasParentConsent(client_id))) {
+        const [[cu]] = await db.query('SELECT u.phone FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?', [client_id]);
+        const pc = await parentConsent.checkParentConsent({ therapist_id, consent_id: data.parent_consent_id, client_phone: data.phone || (cu && cu.phone) });
+        if (!pc.ok) return pc.response;
+        await parentConsent.attachParentConsent(data.parent_consent_id, client_id);
+      }
+    }
 
     // Starter plan: a client's name is locked (renaming one client into another person would be a way round the 2-client limit)
     if (data.first_name !== undefined || data.last_name !== undefined) {
