@@ -1,5 +1,7 @@
 const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
+const parentConsent = require('./parentConsentService');
+const planGuard = require('./planGuard');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -18,10 +20,12 @@ const getClientByIdService = async (payload) => {
     const [rows] = await db.query(
       `SELECT pc.*, u.first_name, u.last_name, u.email, u.phone,
               CONCAT(u.first_name, ' ', u.last_name) AS name,
-              (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count
+              (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count,
+              EXISTS(SELECT 1 FROM prodesk_parent_consents x WHERE x.client_id = pc.id AND x.verified_at IS NOT NULL) AS has_parent_consent,
+              (SELECT COUNT(*) FROM prodesk_sessions up WHERE up.client_id = pc.id AND up.status = 'scheduled' AND up.starts_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)) AS upcoming_sessions
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.id = ? AND pc.therapist_id = ?`,
+       WHERE pc.id = ? AND pc.therapist_id = ? AND pc.deleted_at IS NULL`,
       [client_id, therapist_id]
     );
 
@@ -43,33 +47,21 @@ const createClientService = async (payload) => {
   try {
     console.log('Payload in createClientService::>>', payload);
     const { therapist_id, name, email, phone, age, gender, city, emergency_contact,
-            start_date, presenting_concerns, treatment_given, issues, default_fee } = payload;
+            start_date, presenting_concerns, treatment_given, issues, default_fee, parent_consent_id } = payload;
 
     if (!name) {
       return { status: false, code: 400, message: 'name is required', data: null };
     }
 
-    // Plan limit check
-    const [[subRow]] = await db.query(
-      `SELECT pp.client_limit, pp.plan_type FROM prodesk_subscriptions ps
-       JOIN prodesk_plans pp ON ps.plan_id = pp.id
-       WHERE ps.therapist_id = ? AND ps.status = 'active'
-       ORDER BY ps.created_at DESC LIMIT 1`,
-      [therapist_id]
-    );
+    // Plan limit: one shared check (also used by the booking link and by approving requests)
+    const gate = await planGuard.checkAddClient(therapist_id);
+    if (!gate.ok) return gate.response;
 
-    if (subRow && subRow.client_limit !== null) {
-      const [[{ active_clients }]] = await db.query(
-        `SELECT COUNT(*) AS active_clients FROM prodesk_clients WHERE therapist_id = ? AND status = 'active'`,
-        [therapist_id]
-      );
-      if (active_clients >= subRow.client_limit) {
-        return {
-          status: false, code: 403,
-          message: `Your ${subRow.plan_type === 'starter' ? 'Starter (Free)' : ''} plan allows a maximum of ${subRow.client_limit} active clients. Please upgrade to Professional to add unlimited clients.`,
-          data: { client_limit: subRow.client_limit, current_count: active_clients, upgrade_required: true }
-        };
-      }
+    // DPDP: a client under 18 needs the parent's OTP consent first
+    const minor = parentConsent.isMinor(age);
+    if (minor) {
+      const pc = await parentConsent.checkParentConsent({ therapist_id, consent_id: parent_consent_id, client_phone: phone });
+      if (!pc.ok) return pc.response;
     }
 
     // Normalise phone — strip all non-digits, keep country code if present
@@ -123,8 +115,8 @@ const createClientService = async (payload) => {
       const [clientResult] = await conn.query(
         `INSERT INTO prodesk_clients
          (user_id, therapist_id, age, gender, city, emergency_contact, start_date,
-          presenting_concerns, treatment_given, issues, default_fee, avatar_color)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          presenting_concerns, treatment_given, issues, default_fee, avatar_color, last_activity_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
           finalUserId, therapist_id, age || null, gender || null,
           city || null, emergency_contact || null,
@@ -137,6 +129,8 @@ const createClientService = async (payload) => {
       );
 
       await conn.commit();
+      if (minor) await parentConsent.attachParentConsent(parent_consent_id, clientResult.insertId);
+      await planGuard.markClientActive(therapist_id, clientResult.insertId, gate.access); // takes one of the active places on Starter
       return getClientByIdService({ therapist_id, client_id: clientResult.insertId });
     } catch (e) {
       await conn.rollback();
@@ -160,18 +154,19 @@ const createClientService = async (payload) => {
 const getClientsService = async (payload) => {
   try {
     console.log('Payload in getClientsService::>>', payload);
-    const { therapist_id, page = 1, limit = 20, search = '', status = 'active' } = payload;
+    const { therapist_id, page = 1, limit = 20, search = '', status = 'active', blocked } = payload;
 
     const offset = (page - 1) * limit;
     const searchCond = search ? 'AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)' : '';
     const searchVals = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
     const statusCond = status ? 'AND pc.status = ?' : '';
     const statusVals = status ? [status] : [];
+    const blockedCond = (blocked === true || blocked === 1 || blocked === '1') ? 'AND pc.is_blocked = 1' : '';
 
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? ${statusCond} ${searchCond}`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${blockedCond} ${searchCond}`,
       [therapist_id, ...statusVals, ...searchVals]
     );
 
@@ -186,8 +181,8 @@ const getClientsService = async (payload) => {
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? ${statusCond} ${searchCond}
-       ORDER BY pc.created_at DESC LIMIT ? OFFSET ?`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${blockedCond} ${searchCond}
+       ORDER BY COALESCE(pc.last_activity_at, pc.created_at) DESC, pc.id DESC LIMIT ? OFFSET ?`,
       [therapist_id, ...statusVals, ...searchVals, limit, offset]
     );
 
@@ -218,6 +213,30 @@ const updateClientService = async (payload) => {
 
     const userId = check[0].user_id;
 
+    // DPDP: setting a client's age to under 18 needs the parent's OTP consent, unless it is already on file
+    if (data.age !== undefined && data.age !== null && data.age !== '' && parentConsent.isMinor(data.age)) {
+      if (!(await parentConsent.hasParentConsent(client_id))) {
+        const [[cu]] = await db.query('SELECT u.phone FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?', [client_id]);
+        const pc = await parentConsent.checkParentConsent({ therapist_id, consent_id: data.parent_consent_id, client_phone: data.phone || (cu && cu.phone) });
+        if (!pc.ok) return pc.response;
+        await parentConsent.attachParentConsent(data.parent_consent_id, client_id);
+      }
+    }
+
+    // Starter plan: a client's name is locked (renaming one client into another person would be a way round the 2-client limit)
+    if (data.first_name !== undefined || data.last_name !== undefined) {
+      const info = await planGuard.getPlanInfo(therapist_id);
+      if (info.plan === 'starter') {
+        const [[cur]] = await db.query('SELECT first_name, last_name FROM users WHERE user_id = ?', [userId]);
+        const same = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+        const changed = (data.first_name !== undefined && !same(data.first_name, cur.first_name)) ||
+                        (data.last_name !== undefined && !same(data.last_name, cur.last_name));
+        if (changed) {
+          return { status: false, code: 403, message: "A client's name can't be changed on the Starter plan. Upgrade to Professional, or contact support to correct a mistake.", data: null };
+        }
+      }
+    }
+
     // An emptied email/phone is stored as NULL (not '') so it never clashes with the unique email rule
     const blankToNull = (v) => (typeof v === 'string' && v.trim() === '' ? null : v);
     const userMap = { first_name: data.first_name, last_name: data.last_name, email: blankToNull(data.email), phone: blankToNull(data.phone) };
@@ -230,13 +249,29 @@ const updateClientService = async (payload) => {
       await db.query(`UPDATE users SET ${uFields.join(', ')} WHERE user_id = ?`, uVals);
     }
 
+    // Archiving / restoring is never a plain field edit: it goes through the plan rules
+    if (data.status !== undefined) {
+      if (data.status === 'archived') {
+        const a = await archiveClientService({ therapist_id, client_id });
+        if (!a || !a.status) return a;
+      } else if (data.status === 'active') {
+        const [[cur]] = await db.query('SELECT status FROM prodesk_clients WHERE id = ?', [client_id]);
+        if (cur && cur.status !== 'active') {
+          const gate = await planGuard.checkRestore(therapist_id, client_id);
+          if (!gate.ok) return gate.response;
+          await db.query("UPDATE prodesk_clients SET status = 'active' WHERE id = ?", [client_id]);
+          await planGuard.markClientActive(therapist_id, client_id, gate.access);
+        }
+      }
+    }
+
     const clientMap = {
       age: data.age, gender: data.gender, city: data.city,
       emergency_contact: data.emergency_contact, start_date: data.start_date,
       presenting_concerns: data.presenting_concerns,
       treatment_given: data.treatment_given,
       issues: data.issues ? JSON.stringify(data.issues) : undefined,
-      default_fee: data.default_fee, status: data.status
+      default_fee: data.default_fee
     };
     const cFields = []; const cVals = [];
     for (const [k, v] of Object.entries(clientMap)) {
@@ -268,6 +303,7 @@ const archiveClientService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
+    // Plan rule: archiving does not free a Starter place (the flag stays), so it is not a way to swap clients
     await db.query("UPDATE prodesk_clients SET status = 'archived' WHERE id = ?", [client_id]);
     return { status: true, code: 200, message: 'Client archived', data: null };
   } catch (error) {
@@ -343,7 +379,54 @@ const clientBelongsToTherapist = async (therapist_id, client_id) => {
   return !!(rows && rows.length);
 };
 
+// ─── Block / unblock ─────────────────────────────────────────────────────────
+// A blocked client cannot book (booking link) and no new session can be created for them.
+// Open booking requests are declined quietly. Upcoming sessions are cancelled only if the therapist chooses.
+// The client is never told. Their Starter place (if any) is kept.
+const NOW_IST = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
+
+const blockClientService = async ({ therapist_id, client_id, cancel_upcoming = false }) => {
+  try {
+    const [[c]] = await db.query(
+      'SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ? AND deleted_at IS NULL',
+      [client_id, therapist_id]
+    );
+    if (!c) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    await db.query('UPDATE prodesk_clients SET is_blocked = 1, blocked_at = NOW() WHERE id = ?', [client_id]);
+    const [pend] = await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE client_id = ? AND status = 'pending'", [client_id]);
+    let cancelled = pend.affectedRows;
+    if (cancel_upcoming === true) {
+      const [up] = await db.query(
+        `UPDATE prodesk_sessions SET status = 'cancelled' WHERE client_id = ? AND status = 'scheduled' AND starts_at > ${NOW_IST}`,
+        [client_id]
+      );
+      cancelled += up.affectedRows;
+    }
+    return { status: true, code: 200, message: 'Client blocked', data: { cancelled_sessions: cancelled } };
+  } catch (error) {
+    console.log('Error in blockClientService::>>', error);
+    return null;
+  }
+};
+
+const unblockClientService = async ({ therapist_id, client_id }) => {
+  try {
+    const [r] = await db.query(
+      'UPDATE prodesk_clients SET is_blocked = 0, blocked_at = NULL WHERE id = ? AND therapist_id = ? AND deleted_at IS NULL',
+      [client_id, therapist_id]
+    );
+    if (!r.affectedRows) return { status: false, code: 404, message: 'Client not found', data: null };
+    return { status: true, code: 200, message: 'Client unblocked', data: null };
+  } catch (error) {
+    console.log('Error in unblockClientService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
+  blockClientService,
+  unblockClientService,
   clientBelongsToTherapist,
   setClientPhotoService,
   createClientService,

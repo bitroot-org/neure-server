@@ -1,11 +1,14 @@
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
+const parentConsent = require('./parentConsentService');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { formatISTWallClock, istNowParts } = require('../../utils/dateHelper');
 const { recordConsentService } = require('./consentService');
 const { modesForModality } = require('../../utils/availabilityMode');
+const { touchClient } = require('./clientActivity');
+const planGuard = require('./planGuard');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -44,7 +47,7 @@ const getPublicProfileService = async (payload) => {
 
     const [rows] = await db.query(
       `SELECT t.id, t.booking_slug, t.about_me, t.specialization, t.rating,
-              t.experience_years, t.registration_number,
+              t.experience_years, t.registration_number, t.booking_preview_url,
               u.first_name, u.last_name, u.profile_url,
               b.brand_name, b.theme, b.accent, b.background_type, b.background_preset,
               b.logo_url, b.wallpaper_id, b.wallpaper_url
@@ -75,6 +78,7 @@ const getPublicProfileService = async (payload) => {
         about_me: t.about_me,
         rating: t.rating,
         profile_url: t.profile_url,
+        preview_image_url: t.booking_preview_url || null,
         branding: {
           brand_name: t.brand_name, theme: t.theme, accent: t.accent,
           background_type: t.background_type, background_preset: t.background_preset,
@@ -263,7 +267,13 @@ const confirmBookingService = async (payload) => {
       }
     }
 
+    let legacyGate = null;
     if (!clientId) {
+      // New person through the older pay-and-book flow: same plan limit as everywhere else
+      legacyGate = await planGuard.checkAddClient(hold.therapist_id);
+      if (!legacyGate.ok) {
+        return { status: false, code: 409, message: 'This therapist is not available for booking right now. Please try again later.', data: null };
+      }
       const nameParts = name.trim().split(/\s+/);
       const tempPwd = await bcrypt.hash(crypto.randomBytes(8).toString('hex'), 10);
       const [uResult] = await db.query(
@@ -276,6 +286,7 @@ const confirmBookingService = async (payload) => {
         [userId, hold.therapist_id, concern || null, avatarColor(name)]
       );
       clientId = cResult.insertId;
+      await planGuard.markClientActive(hold.therapist_id, clientId, legacyGate.access);
     }
 
     const fee = 0;
@@ -536,7 +547,7 @@ const lookupBookingClientService = async ({ slug, email }) => {
     if (!user) return { status: true, code: 200, message: 'Client not found', data: { found: false } };
 
     const [[client]] = await db.query(
-      'SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
+      'SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ? AND deleted_at IS NULL',
       [user.user_id, therapist.therapist_id]
     );
 
@@ -555,7 +566,25 @@ const lookupBookingClientService = async ({ slug, email }) => {
   }
 };
 
-const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, ip_address = null, user_agent = null }) => {
+// Public booking form, under 18: the parent's OTP (same service the therapist's Add client form uses)
+const therapistIdForSlug = async (slug) => {
+  const [[t]] = await db.query(
+    'SELECT t.id FROM therapists t JOIN users u ON u.user_id = t.user_id WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1', [slug]
+  );
+  return t ? t.id : null;
+};
+const sendBookingParentOtpService = async ({ slug, parent_name, parent_phone, parent_email, ip_address }) => {
+  const therapist_id = await therapistIdForSlug(slug);
+  if (!therapist_id) return { status: false, code: 404, message: 'Therapist not found', data: null };
+  return parentConsent.sendParentOtpService({ therapist_id, parent_name, parent_phone, parent_email, ip_address });
+};
+const verifyBookingParentOtpService = async ({ slug, consent_id, otp }) => {
+  const therapist_id = await therapistIdForSlug(slug);
+  if (!therapist_id) return { status: false, code: 404, message: 'Therapist not found', data: null };
+  return parentConsent.verifyParentOtpService({ therapist_id, consent_id, otp });
+};
+
+const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, ip_address = null, user_agent = null }) => {
   try {
     if (!slug || !date || !time || !modality || !email) {
       return { status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null };
@@ -584,6 +613,21 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
 
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
+    }
+
+    // Blocked by this therapist (same email, or same mobile number): no request is created, and the message does not say "blocked"
+    {
+      const last10 = String(phone || '').replace(/\D/g, '').slice(-10);
+      const [blockedRows] = await db.query(
+        `SELECT pc.id FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id
+         WHERE pc.therapist_id = ? AND pc.is_blocked = 1 AND pc.deleted_at IS NULL
+           AND (u.email = ? OR (? <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(u.phone, ''), '[^0-9]', ''), 10) = ?))
+         LIMIT 1`,
+        [therapist_id, email, last10.length === 10 ? last10 : '', last10]
+      );
+      if (blockedRows && blockedRows.length) {
+        return { status: false, code: 403, message: "This therapist isn't taking bookings from you right now. Please contact them directly.", data: null };
+      }
     }
 
     // Overlap check
@@ -638,17 +682,29 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
 
       // Find or create prodesk_clients record for this therapist
       let [[clientRow]] = await conn.query(
-        'SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
+        'SELECT id, deleted_at, purged_at FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
         [userId, therapist_id]
       );
+      // Someone the therapist deleted (still in the 30-day backup) books again: they come back as a NEW request to approve
+      if (clientRow && clientRow.deleted_at && !clientRow.purged_at) {
+        await conn.query("UPDATE prodesk_clients SET deleted_at = NULL, is_confirmed = 0, status = 'active' WHERE id = ?", [clientRow.id]);
+      }
       if (!clientRow) {
+        // A new person must give their age; under 18 needs the parent's OTP consent (DPDP)
+        const ageNum = parseInt(age, 10);
+        if (!ageNum || ageNum < 1 || ageNum > 120) { await conn.rollback(); return { status: false, code: 400, message: 'Please enter your age.', data: null }; }
+        if (ageNum < 18) {
+          const pc = await parentConsent.checkParentConsent({ therapist_id, consent_id: parent_consent_id, client_phone: phone });
+          if (!pc.ok) { await conn.rollback(); return { status: false, code: 403, message: pc.response.message, data: pc.response.data }; }
+        }
         const color = avatarColor(clientName || email);
         const [cRes] = await conn.query(
-          `INSERT INTO prodesk_clients (user_id, therapist_id, presenting_concerns, default_fee, avatar_color, start_date)
-           VALUES (?, ?, ?, ?, ?, CURDATE())`,
-          [userId, therapist_id, concern || null, fee || 0, color]
+          `INSERT INTO prodesk_clients (user_id, therapist_id, age, presenting_concerns, default_fee, avatar_color, start_date, is_confirmed)
+           VALUES (?, ?, ?, ?, ?, ?, CURDATE(), 0)`,
+          [userId, therapist_id, ageNum, concern || null, fee || 0, color]
         );
         clientRow = { id: cRes.insertId };
+        if (ageNum < 18) await parentConsent.attachParentConsent(parent_consent_id, cRes.insertId);
       }
 
       const client_id = clientRow.id;
@@ -665,6 +721,8 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       const session_id = sessRes.insertId;
 
       await conn.commit();
+      touchClient(client_id); // new booking request: client moves to the top of the Clients list
+      planGuard.notifyPlanFullRequest(therapist_id, client_id); // background: nudge the therapist if their plan is full
 
       // Log the client's consent to the booking form (same audit trail the
       // superadmin dashboard's Consent Logs page shows for therapists).
@@ -755,5 +813,7 @@ module.exports = {
   verifyBookingPaymentService,
   getBookingSlotsService,
   lookupBookingClientService,
-  createBookingSessionService
+  createBookingSessionService,
+  sendBookingParentOtpService,
+  verifyBookingParentOtpService
 };

@@ -3,6 +3,8 @@ const axios = require("axios");
 
 const MSG91_AUTH_KEY = "520733ARLmjeFtYE6a227444P1";
 const MSG91_INTEGRATED_NUMBER = "919004364096";
+// Templates whose message holds a one-time code: the log must never keep the code (or the number it went to)
+const SENSITIVE_WHATSAPP_TEMPLATES = ['parent_consent_otp'];
 const MSG91_WHATSAPP_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
 
 const BREVO_SENDER_EMAIL = "prodesk@neure.co.in";
@@ -85,7 +87,7 @@ class NotificationService {
       type: "WHATSAPP",
       message: templateName,
       error: errorMsg,
-      message_body: JSON.stringify(payload),
+      message_body: SENSITIVE_WHATSAPP_TEMPLATES.includes(templateName) ? '[not stored: contains a one-time code]' : JSON.stringify(payload),
       template_name: templateName,
       meta
     });

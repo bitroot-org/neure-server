@@ -1,5 +1,8 @@
 const db = require('../../../config/db');
 const { modesForModality } = require('../../utils/availabilityMode');
+const { touchClient, touchClientBySession } = require('./clientActivity');
+const { applyParentContact } = require('./clientContact');
+const planGuard = require('./planGuard');
 const { sendClientReminder } = require('./clientReminderService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const { createMeetingSpace } = require('./googleMeetService');
@@ -53,6 +56,88 @@ const getSessionByIdService = async (payload) => {
   }
 };
 
+// Email + WhatsApp + therapist bell notification for ONE session (all best-effort).
+// Returns what was sent so callers can tell the therapist when the client could not be reached.
+const sendSessionScheduledMessages = async ({ therapist_id, client_id, session_id, starts_at, duration_min, meetUrl }) => {
+  const sent = { email: false, whatsapp: false };
+  try {
+    const [clientRow] = await db.query(
+      `SELECT u.phone, u.email,
+              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              tu.user_id AS therapist_user_id,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM prodesk_clients pc
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = ?
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE pc.id = ?`,
+      [therapist_id, client_id]
+    );
+
+    if (clientRow && clientRow.length) {
+      await applyParentContact(client_id, clientRow[0]);
+      const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
+      const formattedTime = formatISTWallClock(starts_at);
+      const notifMeta = { session_id: session_id, client_id };
+
+      // In-app notification for the therapist's own dashboard bell.
+      await NotificationService.createNotification({
+        user_id: therapist_user_id,
+        type: 'SESSION_SCHEDULED',
+        title: `Session Scheduled with ${client_name}`,
+        content: `Session with ${client_name} scheduled for ${formattedTime}.`,
+        meta: notifMeta
+      });
+
+      // Email (primary — always fires while WhatsApp template is pending)
+      if (email) {
+        sent.email = true;
+        await NotificationService.sendSessionScheduledEmail({
+          toEmail: email,
+          toName: client_name,
+          therapistName: therapist_name,
+          sessionTime: formattedTime,
+          meetUrl: meetUrl || null,
+          clinicName: clinic_name,
+          meta: notifMeta,
+          sessionStartISO: starts_at,
+          durationMin: duration_min || 60
+        });
+      }
+
+      // WhatsApp
+      if (phone) {
+        sent.whatsapp = true;
+        const digits = phone.replace(/\D/g, '');
+        const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+        await NotificationService.sendWhatsAppNotification({
+          to: phone_e164,
+          templateName: 'session_scheduled',
+          variables: [
+            client_name,                     // {{1}} Hi *{{1}}*
+            therapist_name,                  // {{2}} session with *{{2}}*
+            formattedTime,                   // {{3}} Date & Time
+            meetUrl || 'N/A'                 // {{4}} Session Link
+          ],
+          meta: notifMeta
+        });
+      }
+    }
+  } catch (e) {
+    console.log('Notification (non-blocking):', e.message);
+  }
+  return sent;
+};
+
+
+// A blocked client cannot be given new sessions until the therapist unblocks them
+const blockedClientResponse = async (client_id) => {
+  const [[b]] = await db.query('SELECT is_blocked FROM prodesk_clients WHERE id = ?', [client_id]);
+  return b && b.is_blocked ? { status: false, code: 403, message: 'This client is blocked. Unblock them to schedule new sessions.', data: null } : null;
+};
+
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
@@ -69,6 +154,11 @@ const createSessionService = async (payload) => {
     if (!clientCheck || !clientCheck.length) {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
+
+    { const blk = await blockedClientResponse(client_id); if (blk) return blk; }
+    // Plan limit: new sessions only for the clients the plan allows
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
 
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
@@ -115,6 +205,7 @@ const createSessionService = async (payload) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null]
     );
+    touchClient(client_id); // client moves to the top of the Clients list
 
     // For video sessions — use manually provided URL first, else auto-generate via Google Meet.
     let meetUrl = null;
@@ -132,72 +223,9 @@ const createSessionService = async (payload) => {
       }
     }
 
-    // Send email + WhatsApp notifications after session is scheduled (both best-effort).
     // Multi-session bookings skip this and send ONE combined message instead.
-    if (!skip_notifications) try {
-      const [clientRow] = await db.query(
-        `SELECT u.phone, u.email,
-                CONCAT(u.first_name, ' ', u.last_name) AS client_name,
-                CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
-                tu.user_id AS therapist_user_id,
-                COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
-         FROM prodesk_clients pc
-         JOIN users u ON u.user_id = pc.user_id
-         JOIN therapists t ON t.id = ?
-         JOIN users tu ON tu.user_id = t.user_id
-         LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
-         WHERE pc.id = ?`,
-        [therapist_id, client_id]
-      );
-
-      if (clientRow && clientRow.length) {
-        const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
-        const formattedTime = formatISTWallClock(starts_at);
-        const notifMeta = { session_id: result.insertId, client_id };
-
-        // In-app notification for the therapist's own dashboard bell.
-        await NotificationService.createNotification({
-          user_id: therapist_user_id,
-          type: 'SESSION_SCHEDULED',
-          title: `Session Scheduled with ${client_name}`,
-          content: `Session with ${client_name} scheduled for ${formattedTime}.`,
-          meta: notifMeta
-        });
-
-        // Email (primary — always fires while WhatsApp template is pending)
-        if (email) {
-          await NotificationService.sendSessionScheduledEmail({
-            toEmail: email,
-            toName: client_name,
-            therapistName: therapist_name,
-            sessionTime: formattedTime,
-            meetUrl: meetUrl || null,
-            clinicName: clinic_name,
-            meta: notifMeta,
-            sessionStartISO: starts_at,
-            durationMin: duration_min || 60
-          });
-        }
-
-        // WhatsApp
-        if (phone) {
-          const digits = phone.replace(/\D/g, '');
-          const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-          await NotificationService.sendWhatsAppNotification({
-            to: phone_e164,
-            templateName: 'session_scheduled',
-            variables: [
-              client_name,                     // {{1}} Hi *{{1}}*
-              therapist_name,                  // {{2}} session with *{{2}}*
-              formattedTime,                   // {{3}} Date & Time
-              meetUrl || 'N/A'                 // {{4}} Session Link
-            ],
-            meta: notifMeta
-          });
-        }
-      }
-    } catch (e) {
-      console.log('Notification (non-blocking):', e.message);
+    if (!skip_notifications) {
+      await sendSessionScheduledMessages({ therapist_id, client_id, session_id: result.insertId, starts_at, duration_min: duration_min || 60, meetUrl });
     }
 
     return getSessionByIdService({ therapist_id, session_id: result.insertId });
@@ -227,6 +255,11 @@ const createSessionBatchService = async (payload) => {
     if (!['none', 'send', 'paid'].includes(invoice)) {
       return { status: false, code: 400, message: "invoice must be 'none', 'send' or 'paid'", data: null };
     }
+
+    { const blk = await blockedClientResponse(client_id); if (blk) return blk; }
+    // Plan limit: check once up front so nothing is half-booked
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
 
     // Reject sessions that overlap each other before touching the database
     const spans = sessions.map((s) => {
@@ -281,6 +314,7 @@ const createSessionBatchService = async (payload) => {
         [therapist_id, client_id]
       );
       if (clientRow && clientRow.length) {
+        await applyParentContact(client_id, clientRow[0]);
         const { phone, email, client_name, therapist_name, therapist_user_id, clinic_name } = clientRow[0];
         const list = created.map((c, i) => ({
           sessionTime: formatISTWallClock(c.starts_at || sessions[i].starts_at),
@@ -405,7 +439,13 @@ const approveBookingRequestService = async (payload) => {
       return { status: false, code: 409, message: 'This request has already been actioned', data: null };
     }
 
+    // Plan limit: a new person needs a free place; on a full Starter plan the therapist must upgrade first
+    const gate = await planGuard.checkApprove(therapist_id, session.client_id);
+    if (!gate.ok) return gate.response;
+
     await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE id = ?", [session_id]);
+    await planGuard.confirmClientOnApproval(therapist_id, session.client_id, gate.access);
+    touchClient(session.client_id);
 
     // Only now — on approval — does the meeting get created and the client told.
     let meetUrl = null;
@@ -419,6 +459,7 @@ const approveBookingRequestService = async (payload) => {
     }
 
     try {
+      await applyParentContact(session.client_id, session); // under 18: the parent is contacted
       const formattedTime = formatISTWallClock(session.starts_at);
       const notifMeta = { session_id, client_id: session.client_id };
 
@@ -496,6 +537,7 @@ const declineBookingRequestService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
@@ -553,7 +595,7 @@ const getSessionsService = async (payload) => {
                   : 'ps.starts_at';
     const sortDir = order === 'asc' ? 'ASC' : 'DESC';
 
-    const joins = `JOIN prodesk_clients pc ON pc.id = ps.client_id
+    const joins = `JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
                    JOIN users u ON u.user_id = pc.user_id`;
 
     const [[{ total }]] = await db.query(
@@ -665,6 +707,7 @@ const rescheduleSessionService = async (payload) => {
     );
     // New time = fresh reminders (the ones already sent were for the old time)
     await db.query('DELETE FROM prodesk_session_reminders WHERE session_id = ?', [session_id]);
+    touchClientBySession(session_id);
 
     // Send email + in-app notification to client
     try {
@@ -673,6 +716,7 @@ const rescheduleSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow) {
         const sessionTime = formatISTWallClock(starts_at);
         if (clientRow.email) {
@@ -747,6 +791,7 @@ const cancelSessionService = async (payload) => {
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
          WHERE pc.id = ?`, [session.client_id]
       );
+      await applyParentContact(session.client_id, clientRow);
       if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
         const sessionTime = formatISTWallClock(session.starts_at);
         await NotificationService.sendEmail({
@@ -817,7 +862,7 @@ const getCalendarSessionsService = async (payload) => {
               pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
        JOIN users u ON u.user_id = pc.user_id
        WHERE ps.therapist_id = ? AND DATE(ps.starts_at) BETWEEN ? AND ?
        ORDER BY ps.starts_at ASC`,
@@ -852,7 +897,7 @@ const getTodaySessionsService = async (payload) => {
               pc.avatar_color, pc.profile_url AS client_profile_url, pc.id AS client_id,
               CONCAT(UPPER(LEFT(u.first_name,1)), UPPER(LEFT(u.last_name,1))) AS client_initials
        FROM prodesk_sessions ps
-       JOIN prodesk_clients pc ON pc.id = ps.client_id
+       JOIN prodesk_clients pc ON pc.id = ps.client_id AND pc.deleted_at IS NULL
        JOIN users u ON u.user_id = pc.user_id
        WHERE ps.therapist_id = ? AND DATE(ps.starts_at) = CURDATE()
        AND ps.status IN ('scheduled', 'completed')
@@ -905,7 +950,7 @@ const sendSessionReminderService = async (payload) => {
     const [rows] = await db.query(
       `SELECT ps.id,
               ps.starts_at AS starts_at,
-              ps.modality, ps.meet_url, ps.status,
+              ps.modality, ps.meet_url, ps.status, ps.client_id,
               u.email, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
               COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name,
@@ -929,6 +974,7 @@ const sendSessionReminderService = async (payload) => {
     if (s.status === 'cancelled') {
       return { status: false, code: 409, message: 'Cannot send reminder for a cancelled session', data: null };
     }
+    await applyParentContact(s.client_id, s);
 
     // Same message the automatic reminders use (email + WhatsApp)
     const sent = await sendClientReminder({ ...s, id: session_id });
@@ -1093,7 +1139,109 @@ const deleteSessionService = async ({ therapist_id, session_id }) => {
   }
 };
 
+// ─── Quick session note ──────────────────────────────────────────────────────
+// For urgent / walk-in sessions: no scheduling, no emails. Creates a session that is already
+// "completed" and starts now, so the therapist can go straight to its note.
+// If the therapist opens one and writes nothing, the empty session is removed again.
+const QUICK_NOTE_TITLE = 'Quick note';
+
+const removeEmptyQuickSessions = async (therapist_id, minutesOld = 60) => {
+  await db.query(
+    `DELETE FROM prodesk_sessions
+     WHERE therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL AND meet_url IS NULL
+       AND created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MINUTE)`,
+    [therapist_id, QUICK_NOTE_TITLE, minutesOld]
+  );
+};
+
+const createQuickNoteSessionService = async (payload) => {
+  try {
+    const { therapist_id, client_id } = payload;
+    if (!client_id) return { status: false, code: 400, message: 'client_id is required', data: null };
+    const wantVideo = payload.modality === 'video';
+
+    const [[client]] = await db.query(
+      `SELECT pc.id, pc.default_fee, pc.is_blocked, u.email, u.phone
+       FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id
+       WHERE pc.id = ? AND pc.therapist_id = ?`,
+      [client_id, therapist_id]
+    );
+    if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    if (client.is_blocked) return await blockedClientResponse(client_id);
+    // A quick note creates a session, so the same plan rule applies as for any new session
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
+
+    await applyParentContact(client_id, client);
+    // A video link has to reach the client (their parent, if under 18), so they need an email or a mobile number
+    if (wantVideo && !client.email && !client.phone) {
+      return { status: false, code: 422, message: 'This client has no email or mobile number, so the video link cannot be sent. Add one to their profile, or choose in-person.', data: null };
+    }
+
+    removeEmptyQuickSessions(therapist_id).catch(() => {});
+
+    const [[last]] = await db.query(
+      'SELECT modality, duration_min FROM prodesk_sessions WHERE client_id = ? AND therapist_id = ? ORDER BY starts_at DESC LIMIT 1',
+      [client_id, therapist_id]
+    );
+    const [[{ cnt }]] = await db.query('SELECT COUNT(*) AS cnt FROM prodesk_sessions WHERE client_id = ?', [client_id]);
+
+    // starts_at is stored as an IST wall-clock string
+    const startsAt = new Date(Date.now() + (5 * 60 + 30) * 60000).toISOString().slice(0, 19).replace('T', ' ');
+
+    const [result] = await db.query(
+      `INSERT INTO prodesk_sessions
+       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed')`,
+      [therapist_id, client_id, cnt + 1, QUICK_NOTE_TITLE, startsAt, last?.duration_min || 45, wantVideo ? 'video' : 'in_person', client.default_fee || 0]
+    );
+    touchClient(client_id);
+
+    // Video: make a Google Meet link and send it to the client right now (email + WhatsApp)
+    let sent = null;
+    if (wantVideo) {
+      let meetUrl = null;
+      try {
+        meetUrl = await createMeetingSpace(therapist_id);
+      } catch (e) {
+        console.log('Quick note Meet create failed:', e.message);
+      }
+      if (!meetUrl) {
+        await db.query('DELETE FROM prodesk_sessions WHERE id = ?', [result.insertId]);
+        return { status: false, code: 502, message: 'Could not create the Google Meet link. Please check your Google connection in Settings, or choose in-person.', data: null };
+      }
+      await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
+      sent = await sendSessionScheduledMessages({ therapist_id, client_id, session_id: result.insertId, starts_at: startsAt, duration_min: last?.duration_min || 45, meetUrl });
+    }
+
+    const out = await getSessionByIdService({ therapist_id, session_id: result.insertId });
+    if (out && out.data && sent) out.data.link_sent = sent;
+    return out;
+  } catch (error) {
+    console.log('Error in createQuickNoteSessionService::>>', error);
+    return null;
+  }
+};
+
+// The therapist left a quick note without writing anything: remove the empty session
+const discardEmptyQuickSessionService = async ({ therapist_id, session_id }) => {
+  try {
+    const [res] = await db.query(
+      `DELETE FROM prodesk_sessions
+       WHERE id = ? AND therapist_id = ? AND title = ? AND status = 'completed' AND note_id IS NULL AND meet_url IS NULL`,
+      [session_id, therapist_id, QUICK_NOTE_TITLE]
+    );
+    return { status: true, code: 200, message: res.affectedRows ? 'Removed' : 'Nothing to remove', data: null };
+  } catch (error) {
+    console.log('Error in discardEmptyQuickSessionService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
+  createQuickNoteSessionService,
+  discardEmptyQuickSessionService,
   createSessionService,
   createSessionBatchService,
   getSessionsService,

@@ -1,4 +1,7 @@
 const db = require('../../../config/db');
+const { applyParentContact } = require('./clientContact');
+const { touchClient } = require('./clientActivity');
+const planGuard = require('./planGuard');
 const axios = require('axios');
 const { getBrevoApiKey } = require('./invoiceEmailService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
@@ -196,7 +199,7 @@ const fetchClientForSend = async (clientId) => {
      FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
     [clientId]
   );
-  return rows && rows.length ? rows[0] : null;
+  return rows && rows.length ? applyParentContact(clientId, rows[0]) : null;
 };
 
 const fetchTherapistBrand = async (therapistId) => {
@@ -321,6 +324,10 @@ const sendResourceService = async (payload) => {
     const client = await fetchClientForSend(client_id);
     if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
 
+    // Plan limit: resources only for the clients the plan allows
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
+
     const therapist = await fetchTherapistBrand(therapist_id);
 
     const sent = []; const failed = [];
@@ -354,6 +361,8 @@ const sendResourceService = async (payload) => {
         data: { sent, failed }
       };
     }
+
+    touchClient(client_id); // client moves to the top of the Clients list
 
     return {
       status: true, code: 200,

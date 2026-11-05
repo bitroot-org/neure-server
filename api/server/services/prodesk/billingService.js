@@ -1,7 +1,10 @@
 const db = require('../../../config/db');
+const { applyParentContact } = require('./clientContact');
 const RazorpayService = require('./razorpayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const InvoiceEmailService = require('./invoiceEmailService');
+const { touchClient } = require('./clientActivity');
+const planGuard = require('./planGuard');
 
 // ─── FEATURE FLAG ─────────────────────────────────────────────────────────────
 // true  → Razorpay creates + sends invoice (payment link included)
@@ -93,6 +96,10 @@ const createInvoiceService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
+    // Plan limit: invoices only for the clients the plan allows
+    const useGate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!useGate.ok) return useGate.response;
+
     const enriched = line_items.map(i => ({
       ...i,
       amount: parseFloat((i.qty * i.rate).toFixed(2))
@@ -111,6 +118,8 @@ const createInvoiceService = async (payload) => {
     );
 
     const [prefixRows] = await db.query('SELECT invoice_prefix FROM therapist_branding WHERE therapist_id = ?', [therapist_id]);
+    touchClient(client_id); // client moves to the top of the Clients list
+
     const invoiceNumber = generateInvoiceNumber(result.insertId, prefixRows && prefixRows[0] && prefixRows[0].invoice_prefix);
     await db.query('UPDATE prodesk_invoices SET invoice_number = ? WHERE id = ?', [invoiceNumber, result.insertId]);
 
@@ -133,12 +142,12 @@ const fetchClientInfo = async (clientId) => {
      FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ?`,
     [clientId]
   );
-  return rows && rows.length ? rows[0] : null;
+  return rows && rows.length ? applyParentContact(clientId, rows[0]) : null;
 };
 
 const fetchTherapistInfo = async (therapistId) => {
   const [rows] = await db.query(
-    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
+    `SELECT u.email, CONCAT_WS(' ', u.first_name, u.last_name) AS therapist_name, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
      FROM therapists t
      JOIN users u ON u.user_id = t.user_id
      LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
@@ -186,6 +195,10 @@ const sendInvoiceService = async (payload) => {
     if (!['draft', 'overdue'].includes(invoice.status)) {
       return { status: false, code: 409, message: 'Only draft invoices can be sent', data: null };
     }
+
+    // Plan limit: sending is new work, so it follows the same rule (opening, downloading and marking paid do not)
+    const useGate = await planGuard.checkUseClient(therapist_id, invoice.client_id);
+    if (!useGate.ok) return useGate.response;
 
     const client = await fetchClientInfo(invoice.client_id);
     if (!client) return { status: false, code: 404, message: 'Client not found', data: null };

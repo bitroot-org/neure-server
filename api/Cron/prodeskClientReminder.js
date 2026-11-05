@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const db = require('../config/db');
 const { sendClientReminder, parseOffsets } = require('../server/services/prodesk/clientReminderService');
+const { applyParentContact } = require('../server/services/prodesk/clientContact');
 
 // Runs every minute — sends each client the automatic reminder(s) before their session,
 // at the time(s) the therapist chose (Settings → Client reminders: up to 2 of 24h / 12h / 1h / 15 min),
@@ -17,7 +18,7 @@ const WINDOW_MIN = 10;
 const sendClientSessionReminders = async () => {
   try {
     const [sessions] = await db.query(
-      `SELECT ps.id, ps.starts_at, ps.modality, ps.meet_url,
+      `SELECT ps.id, ps.client_id, ps.starts_at, ps.modality, ps.meet_url,
               TIMESTAMPDIFF(MINUTE, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE), ps.starts_at) AS minutes_left,
               u.email, u.phone, CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               t.client_reminder_offsets, t.client_reminder_email, t.client_reminder_whatsapp,
@@ -50,6 +51,7 @@ const sendClientSessionReminders = async () => {
 
     let count = 0;
     for (const s of sessions) {
+      await applyParentContact(s.client_id, s); // under 18: the parent is contacted
       const left = Number(s.minutes_left);
       const sent = sentBySession.get(s.id) || new Set();
       const offsets = parseOffsets(s.client_reminder_offsets);
