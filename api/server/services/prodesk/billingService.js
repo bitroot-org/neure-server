@@ -147,7 +147,7 @@ const fetchClientInfo = async (clientId) => {
 
 const fetchTherapistInfo = async (therapistId) => {
   const [rows] = await db.query(
-    `SELECT u.email, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
+    `SELECT u.email, CONCAT_WS(' ', u.first_name, u.last_name) AS therapist_name, COALESCE(tb.brand_name, 'NEURE INNOVATIONS LLP') AS brand_name, tb.clinic_address, tb.logo_url
      FROM therapists t
      JOIN users u ON u.user_id = t.user_id
      LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id

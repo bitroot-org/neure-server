@@ -132,6 +132,12 @@ const sendSessionScheduledMessages = async ({ therapist_id, client_id, session_i
 };
 
 
+// A blocked client cannot be given new sessions until the therapist unblocks them
+const blockedClientResponse = async (client_id) => {
+  const [[b]] = await db.query('SELECT is_blocked FROM prodesk_clients WHERE id = ?', [client_id]);
+  return b && b.is_blocked ? { status: false, code: 403, message: 'This client is blocked. Unblock them to schedule new sessions.', data: null } : null;
+};
+
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
@@ -149,6 +155,7 @@ const createSessionService = async (payload) => {
       return { status: false, code: 404, message: 'Client not found', data: null };
     }
 
+    { const blk = await blockedClientResponse(client_id); if (blk) return blk; }
     // Plan limit: new sessions only for the clients the plan allows
     const useGate = await planGuard.checkUseClient(therapist_id, client_id);
     if (!useGate.ok) return useGate.response;
@@ -249,6 +256,7 @@ const createSessionBatchService = async (payload) => {
       return { status: false, code: 400, message: "invoice must be 'none', 'send' or 'paid'", data: null };
     }
 
+    { const blk = await blockedClientResponse(client_id); if (blk) return blk; }
     // Plan limit: check once up front so nothing is half-booked
     const useGate = await planGuard.checkUseClient(therapist_id, client_id);
     if (!useGate.ok) return useGate.response;
@@ -1153,13 +1161,14 @@ const createQuickNoteSessionService = async (payload) => {
     const wantVideo = payload.modality === 'video';
 
     const [[client]] = await db.query(
-      `SELECT pc.id, pc.default_fee, u.email, u.phone
+      `SELECT pc.id, pc.default_fee, pc.is_blocked, u.email, u.phone
        FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id
        WHERE pc.id = ? AND pc.therapist_id = ?`,
       [client_id, therapist_id]
     );
     if (!client) return { status: false, code: 404, message: 'Client not found', data: null };
 
+    if (client.is_blocked) return await blockedClientResponse(client_id);
     // A quick note creates a session, so the same plan rule applies as for any new session
     const useGate = await planGuard.checkUseClient(therapist_id, client_id);
     if (!useGate.ok) return useGate.response;

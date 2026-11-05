@@ -21,7 +21,8 @@ const getClientByIdService = async (payload) => {
       `SELECT pc.*, u.first_name, u.last_name, u.email, u.phone,
               CONCAT(u.first_name, ' ', u.last_name) AS name,
               (SELECT COUNT(*) FROM prodesk_sessions ps WHERE ps.client_id = pc.id) AS sessions_count,
-              EXISTS(SELECT 1 FROM prodesk_parent_consents x WHERE x.client_id = pc.id AND x.verified_at IS NOT NULL) AS has_parent_consent
+              EXISTS(SELECT 1 FROM prodesk_parent_consents x WHERE x.client_id = pc.id AND x.verified_at IS NOT NULL) AS has_parent_consent,
+              (SELECT COUNT(*) FROM prodesk_sessions up WHERE up.client_id = pc.id AND up.status = 'scheduled' AND up.starts_at > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)) AS upcoming_sessions
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
        WHERE pc.id = ? AND pc.therapist_id = ? AND pc.deleted_at IS NULL`,
@@ -153,18 +154,19 @@ const createClientService = async (payload) => {
 const getClientsService = async (payload) => {
   try {
     console.log('Payload in getClientsService::>>', payload);
-    const { therapist_id, page = 1, limit = 20, search = '', status = 'active' } = payload;
+    const { therapist_id, page = 1, limit = 20, search = '', status = 'active', blocked } = payload;
 
     const offset = (page - 1) * limit;
     const searchCond = search ? 'AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)' : '';
     const searchVals = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
     const statusCond = status ? 'AND pc.status = ?' : '';
     const statusVals = status ? [status] : [];
+    const blockedCond = (blocked === true || blocked === 1 || blocked === '1') ? 'AND pc.is_blocked = 1' : '';
 
     const [[{ total }]] = await db.query(
       `SELECT COUNT(*) AS total FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${searchCond}`,
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${blockedCond} ${searchCond}`,
       [therapist_id, ...statusVals, ...searchVals]
     );
 
@@ -179,7 +181,7 @@ const getClientsService = async (payload) => {
                ORDER BY ps2.starts_at ASC LIMIT 1) AS next_session_at
        FROM prodesk_clients pc
        JOIN users u ON u.user_id = pc.user_id
-       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${searchCond}
+       WHERE pc.therapist_id = ? AND pc.is_confirmed = 1 AND pc.deleted_at IS NULL ${statusCond} ${blockedCond} ${searchCond}
        ORDER BY COALESCE(pc.last_activity_at, pc.created_at) DESC, pc.id DESC LIMIT ? OFFSET ?`,
       [therapist_id, ...statusVals, ...searchVals, limit, offset]
     );
@@ -377,7 +379,54 @@ const clientBelongsToTherapist = async (therapist_id, client_id) => {
   return !!(rows && rows.length);
 };
 
+// ─── Block / unblock ─────────────────────────────────────────────────────────
+// A blocked client cannot book (booking link) and no new session can be created for them.
+// Open booking requests are declined quietly. Upcoming sessions are cancelled only if the therapist chooses.
+// The client is never told. Their Starter place (if any) is kept.
+const NOW_IST = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
+
+const blockClientService = async ({ therapist_id, client_id, cancel_upcoming = false }) => {
+  try {
+    const [[c]] = await db.query(
+      'SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ? AND deleted_at IS NULL',
+      [client_id, therapist_id]
+    );
+    if (!c) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    await db.query('UPDATE prodesk_clients SET is_blocked = 1, blocked_at = NOW() WHERE id = ?', [client_id]);
+    const [pend] = await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE client_id = ? AND status = 'pending'", [client_id]);
+    let cancelled = pend.affectedRows;
+    if (cancel_upcoming === true) {
+      const [up] = await db.query(
+        `UPDATE prodesk_sessions SET status = 'cancelled' WHERE client_id = ? AND status = 'scheduled' AND starts_at > ${NOW_IST}`,
+        [client_id]
+      );
+      cancelled += up.affectedRows;
+    }
+    return { status: true, code: 200, message: 'Client blocked', data: { cancelled_sessions: cancelled } };
+  } catch (error) {
+    console.log('Error in blockClientService::>>', error);
+    return null;
+  }
+};
+
+const unblockClientService = async ({ therapist_id, client_id }) => {
+  try {
+    const [r] = await db.query(
+      'UPDATE prodesk_clients SET is_blocked = 0, blocked_at = NULL WHERE id = ? AND therapist_id = ? AND deleted_at IS NULL',
+      [client_id, therapist_id]
+    );
+    if (!r.affectedRows) return { status: false, code: 404, message: 'Client not found', data: null };
+    return { status: true, code: 200, message: 'Client unblocked', data: null };
+  } catch (error) {
+    console.log('Error in unblockClientService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
+  blockClientService,
+  unblockClientService,
   clientBelongsToTherapist,
   setClientPhotoService,
   createClientService,

@@ -4,6 +4,8 @@ const {
   getClientByIdService,
   updateClientService,
   archiveClientService,
+  blockClientService,
+  unblockClientService,
   requestRecordHistoryUpdateService,
   setClientPhotoService,
   clientBelongsToTherapist
@@ -121,6 +123,28 @@ class ProdeskClientController {
       return res.status(500).json({ status: false, code: 500, message: 'Could not create the download. Please try again.', data: null });
     } finally {
       exportRuns.set(key, { running: false, at: Date.now() });
+    }
+  }
+
+  static async blockClient(req, res) {
+    try {
+      const { client_id, cancel_upcoming } = req.body;
+      if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id required', data: null });
+      const result = await blockClientService({ therapist_id: req.user.therapist_id, client_id, cancel_upcoming: cancel_upcoming === true });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async unblockClient(req, res) {
+    try {
+      const { client_id } = req.body;
+      if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id required', data: null });
+      const result = await unblockClientService({ therapist_id: req.user.therapist_id, client_id });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }
   }
 

@@ -309,7 +309,7 @@ const sendInvoiceEmail = async ({ invoice, client, therapist, pdfUrl, paid = fal
 
 // ─── WHATSAPP ─────────────────────────────────────────────────────────────────
 
-const sendInvoiceWhatsApp = async ({ invoice, client, pdfUrl }) => {
+const sendInvoiceWhatsApp = async ({ invoice, client, therapist, pdfUrl }) => {
   const rawPhone = (client.phone || '').replace(/\D/g, '');
   if (!rawPhone) {
     console.log('No phone number for client — skipping WhatsApp');
@@ -330,7 +330,8 @@ const sendInvoiceWhatsApp = async ({ invoice, client, pdfUrl }) => {
       invoice.invoice_number,
       formatINR(invoice.total),
       dueDate,
-      shortUrl
+      shortUrl,
+      (therapist && therapist.therapist_name) || (therapist && therapist.brand_name) || 'Neure'
     ],
     meta: { invoice_id: invoice.id, invoice_number: invoice.invoice_number }
   });
@@ -353,7 +354,7 @@ const sendCustomInvoice = async ({ invoice, client, therapist }) => {
   if (hasEmail) await sendInvoiceEmail({ invoice, client, therapist, pdfUrl });
 
   try {
-    await sendInvoiceWhatsApp({ invoice, client, pdfUrl });
+    await sendInvoiceWhatsApp({ invoice, client, therapist, pdfUrl });
   } catch (e) {
     console.log('WhatsApp send failed (non-fatal):', e.message);
   }

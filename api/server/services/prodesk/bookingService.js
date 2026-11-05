@@ -615,6 +615,21 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
     }
 
+    // Blocked by this therapist (same email, or same mobile number): no request is created, and the message does not say "blocked"
+    {
+      const last10 = String(phone || '').replace(/\D/g, '').slice(-10);
+      const [blockedRows] = await db.query(
+        `SELECT pc.id FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id
+         WHERE pc.therapist_id = ? AND pc.is_blocked = 1 AND pc.deleted_at IS NULL
+           AND (u.email = ? OR (? <> '' AND RIGHT(REGEXP_REPLACE(COALESCE(u.phone, ''), '[^0-9]', ''), 10) = ?))
+         LIMIT 1`,
+        [therapist_id, email, last10.length === 10 ? last10 : '', last10]
+      );
+      if (blockedRows && blockedRows.length) {
+        return { status: false, code: 403, message: "This therapist isn't taking bookings from you right now. Please contact them directly.", data: null };
+      }
+    }
+
     // Overlap check
     const [overlap] = await db.query(
       `SELECT id FROM prodesk_sessions

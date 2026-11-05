@@ -8,6 +8,8 @@ const ACTION_LABELS = {
   edit_client: 'Edited client details',
   archive_client: 'Archived client',
   delete_client: 'Deleted client',
+  block_client: 'Blocked client',
+  unblock_client: 'Unblocked client',
   view_note: 'Opened session note',
   edit_note: 'Wrote or edited a session note',
   export_note: 'Exported a session note (PDF)',

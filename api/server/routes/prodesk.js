@@ -124,6 +124,8 @@ router.post('/getAccountDeletionStatus', authorization, ClientCtrl.getAccountDel
 router.post('/requestAccountDeletion',   authorization, ClientCtrl.requestAccountDeletion);
 router.post('/cancelAccountDeletion',    authorization, ClientCtrl.cancelAccountDeletion);
 router.post('/exportAllData',   authorization, accessLog('export_all_data', 'therapist', 'none'), ClientCtrl.exportAllData);
+router.post('/blockClient',     authorization, accessLog('block_client', 'client', 'client_id'), ClientCtrl.blockClient);
+router.post('/unblockClient',   authorization, accessLog('unblock_client', 'client', 'client_id'), ClientCtrl.unblockClient);
 router.post('/deleteClient',    authorization, accessLog('delete_client', 'client', 'client_id'), ClientCtrl.deleteClient);
 router.post('/getAccessLogs',   authorization, ClientCtrl.getAccessLogs);
 router.post('/getPlanAccess',   authorization, ClientCtrl.getPlanAccess);
