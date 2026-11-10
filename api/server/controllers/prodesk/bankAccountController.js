@@ -3,11 +3,15 @@ const {
   createBankAccountService,
   updateBankAccountService,
   deleteBankAccountService,
+  saveDirectPaymentService,
   verifyIFSCService,
   adminGetAllBankAccountsService,
   adminGetBankAccountByIdService,
   adminGetBankAccountLogsService,
 } = require('../../services/prodesk/bankAccountService');
+
+const { uploadImage } = require('../upload/UploadController');
+const { convertDatesToIST } = require('../../utils/dateHelper');
 
 const respond = (res, result) => {
   if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
@@ -23,13 +27,35 @@ const getClientIP = (req) => {
   return ip.replace(/^::ffff:/, ''); // strip IPv6-mapped IPv4 prefix
 };
 
+// Therapist-facing responses: shift UTC timestamps to IST like the rest of ProDesk (admin responses stay untouched)
+const respondIST = (res, result) => respond(res, result && { ...result, data: convertDatesToIST(result.data) });
+
 class BankAccountController {
 
   // ── Therapist-facing ──────────────────────────────────────────────────────
 
   static async getBankAccount(req, res) {
     try {
-      return respond(res, await getBankAccountService({ therapist_id: req.user.therapist_id }));
+      return respondIST(res, await getBankAccountService({ therapist_id: req.user.therapist_id }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async saveDirectPayment(req, res) {
+    try {
+      const { upi_id, direct_pay_enabled } = req.body;
+      return respondIST(res, await saveDirectPaymentService({ therapist_id: req.user.therapist_id, upi_id, direct_pay_enabled }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async uploadPaymentQr(req, res) {
+    try {
+      if (!req.file || !req.file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ status: false, code: 400, message: 'QR image file is required', data: null });
+      }
+      req.body.type = 'profile';
+      const uploaded = await uploadImage(req);
+      if (!uploaded?.url) return res.status(500).json({ status: false, code: 500, message: 'Upload failed', data: null });
+      return respondIST(res, await saveDirectPaymentService({ therapist_id: req.user.therapist_id, qr_url: uploaded.url }));
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
   }
 
@@ -42,7 +68,7 @@ class BankAccountController {
       if (account_number.trim() !== account_number_confirm.trim()) {
         return res.status(400).json({ status: false, code: 400, message: 'Account numbers do not match', data: null });
       }
-      return respond(res, await createBankAccountService({
+      return respondIST(res, await createBankAccountService({
         therapist_id: req.user.therapist_id,
         account_holder, account_number, ifsc_code, bank_name, branch_name, account_type,
         user_id: req.user.user_id,
@@ -58,7 +84,7 @@ class BankAccountController {
       if (account_number && account_number !== account_number_confirm) {
         return res.status(400).json({ status: false, code: 400, message: 'Account numbers do not match', data: null });
       }
-      return respond(res, await updateBankAccountService({
+      return respondIST(res, await updateBankAccountService({
         therapist_id: req.user.therapist_id,
         account_holder, account_number, ifsc_code, bank_name, branch_name, account_type,
         user_id: req.user.user_id,

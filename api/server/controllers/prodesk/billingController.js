@@ -176,6 +176,35 @@ class ProdeskBillingController {
     }
   }
 
+  // Public pay page (no login): the signed token in the link is the credential
+  static async getInvoicePayInfo(req, res) {
+    try {
+      const { getPayInfoService } = require('../../services/prodesk/invoicePayService');
+      const result = await getPayInfoService({ token: req.body?.token });
+      if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
+      return res.status(result.code).json(result);
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async logInvoicePayAttempt(req, res) {
+    try {
+      const { logAttemptService } = require('../../services/prodesk/invoicePayService');
+      const { token, event, razorpay_payment_id, error } = req.body || {};
+      const result = await logAttemptService({ token, event, payment_id: razorpay_payment_id, error });
+      if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
+      return res.status(result.code).json(result);
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async verifyInvoicePayment(req, res) {
+    try {
+      const { verifyPaymentService } = require('../../services/prodesk/invoicePayService');
+      const result = await verifyPaymentService({ token: req.body?.token, razorpay_payment_id: req.body?.razorpay_payment_id });
+      if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
+      return res.status(result.code).json(result);
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
   static async razorpayWebhook(req, res) {
     try {
       const signature = req.headers['x-razorpay-signature'];

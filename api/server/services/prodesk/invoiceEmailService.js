@@ -49,6 +49,40 @@ const formatDate = (d) => {
 const formatINR = (n) =>
   parseFloat(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// "How to pay" block: online pay link and/or the therapist's direct details. Hidden once paid.
+const buildPaymentSection = (opts) => {
+  if (!opts || (!opts.pay_url && !opts.direct)) return '';
+  const d = opts.direct;
+  const row = (k, v) => `<tr><td style="padding:3px 14px 3px 0;color:#777;font-size:12px;white-space:nowrap;">${k}</td><td style="font-size:13px;color:#222;font-weight:600;">${esc(v)}</td></tr>`;
+
+  const online = opts.pay_url ? `
+    <div style="margin-bottom:${d ? '16px' : '0'};">
+      <div style="font-size:12px;color:#555;margin-bottom:8px;">Pay securely online (UPI, cards, net banking):</div>
+      <a href="${esc(opts.pay_url)}" style="display:inline-block;background:#5EA89A;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:10px 22px;border-radius:8px;">Pay now</a>
+      <div style="font-size:11px;color:#888;margin-top:6px;word-break:break-all;">${esc(opts.pay_url)}</div>
+    </div>` : '';
+
+  const direct = d ? `
+    <div>
+      <div style="font-size:12px;color:#555;margin-bottom:8px;">${opts.pay_url ? 'Or pay directly:' : 'Pay directly using:'}</div>
+      <table style="border-collapse:collapse;"><tbody>
+        ${d.upi_id ? row('UPI ID', d.upi_id) : ''}
+        ${d.account_number ? row('Bank', d.bank_name || '') + row('Account holder', d.account_holder || '') + row('Account number', d.account_number) + row('IFSC', d.ifsc_code || '') : ''}
+      </tbody></table>
+      ${d.qr_url ? `<img src="${esc(d.qr_url)}" alt="Payment QR" style="width:130px;height:130px;object-fit:contain;margin-top:10px;border:1px solid #eee;border-radius:8px;" />` : ''}
+      <div style="font-size:11px;color:#888;margin-top:8px;">After paying, please share the transaction reference (UTR) with your therapist.</div>
+    </div>` : '';
+
+  return `
+  <!-- HOW TO PAY -->
+  <div style="padding:0 28px 16px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#888;text-transform:uppercase;margin-bottom:8px;">HOW TO PAY</div>
+    <div style="border:1px solid #e3e3e3;border-radius:10px;padding:14px 16px;background:#fcfcfc;">${online}${direct}</div>
+  </div>`;
+};
+
 // ─── HTML TEMPLATE ────────────────────────────────────────────────────────────
 // forPDF = true  → no download button (the PDF itself is the download)
 // forPDF = false → shows "Download Invoice PDF" button
@@ -194,6 +228,8 @@ const buildInvoiceHTML = ({ invoice, client, therapist, forPDF = false }) => {
       </tbody>
     </table>
   </div>
+
+  ${isPaid ? '' : buildPaymentSection(invoice.payment_options)}
 
   <!-- NOTES -->
   ${invoice.notes ? `

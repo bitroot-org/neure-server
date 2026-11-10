@@ -45,6 +45,7 @@ const app = express();
 
 // Capture raw body for Razorpay webhook HMAC verification — must come before express.json()
 app.use('/api/prodesk/razorpayWebhook', express.raw({ type: 'application/json' }));
+app.use('/api/prodesk/razorpayPartnerWebhook', express.raw({ type: 'application/json' }));
 
 // Middleware
 app.use(express.json());
