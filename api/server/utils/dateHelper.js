@@ -4,7 +4,9 @@ const DATE_FIELDS = new Set([
   'joined_date', 'last_login', 'replaced_at', 'connected_at',
   'last_stress_modal_seen_at', 'pdf_generated_at', 'claimed_at',
   'assigned_at', 'completed_at', 'onboarding_date', 'conference_date',
-  'date_of_birth', 'renewal_date'
+  'date_of_birth', 'renewal_date',
+  'last_edited_at', 'can_edit_at',
+  'activated_at', 'valid_until', 'confirmed_at', 'submitted_at'
 ]);
 // NOTE: 'starts_at' is intentionally excluded — it is stored as a naive
 // IST wall-clock string (user-supplied session time), not a UTC timestamp,

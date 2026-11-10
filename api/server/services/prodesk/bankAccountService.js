@@ -27,6 +27,10 @@ const getBankAccountService = async ({ therapist_id }) => {
       status: true, code: 200, message: 'Bank account fetched',
       data: {
         id:               row.id,
+        upi_id:           row.upi_id,
+        qr_url:           row.qr_url,
+        direct_pay_enabled: !!row.direct_pay_enabled,
+        has_bank_details: !!row.account_number,
         account_holder:   row.account_holder,
         account_number:   maskAccount(row.account_number),
         ifsc_code:        row.ifsc_code,
@@ -52,16 +56,26 @@ const createBankAccountService = async ({ therapist_id, account_holder, account_
     }
 
     const [[existing]] = await db.query(
-      'SELECT id FROM therapist_bank_accounts WHERE therapist_id = ?', [therapist_id]
+      'SELECT id, account_number FROM therapist_bank_accounts WHERE therapist_id = ?', [therapist_id]
     );
-    if (existing) return { status: false, code: 409, message: 'Bank account already exists. Use update instead.', data: null };
+    if (existing && existing.account_number) return { status: false, code: 409, message: 'Bank account already exists. Use update instead.', data: null };
 
-    await db.query(
-      `INSERT INTO therapist_bank_accounts
-         (therapist_id, account_holder, account_number, ifsc_code, bank_name, branch_name, account_type, last_edited_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [therapist_id, account_holder.trim(), account_number.trim(), ifsc_code.trim().toUpperCase(), bank_name || null, branch_name || null, account_type]
-    );
+    if (existing) {
+      // Row was created by saveDirectPayment (UPI/QR only) — fill in the bank fields.
+      await db.query(
+        `UPDATE therapist_bank_accounts
+         SET account_holder = ?, account_number = ?, ifsc_code = ?, bank_name = ?, branch_name = ?, account_type = ?, last_edited_at = NOW()
+         WHERE therapist_id = ?`,
+        [account_holder.trim(), account_number.trim(), ifsc_code.trim().toUpperCase(), bank_name || null, branch_name || null, account_type, therapist_id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO therapist_bank_accounts
+           (therapist_id, account_holder, account_number, ifsc_code, bank_name, branch_name, account_type, last_edited_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [therapist_id, account_holder.trim(), account_number.trim(), ifsc_code.trim().toUpperCase(), bank_name || null, branch_name || null, account_type]
+      );
+    }
 
     // Audit log
     await db.query(
@@ -130,6 +144,39 @@ const updateBankAccountService = async ({ therapist_id, account_holder, account_
     return getBankAccountService({ therapist_id });
   } catch (error) {
     console.log('Error in updateBankAccountService::>>', error);
+    return null;
+  }
+};
+
+const UPI_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/;
+
+// UPI ID / QR / on-off switch. No cooldown — the 24h lock only protects bank details.
+const saveDirectPaymentService = async ({ therapist_id, upi_id, qr_url, direct_pay_enabled }) => {
+  try {
+    if (upi_id !== undefined && upi_id !== null && upi_id !== '' && !UPI_REGEX.test(String(upi_id).trim())) {
+      return { status: false, code: 400, message: 'Invalid UPI ID. Expected format: name@bank', data: null };
+    }
+    const [[existing]] = await db.query('SELECT id FROM therapist_bank_accounts WHERE therapist_id = ?', [therapist_id]);
+
+    const updates = {};
+    if (upi_id !== undefined)             updates.upi_id = upi_id ? String(upi_id).trim() : null;
+    if (qr_url !== undefined)             updates.qr_url = qr_url || null;
+    if (direct_pay_enabled !== undefined) updates.direct_pay_enabled = direct_pay_enabled ? 1 : 0;
+    if (!Object.keys(updates).length) return { status: false, code: 400, message: 'Nothing to update', data: null };
+
+    if (existing) {
+      const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+      await db.query(`UPDATE therapist_bank_accounts SET ${fields} WHERE therapist_id = ?`, [...Object.values(updates), therapist_id]);
+    } else {
+      const cols = ['therapist_id', ...Object.keys(updates)];
+      await db.query(
+        `INSERT INTO therapist_bank_accounts (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        [therapist_id, ...Object.values(updates)]
+      );
+    }
+    return getBankAccountService({ therapist_id });
+  } catch (error) {
+    console.log('Error in saveDirectPaymentService::>>', error);
     return null;
   }
 };
@@ -293,6 +340,7 @@ module.exports = {
   createBankAccountService,
   updateBankAccountService,
   deleteBankAccountService,
+  saveDirectPaymentService,
   verifyIFSCService,
   adminGetAllBankAccountsService,
   adminGetBankAccountByIdService,

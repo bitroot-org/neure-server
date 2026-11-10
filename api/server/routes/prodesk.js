@@ -28,11 +28,13 @@ const BookingCtrl   = require('../controllers/prodesk/bookingController');
 const DashboardCtrl = require('../controllers/prodesk/dashboardController');
 const TeamCtrl      = require('../controllers/prodesk/teamController');
 const BankAccountCtrl    = require('../controllers/prodesk/bankAccountController');
+const RazorpayPartnerCtrl = require('../controllers/prodesk/razorpayPartnerController');
 const GoogleCtrl         = require('../controllers/prodesk/googleController');
 const SubscriptionCtrl   = require('../controllers/prodesk/subscriptionController');
 const OfferCtrl          = require('../controllers/prodesk/offerController');
 const ReferralCtrl       = require('../controllers/prodesk/referralController');
 const FeedbackCtrl       = require('../controllers/prodesk/feedbackController');
+const ServiceCtrl        = require('../controllers/prodesk/serviceController');
 
 // Multer — image uploads (profile, logo, documents)
 const imageUpload = multer({
@@ -185,6 +187,9 @@ router.post('/initiateRefund',         authorization, BillingCtrl.initiateRefund
 router.post('/getPaymentLogs',         authorization, BillingCtrl.getPaymentLogs);
 router.post('/getBillingSummary',      authorization, BillingCtrl.getBillingSummary);
 router.post('/getPayments',            authorization, BillingCtrl.getPayments);
+router.post('/getInvoicePayInfo',      BillingCtrl.getInvoicePayInfo);     // public pay page — signed token
+router.post('/logInvoicePayAttempt',   BillingCtrl.logInvoicePayAttempt);  // public pay page — opened / failed / cancelled
+router.post('/verifyInvoicePayment',   BillingCtrl.verifyInvoicePayment);  // public pay page — confirmed with Razorpay
 router.post('/razorpayWebhook',        BillingCtrl.razorpayWebhook); // no auth — HMAC verified
 router.get('/i/:invoice_number',       BillingCtrl.invoicePDFRedirect); // no auth — short URL redirect
 
@@ -209,6 +214,27 @@ router.post('/confirmBooking',        BookingCtrl.confirmBooking);
 router.post('/verifyBookingPayment',  BookingCtrl.verifyBookingPayment);
 router.post('/getBookingSlots',       BookingCtrl.getBookingSlots);
 router.post('/lookupBookingClient',   BookingCtrl.lookupBookingClient);
+// ── Services, packages, intake forms, client purchases ──
+router.post('/getServices',            authorization, ServiceCtrl.getServices);
+router.post('/getServiceById',         authorization, ServiceCtrl.getServiceById);
+router.post('/createService',          authorization, ServiceCtrl.createService);
+router.post('/updateService',          authorization, ServiceCtrl.updateService);
+router.post('/deleteService',          authorization, ServiceCtrl.deleteService);
+router.post('/getIntakeForms',         authorization, ServiceCtrl.getIntakeForms);
+router.post('/getIntakeFormById',      authorization, ServiceCtrl.getIntakeFormById);
+router.post('/createIntakeForm',       authorization, ServiceCtrl.createIntakeForm);
+router.post('/updateIntakeForm',       authorization, ServiceCtrl.updateIntakeForm);
+router.post('/deleteIntakeForm',       authorization, ServiceCtrl.deleteIntakeForm);
+router.post('/getIntakeResponses',     authorization, ServiceCtrl.getIntakeResponses);
+router.post('/getServicePurchases',    authorization, ServiceCtrl.getServicePurchases);
+router.post('/getServicePurchaseById', authorization, ServiceCtrl.getServicePurchaseById);
+router.post('/createServicePurchase',  authorization, ServiceCtrl.createServicePurchase);
+router.post('/confirmDirectPayment',   authorization, ServiceCtrl.confirmDirectPayment);
+router.post('/rejectDirectPayment',    authorization, ServiceCtrl.rejectDirectPayment);
+router.post('/cancelServicePurchase',  authorization, ServiceCtrl.cancelServicePurchase);
+router.post('/bookPurchaseSession',    authorization, ServiceCtrl.bookPurchaseSession);
+router.post('/getActivity',            authorization, ServiceCtrl.getActivity);
+
 router.post('/createBookingSession',  BookingCtrl.createBookingSession);
 router.post('/sendBookingParentOtp',  BookingCtrl.sendBookingParentOtp);
 router.post('/verifyBookingParentOtp', BookingCtrl.verifyBookingParentOtp);
@@ -292,6 +318,17 @@ router.post('/getBankAccount',       authorization, BankAccountCtrl.getBankAccou
 router.post('/createBankAccount',    authorization, BankAccountCtrl.createBankAccount);
 router.post('/updateBankAccount',    authorization, BankAccountCtrl.updateBankAccount);
 router.post('/deleteBankAccount',    authorization, BankAccountCtrl.deleteBankAccount);
+router.post('/saveDirectPayment',    authorization, BankAccountCtrl.saveDirectPayment);
+router.post('/uploadPaymentQr',      authorization, imageUpload.single('qr'), BankAccountCtrl.uploadPaymentQr);
 router.post('/verifyIFSC',           authorization, BankAccountCtrl.verifyIFSC);
+
+// ──────────────────────────────────────────────────────────────
+// RAZORPAY PARTNER (OAuth sub-merchant connect)
+// ──────────────────────────────────────────────────────────────
+router.post('/getRazorpayConnectUrl',   authorization, RazorpayPartnerCtrl.getConnectUrl);
+router.post('/getRazorpayConnection',   authorization, RazorpayPartnerCtrl.getConnectionStatus);
+router.post('/disconnectRazorpay',      authorization, RazorpayPartnerCtrl.disconnect);
+router.get('/razorpayOAuthCallback',    RazorpayPartnerCtrl.oauthCallback);      // no auth — signed state
+router.post('/razorpayPartnerWebhook',  RazorpayPartnerCtrl.partnerWebhook);     // no auth — HMAC verified
 
 module.exports = router;

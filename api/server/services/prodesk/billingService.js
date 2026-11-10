@@ -1,6 +1,8 @@
 const db = require('../../../config/db');
 const { applyParentContact } = require('./clientContact');
 const RazorpayService = require('./razorpayService');
+const PartnerService = require('./razorpayPartnerService');
+const InvoicePay = require('./invoicePayService');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 const InvoiceEmailService = require('./invoiceEmailService');
 const { touchClient } = require('./clientActivity');
@@ -181,6 +183,141 @@ const finalizePaidInvoice = async (invoice_id) => {
   }
 };
 
+
+// ─── PAYMENT OPTIONS (pay-online link + direct details shown on the invoice) ──
+// Online: a Razorpay payment link created on the therapist's own connected account (money settles to them).
+// Direct: UPI / QR / bank details the therapist saved on Payment integration.
+// Never throws — a Razorpay hiccup must not stop the invoice from being sent.
+
+const isPaymentLinkId = (id) => typeof id === 'string' && id.startsWith('plink_');
+
+const buildPaymentOptions = async ({ therapist_id, invoice, client }) => {
+  const options = { pay_url: null, direct: null };
+
+  try {
+    const [conn] = await db.query(
+      "SELECT 1 FROM therapist_razorpay_accounts WHERE therapist_id = ? AND status = 'active'", [therapist_id]
+    );
+    if (conn && conn.length) options.pay_url = await InvoicePay.payUrl(invoice.id);   // our pay page (Razorpay Checkout)
+  } catch (e) {
+    console.log('Pay page link failed (invoice still sent)::>>', e.message);
+  }
+
+  try {
+    const [rows] = await db.query(
+      'SELECT upi_id, qr_url, account_holder, account_number, ifsc_code, bank_name FROM therapist_bank_accounts WHERE therapist_id = ? AND direct_pay_enabled = 1',
+      [therapist_id]
+    );
+    const b = rows && rows[0];
+    if (b && (b.upi_id || b.qr_url || b.account_number)) options.direct = b;
+  } catch (e) {
+    console.log('Direct payment details lookup failed::>>', e.message);
+  }
+
+  return options;
+};
+
+
+// Marks an invoice paid from a confirmed Razorpay payment (webhook or pay-page verify). Idempotent.
+const markInvoicePaidByRazorpay = async ({ invoiceId, paymentId, accountId, meta }) => {
+  const [[inv]] = await db.query('SELECT status FROM prodesk_invoices WHERE id = ?', [invoiceId]);
+  if (!inv) return { updated: false, reason: 'not_found' };
+  if (inv.status === 'paid') return { updated: false, reason: 'already_paid' };
+
+  await db.query("UPDATE prodesk_invoices SET status = 'paid', paid_at = NOW() WHERE id = ?", [invoiceId]);
+
+  const [payRows] = await db.query(
+    'SELECT id FROM prodesk_payment WHERE invoice_id = ? ORDER BY created_at DESC LIMIT 1', [invoiceId]
+  );
+  if (payRows && payRows.length) {
+    await db.query(
+      `UPDATE prodesk_payment
+       SET provider = 'razorpay', method = 'razorpay', payment_mode = 'razorpay', status = 'captured',
+           razorpay_ref_id = ?, merchant_account_id = ?, meta = ?
+       WHERE id = ?`,
+      [paymentId || null, accountId || null, meta ? JSON.stringify(meta) : null, payRows[0].id]
+    );
+    await writePaymentLog({
+      paymentId: payRows[0].id, invoiceId, referenceId: paymentId,
+      status: 'captured', eventType: 'payment.captured', source: meta ? 'webhook' : 'client', meta,
+    });
+  }
+  finalizePaidInvoice(invoiceId);                                // PAID stamp + email, non-blocking
+  return { updated: true };
+};
+
+// ─── PARTNER WEBHOOK: payment / refund events for therapist-connected accounts ─
+
+const handlePartnerPaymentEvent = async ({ event, accountId }) => {
+  const type = event.event;
+  const payload = event.payload || {};
+
+  if (type === 'payment_link.paid') {
+    const link = payload.payment_link?.entity;
+    const invoiceId = parseInt(link?.notes?.prodesk_invoice_id, 10);
+    if (!invoiceId) return;
+    await markInvoicePaidByRazorpay({ invoiceId, paymentId: payload.payment?.entity?.id, accountId, meta: event });
+    return;
+  }
+
+  // Checkout payments on our pay page: matched through the order we stored on the invoice's payment row
+  if (type === 'payment.captured' || type === 'order.paid') {
+    const pay = payload.payment?.entity;
+    const orderId = pay?.order_id || payload.order?.entity?.id;
+    if (!orderId) return;
+    const [rows] = await db.query('SELECT invoice_id FROM prodesk_payment WHERE razorpay_order_id = ? AND invoice_id IS NOT NULL LIMIT 1', [orderId]);
+    if (!rows || !rows.length) return;
+    await markInvoicePaidByRazorpay({ invoiceId: rows[0].invoice_id, paymentId: pay?.id, accountId, meta: event });
+    return;
+  }
+
+  if (type === 'payment_link.expired' || type === 'payment_link.cancelled') {
+    const invoiceId = parseInt(payload.payment_link?.entity?.notes?.prodesk_invoice_id, 10);
+    if (!invoiceId) return;
+    await db.query(
+      "UPDATE prodesk_invoices SET razorpay_invoice_id = NULL, razorpay_short_url = NULL WHERE id = ? AND status <> 'paid'", [invoiceId]
+    );
+    return;
+  }
+
+  if (type === 'payment.failed') {
+    const pay = payload.payment?.entity;
+    if (!pay?.id) return;
+    const [payRows] = await db.query(
+      'SELECT id, invoice_id FROM prodesk_payment WHERE razorpay_order_id = ? ORDER BY created_at DESC LIMIT 1', [pay.order_id || '']
+    );
+    if (payRows && payRows.length) {
+      await writePaymentLog({
+        paymentId: payRows[0].id, invoiceId: payRows[0].invoice_id, referenceId: pay.id,
+        status: 'failed', eventType: 'payment.failed', source: 'webhook',
+        meta: { code: pay.error_code, description: pay.error_description, reason: pay.error_reason, step: pay.error_step, method: pay.method },
+      });
+    }
+    return;
+  }
+
+  if (type === 'refund.created' || type === 'refund.processed' || type === 'refund.failed') {
+    const refund = payload.refund?.entity;
+    if (!refund?.payment_id) return;
+    const [payRows] = await db.query(
+      'SELECT id, invoice_id FROM prodesk_payment WHERE razorpay_ref_id = ? LIMIT 1', [refund.payment_id]
+    );
+    if (!payRows || !payRows.length) return;
+    const status = type === 'refund.processed' ? 'refunded' : type === 'refund.failed' ? 'refund_failed' : 'refund_initiated';
+    await db.query('UPDATE prodesk_payment SET status = ?, razorpay_refund_id = ? WHERE id = ?', [status, refund.id, payRows[0].id]);
+    if (status === 'refunded') {
+      await db.query(
+        "UPDATE prodesk_invoices SET status = 'refunded', razorpay_refund_id = ?, refunded_at = NOW() WHERE id = ?",
+        [refund.id, payRows[0].invoice_id]
+      );
+    }
+    await writePaymentLog({
+      paymentId: payRows[0].id, invoiceId: payRows[0].invoice_id, referenceId: refund.payment_id, refundId: refund.id,
+      status, eventType: type, source: 'webhook', meta: event,
+    });
+  }
+};
+
 // ─── SEND INVOICE ─────────────────────────────────────────────────────────────
 
 const sendInvoiceService = async (payload) => {
@@ -209,6 +346,7 @@ const sendInvoiceService = async (payload) => {
 
       let pdfUrl = null;
       try {
+        invoice.payment_options = await buildPaymentOptions({ therapist_id, invoice, client });
         pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
       } catch (e) {
         console.log('Custom invoice send error::>>', e.message);
@@ -332,6 +470,7 @@ const resendInvoiceService = async (payload) => {
 
       let pdfUrl = invoice.invoice_pdf_url;
       try {
+        invoice.payment_options = await buildPaymentOptions({ therapist_id, invoice, client });
         pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
       } catch (e) {
         console.log('Custom invoice resend error::>>', e.message);
@@ -469,7 +608,10 @@ const cancelInvoiceService = async (payload) => {
     }
 
     if (inv.data.razorpay_invoice_id) {
-      try { await RazorpayService.cancelInvoice(inv.data.razorpay_invoice_id); } catch (e) {
+      try {
+        if (isPaymentLinkId(inv.data.razorpay_invoice_id)) await PartnerService.cancelPaymentLinkForTherapist(therapist_id, inv.data.razorpay_invoice_id);
+        else await RazorpayService.cancelInvoice(inv.data.razorpay_invoice_id);
+      } catch (e) {
         console.log('Razorpay cancel error::>>', e.message);
       }
     }
@@ -566,11 +708,11 @@ const initiateRefundService = async (payload) => {
     let refundData;
 
     try {
-      refundData = await RazorpayService.createRefund({
-        razorpayPaymentId: payment.razorpay_ref_id,
-        amount,
-        notes: { prodesk_invoice_id: String(invoice_id), therapist_id: String(therapist_id) }
-      });
+      const refundNotes = { prodesk_invoice_id: String(invoice_id), therapist_id: String(therapist_id) };
+      // Payments taken on the therapist's own Razorpay account are refunded from that account
+      refundData = payment.merchant_account_id
+        ? await PartnerService.refundPaymentForTherapist(therapist_id, payment.razorpay_ref_id, { amount, notes: refundNotes })
+        : await RazorpayService.createRefund({ razorpayPaymentId: payment.razorpay_ref_id, amount, notes: refundNotes });
     } catch (e) {
       console.log('Razorpay refund error::>>', e.message);
       return { status: false, code: 502, message: `Razorpay error: ${e.message}`, data: null };
@@ -1461,5 +1603,8 @@ module.exports = {
   getPaymentsService,
   flagOverdueInvoicesService,
   handleRazorpayWebhookService,
+  handlePartnerPaymentEvent,
+  markInvoicePaidByRazorpay,
+  buildPaymentOptions,
   updateInvoiceService
 };
