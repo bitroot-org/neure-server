@@ -1,0 +1,46 @@
+name: Deploy to Elastic Beanstalk (Staging)
+
+on:
+  push:
+    branches: [ aws-stag ]
+
+# One staging deploy at a time; a newer push waits instead of running over it
+concurrency:
+  group: deploy-stag
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Generate deployment package
+        run: |
+          zip -r deploy.zip . \
+            -x "node_modules/*" \
+            -x ".git/*" \
+            -x "uploads/*" \
+            -x "temp/*" \
+            -x "*.sql" \
+            -x "*.md"
+
+      - name: Deploy to Elastic Beanstalk (staging)
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: neure-api-stag
+          environment_name: Neure-api-stag-env
+          version_label: "stag-${{ github.run_number }}-${{ github.sha }}"
+          region: ap-south-1
+          deployment_package: deploy.zip
+          use_existing_version_if_available: false
