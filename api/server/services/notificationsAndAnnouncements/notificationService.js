@@ -30,12 +30,14 @@ class NotificationService {
    * @param {string[]} variables    - Values for body_1, body_2, body_3 ... in order
    * @param {object}   [meta]       - Optional extra data for notification_log
    */
-  static async sendWhatsAppNotification({ to, templateName, variables = [], meta = null }) {
+  static async sendWhatsAppNotification({ to, templateName, variables = [], meta = null, buttonUrlSuffix = null }) {
     // Build body_1, body_2 ... components from the variables array
     const components = {};
     variables.forEach((val, i) => {
       components[`body_${i + 1}`] = { type: "text", value: String(val) };
     });
+    // A template with a dynamic URL button (e.g. "Pay now" -> https://.../pay/{{1}}) gets the value that fills {{1}}
+    if (buttonUrlSuffix) components.button_1 = { subtype: "url", type: "text", value: String(buttonUrlSuffix) };
 
     const payload = {
       integrated_number: MSG91_INTEGRATED_NUMBER,

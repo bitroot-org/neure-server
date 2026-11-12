@@ -11,6 +11,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+()\-\s\d]{7,20}$/;
 
 const bad = (message, code = 400) => ({ error: { status: false, code, message, data: null } });
+const flag = (v) => (v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0);
 
 const normaliseFields = (fields) => {
   if (!Array.isArray(fields)) return bad('fields must be a list');
@@ -41,7 +42,7 @@ const loadForm = async (id, therapist_id) => {
   const [rows] = await db.query("SELECT * FROM prodesk_intake_forms WHERE id = ? AND therapist_id = ? AND status = 'active'", [id, therapist_id]);
   if (!rows || !rows.length) return null;
   const [fields] = await db.query('SELECT * FROM prodesk_intake_form_fields WHERE form_id = ? ORDER BY sort_order, id', [id]);
-  return { ...rows[0], fields: fields.map(shapeField) };
+  return { ...rows[0], new_clients_only: !!rows[0].new_clients_only, fields: fields.map(shapeField) };
 };
 
 const getFormsService = async ({ therapist_id }) => {
@@ -81,7 +82,7 @@ const writeFields = async (conn, form_id, fields) => {
   }
 };
 
-const createFormService = async ({ therapist_id, actor_user_id, title, description, fields }) => {
+const createFormService = async ({ therapist_id, actor_user_id, title, description, fields, new_clients_only }) => {
   let conn;
   try {
     const t = String(title || '').trim();
@@ -92,13 +93,13 @@ const createFormService = async ({ therapist_id, actor_user_id, title, descripti
 
     conn = await db.getConnection();
     await conn.beginTransaction();
-    const [r] = await conn.query('INSERT INTO prodesk_intake_forms (therapist_id, title, description) VALUES (?, ?, ?)', [therapist_id, t, description || null]);
+    const [r] = await conn.query('INSERT INTO prodesk_intake_forms (therapist_id, title, description, new_clients_only) VALUES (?, ?, ?, ?)', [therapist_id, t, description || null, flag(new_clients_only)]);
     await writeFields(conn, r.insertId, nf.value);
     await conn.commit();
 
     await Activity.record({
       actor_user_id, module_name: 'intake_form', action: 'created', description: `Created intake form "${t}"`,
-      meta: { therapist_id, form_id: r.insertId, title: t, field_count: nf.value.length },
+      meta: { therapist_id, form_id: r.insertId, title: t, field_count: nf.value.length, new_clients_only: flag(new_clients_only) },
     });
     return { status: true, code: 201, message: 'Form created', data: await loadForm(r.insertId, therapist_id) };
   } catch (error) {
@@ -110,7 +111,7 @@ const createFormService = async ({ therapist_id, actor_user_id, title, descripti
   }
 };
 
-const updateFormService = async ({ therapist_id, actor_user_id, form_id, title, description, fields }) => {
+const updateFormService = async ({ therapist_id, actor_user_id, form_id, title, description, fields, new_clients_only }) => {
   let conn;
   try {
     const form = await loadForm(form_id, therapist_id);
@@ -123,13 +124,14 @@ const updateFormService = async ({ therapist_id, actor_user_id, form_id, title, 
 
     conn = await db.getConnection();
     await conn.beginTransaction();
-    await conn.query('UPDATE prodesk_intake_forms SET title = ?, description = ? WHERE id = ?', [t, description === undefined ? form.description : (description || null), form_id]);
+    const nco = new_clients_only === undefined ? form.new_clients_only : flag(new_clients_only);
+    await conn.query('UPDATE prodesk_intake_forms SET title = ?, description = ?, new_clients_only = ? WHERE id = ?', [t, description === undefined ? form.description : (description || null), nco, form_id]);
     if (nf) await writeFields(conn, form_id, nf.value);
     await conn.commit();
 
     await Activity.record({
       actor_user_id, module_name: 'intake_form', action: 'updated', description: `Updated intake form "${t}"`,
-      meta: { therapist_id, form_id: Number(form_id), title: t, ...(nf ? { field_count: nf.value.length } : {}) },
+      meta: { therapist_id, form_id: Number(form_id), title: t, new_clients_only: nco, ...(nf ? { field_count: nf.value.length } : {}) },
     });
     return { status: true, code: 200, message: 'Form updated', data: await loadForm(form_id, therapist_id) };
   } catch (error) {
@@ -194,6 +196,22 @@ const checkAnswer = (f, value) => {
   }
 };
 
+// Checks answers against the form's questions. Returns { error } or { stored } (what gets saved, with labels).
+const validateAnswers = (form, answers) => {
+  if (!Array.isArray(answers)) return { error: { status: false, code: 400, message: 'answers must be a list', data: null } };
+  const byField = new Map(answers.map((a) => [Number(a.field_id), a.value]));
+  for (const id of byField.keys()) {
+    if (!form.fields.some((f) => f.id === id)) return { error: { status: false, code: 400, message: `Unknown field ${id}`, data: null } };
+  }
+  const stored = [];
+  for (const f of form.fields) {
+    const err = checkAnswer(f, byField.get(f.id));
+    if (err) return { error: { status: false, code: 422, message: err, data: null } };
+    if (byField.has(f.id)) stored.push({ field_id: f.id, label: f.label, value: byField.get(f.id) });
+  }
+  return { stored };
+};
+
 // answers: [{ field_id, value }]
 const submitResponseService = async ({ therapist_id, form_id, client_id, purchase_id = null, answers }) => {
   try {
@@ -201,22 +219,12 @@ const submitResponseService = async ({ therapist_id, form_id, client_id, purchas
     if (!form) return { status: false, code: 404, message: 'Form not found', data: null };
     const [c] = await db.query('SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ?', [client_id, therapist_id]);
     if (!c || !c.length) return { status: false, code: 404, message: 'Client not found', data: null };
-    if (!Array.isArray(answers)) return { status: false, code: 400, message: 'answers must be a list', data: null };
-
-    const byField = new Map(answers.map((a) => [Number(a.field_id), a.value]));
-    for (const id of byField.keys()) {
-      if (!form.fields.some((f) => f.id === id)) return { status: false, code: 400, message: `Unknown field ${id}`, data: null };
-    }
-    const stored = [];
-    for (const f of form.fields) {
-      const err = checkAnswer(f, byField.get(f.id));
-      if (err) return { status: false, code: 422, message: err, data: null };
-      if (byField.has(f.id)) stored.push({ field_id: f.id, label: f.label, value: byField.get(f.id) });
-    }
+    const v = validateAnswers(form, answers);
+    if (v.error) return v.error;
 
     const [r] = await db.query(
       'INSERT INTO prodesk_intake_responses (form_id, client_id, purchase_id, answers) VALUES (?, ?, ?, ?)',
-      [form_id, client_id, purchase_id, JSON.stringify(stored)]
+      [form_id, client_id, purchase_id, JSON.stringify(v.stored)]
     );
     await Activity.record({
       actor_user_id: null, performed_by: 'client', module_name: 'intake_form', action: 'response_submitted',
@@ -250,5 +258,5 @@ const getResponsesService = async ({ therapist_id, form_id, client_id, purchase_
 
 module.exports = {
   getFormsService, getFormByIdService, createFormService, updateFormService, deleteFormService,
-  submitResponseService, getResponsesService, loadForm,
+  submitResponseService, getResponsesService, loadForm, validateAnswers,
 };

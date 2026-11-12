@@ -1,3 +1,4 @@
+const { formatISTWallClock } = require('../../utils/dateHelper');
 const crypto = require('crypto');
 const db = require('../../../config/db');
 const PartnerService = require('./razorpayPartnerService');
@@ -30,9 +31,45 @@ const payUrl = async (invoiceId) => {
   return `${origin}/pay/${makeToken(invoiceId)}`;
 };
 
+// Tappable https link (works from an email) that sends the phone to the UPI app with everything prefilled.
+// Origin is the API's own (taken from the partner redirect URI, which is always this server's public address).
+const upiLinkUrl = async (invoiceId) => {
+  const cfg = await PartnerService.getPartnerConfig();
+  if (!cfg.redirectUri) throw new Error('redirect_uri missing in payment_partner config');
+  return `${new URL(cfg.redirectUri).origin}/api/prodesk/upi/${makeToken(invoiceId)}`;
+};
+
+// upi://pay?...  with the therapist's UPI ID, the invoice amount and the invoice number as the payment note
+const getUpiDeepLinkService = async ({ token }) => {
+  try {
+    const invoiceId = parseToken(token);
+    if (!invoiceId) return { status: false, code: 404, message: 'This payment link is not valid.', data: null };
+    const inv = await loadInvoice(invoiceId);
+    if (!inv) return { status: false, code: 404, message: 'This payment link is not valid.', data: null };
+    if (!PAYABLE.includes(inv.status)) return { status: false, code: 409, message: inv.status === 'paid' ? 'This invoice is already paid.' : 'This invoice can no longer be paid.', data: null };
+    if ((await methodForInvoice(inv.id)) === 'razorpay') return { status: false, code: 409, message: 'This invoice is paid online, not by UPI transfer.', data: null };
+    const [rows] = await db.query('SELECT upi_id FROM therapist_bank_accounts WHERE therapist_id = ? AND direct_pay_enabled = 1', [inv.therapist_id]);
+    const upi = rows && rows[0] && rows[0].upi_id;
+    if (!upi) return { status: false, code: 404, message: 'No UPI ID is set up for this invoice.', data: null };
+    const q = new URLSearchParams({ pa: upi, pn: inv.clinic_name || '', am: Number(inv.total).toFixed(2), cu: 'INR', tn: `Invoice ${inv.invoice_number}` });
+    return { status: true, code: 200, message: 'UPI link', data: { url: `upi://pay?${q.toString()}` } };
+  } catch (error) {
+    console.log('Error in getUpiDeepLinkService::>>', error);
+    return null;
+  }
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const PAYABLE = ['sent', 'overdue', 'payment_initiated'];
+
+// An invoice for a booked service is paid ONE way, the one set on the service: 'direct' | 'razorpay'.
+// Any other invoice returns null and keeps offering whatever the therapist has set up.
+const methodForInvoice = async (invoiceId) => {
+  const [rows] = await db.query(
+    `SELECT s.payment_method FROM prodesk_service_purchases p JOIN prodesk_services s ON s.id = p.service_id WHERE p.invoice_id = ? LIMIT 1`, [invoiceId]);
+  return rows && rows[0] ? rows[0].payment_method : null;
+};
 
 const loadInvoice = async (invoiceId) => {
   const [rows] = await db.query(
@@ -85,24 +122,50 @@ const ensureOrder = async (inv) => {
 
 // ─── Public: data for the pay page ───────────────────────────────────────────
 
-const getPayInfoService = async ({ token }) => {
+const getPayInfoService = async ({ token, peek = false }) => {
   try {
     const invoiceId = parseToken(token);
     if (!invoiceId) return { status: false, code: 404, message: 'This payment link is not valid.', data: null };
     const inv = await loadInvoice(invoiceId);
     if (!inv) return { status: false, code: 404, message: 'This payment link is not valid.', data: null };
 
+    // The client opened the pay page: on the invoice's payment trail (at most once per 10 minutes)
+    if (PAYABLE.includes(inv.status) && !peek) {
+      try {
+        const [recent] = await db.query("SELECT id FROM prodesk_payment_log WHERE invoice_id = ? AND event_type = 'pay_page.opened' AND created_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE) LIMIT 1", [invoiceId]);
+        if (!recent || !recent.length) {
+          const [pay] = await db.query('SELECT id FROM prodesk_payment WHERE invoice_id = ? ORDER BY id DESC LIMIT 1', [invoiceId]);
+          if (pay && pay.length) await db.query("INSERT INTO prodesk_payment_log (payment_id, invoice_id, status, event_type, source, meta) VALUES (?, ?, 'viewed', 'pay_page.opened', 'client', ?)", [pay[0].id, invoiceId, JSON.stringify({})]);
+        }
+      } catch (e) { console.log('pay page view log (non-fatal)::>>', e.message); }
+    }
+
     const summary = {
       invoice_number: inv.invoice_number, total: inv.total, status: inv.status,
       issue_date: inv.issue_date, due_date: inv.due_date, client_name: inv.client_name, clinic_name: inv.clinic_name,
     };
-    if (inv.status === 'paid') return { status: true, code: 200, message: 'Paid', data: { invoice: summary, razorpay: null, direct: null } };
+    if (inv.status === 'paid') {
+      // If this invoice is for a booking request, tell the pay page where the client's request page is, so it can send them back there
+      let booking = null;
+      try {
+        const [[b]] = await db.query(
+          `SELECT t.booking_slug, ps.starts_at, ps.duration_min, ps.modality, sv.name AS service_name
+           FROM prodesk_service_purchases p
+           JOIN prodesk_sessions ps ON ps.purchase_id = p.id
+           JOIN therapists t ON t.id = p.therapist_id
+           JOIN prodesk_services sv ON sv.id = p.service_id
+           WHERE p.invoice_id = ? AND t.booking_slug IS NOT NULL ORDER BY ps.id LIMIT 1`, [invoiceId]);
+        if (b) booking = { slug: b.booking_slug, service: b.service_name, when: formatISTWallClock(b.starts_at), duration_min: b.duration_min, modality: b.modality };
+      } catch (e) { console.log('pay page booking lookup (non-fatal)::>>', e.message); }
+      return { status: true, code: 200, message: 'Paid', data: { invoice: summary, razorpay: null, direct: null, booking } };
+    }
     if (!PAYABLE.includes(inv.status)) {
       return { status: false, code: 409, message: 'This invoice can no longer be paid online.', data: null };
     }
 
+    const method = await methodForInvoice(inv.id);
     let razorpay = null;
-    const tok = await PartnerService.getAccessToken(inv.therapist_id).catch(() => null);
+    const tok = method === 'direct' ? null : await PartnerService.getAccessToken(inv.therapist_id).catch(() => null);   // a direct-payment service never opens Checkout
     if (tok) {
       try {
         const { orderId, amount } = await ensureOrder(inv);
@@ -115,7 +178,7 @@ const getPayInfoService = async ({ token }) => {
       [inv.therapist_id]
     );
     const b = bank && bank[0];
-    const direct = b && (b.upi_id || b.qr_url || b.account_number) ? b : null;
+    const direct = method !== 'razorpay' && b && (b.upi_id || b.qr_url || b.account_number) ? b : null;
 
     return { status: true, code: 200, message: 'Payment info', data: { invoice: summary, razorpay, direct } };
   } catch (error) {
@@ -204,4 +267,4 @@ const logAttemptService = async ({ token, event, payment_id, error }) => {
   }
 };
 
-module.exports = { logAttemptService, payUrl, makeToken, parseToken, getPayInfoService, verifyPaymentService };
+module.exports = { logAttemptService, methodForInvoice, upiLinkUrl, getUpiDeepLinkService, payUrl, makeToken, parseToken, getPayInfoService, verifyPaymentService };

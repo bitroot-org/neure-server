@@ -80,9 +80,14 @@ const getAccess = async (therapist_id) => {
   return { ...info, usable, held: heldSet, confirmedCount: activeRows.length };
 };
 
+// People waiting for a place: pending requests from someone who does not hold one yet.
+// A client who already holds one of the Starter places and asks for another session is not "waiting to book".
 const waitingRequests = async (therapist_id) => {
   const [[r]] = await db.query(
-    `SELECT COUNT(DISTINCT client_id) AS n FROM prodesk_sessions WHERE therapist_id = ? AND status = 'pending'`,
+    `SELECT COUNT(DISTINCT ps.client_id) AS n
+     FROM prodesk_sessions ps JOIN prodesk_clients pc ON pc.id = ps.client_id
+     WHERE ps.therapist_id = ? AND ps.status = 'pending' AND pc.deleted_at IS NULL
+       AND NOT (pc.is_confirmed = 1 AND pc.starter_active = 1)`,
     [therapist_id]
   );
   return r ? Number(r.n) : 0;

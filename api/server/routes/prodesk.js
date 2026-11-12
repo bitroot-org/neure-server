@@ -35,6 +35,7 @@ const OfferCtrl          = require('../controllers/prodesk/offerController');
 const ReferralCtrl       = require('../controllers/prodesk/referralController');
 const FeedbackCtrl       = require('../controllers/prodesk/feedbackController');
 const ServiceCtrl        = require('../controllers/prodesk/serviceController');
+const BookingPageCtrl    = require('../controllers/prodesk/bookingPageController');
 
 // Multer — image uploads (profile, logo, documents)
 const imageUpload = multer({
@@ -154,6 +155,7 @@ router.post('/getSlots',            authorization, SessionCtrl.getSlots);
 router.post('/deleteSession',       authorization, SessionCtrl.deleteSession);
 router.post('/completeSession',     authorization, SessionCtrl.completeSession);
 router.post('/approveBookingRequest', authorization, SessionCtrl.approveBookingRequest);
+router.post('/rescheduleBookingRequest', authorization, SessionCtrl.rescheduleBookingRequest);
 router.post('/declineBookingRequest', authorization, SessionCtrl.declineBookingRequest);
 router.post('/getCalendarSessions', authorization, SessionCtrl.getCalendarSessions);
 router.post('/getTodaySessions',    authorization, SessionCtrl.getTodaySessions);
@@ -191,7 +193,8 @@ router.post('/getInvoicePayInfo',      BillingCtrl.getInvoicePayInfo);     // pu
 router.post('/logInvoicePayAttempt',   BillingCtrl.logInvoicePayAttempt);  // public pay page — opened / failed / cancelled
 router.post('/verifyInvoicePayment',   BillingCtrl.verifyInvoicePayment);  // public pay page — confirmed with Razorpay
 router.post('/razorpayWebhook',        BillingCtrl.razorpayWebhook); // no auth — HMAC verified
-router.get('/i/:invoice_number',       BillingCtrl.invoicePDFRedirect); // no auth — short URL redirect
+router.get('/i/:invoice_number',       BillingCtrl.invoicePDFRedirect);
+router.get('/upi/:token',              BillingCtrl.payUpiRedirect);        // no auth — signed token: opens the UPI app prefilled // no auth — short URL redirect
 
 // ──────────────────────────────────────────────────────────────
 // RESOURCES
@@ -214,6 +217,8 @@ router.post('/confirmBooking',        BookingCtrl.confirmBooking);
 router.post('/verifyBookingPayment',  BookingCtrl.verifyBookingPayment);
 router.post('/getBookingSlots',       BookingCtrl.getBookingSlots);
 router.post('/lookupBookingClient',   BookingCtrl.lookupBookingClient);
+router.post('/getPublicServices',     BookingCtrl.getPublicServices);
+router.post('/getPublicBookingRequirements', BookingCtrl.getPublicBookingRequirements);
 // ── Services, packages, intake forms, client purchases ──
 router.post('/getServices',            authorization, ServiceCtrl.getServices);
 router.post('/getServiceById',         authorization, ServiceCtrl.getServiceById);
@@ -226,11 +231,22 @@ router.post('/createIntakeForm',       authorization, ServiceCtrl.createIntakeFo
 router.post('/updateIntakeForm',       authorization, ServiceCtrl.updateIntakeForm);
 router.post('/deleteIntakeForm',       authorization, ServiceCtrl.deleteIntakeForm);
 router.post('/getIntakeResponses',     authorization, ServiceCtrl.getIntakeResponses);
+router.post('/getConsentForms',        authorization, ServiceCtrl.getConsentForms);
+router.post('/getConsentFormById',     authorization, ServiceCtrl.getConsentFormById);
+router.post('/createConsentForm',      authorization, ServiceCtrl.createConsentForm);
+router.post('/updateConsentForm',      authorization, ServiceCtrl.updateConsentForm);
+router.post('/deleteConsentForm',      authorization, ServiceCtrl.deleteConsentForm);
+router.post('/uploadConsentFile',      authorization, imageUpload.single('file'), ServiceCtrl.uploadConsentFile);
+router.post('/getBookingRequirements', authorization, ServiceCtrl.getBookingRequirements);
+router.post('/getBookingPageContent',  authorization, BookingPageCtrl.getBookingPageContent);
+router.post('/addGalleryImage',        authorization, imageUpload.single('image'), BookingPageCtrl.addGalleryImage);
+router.post('/deleteGalleryImage',     authorization, BookingPageCtrl.deleteGalleryImage);
+router.post('/saveReview',             authorization, BookingPageCtrl.saveReview);
+router.post('/deleteReview',           authorization, BookingPageCtrl.deleteReview);
 router.post('/getServicePurchases',    authorization, ServiceCtrl.getServicePurchases);
 router.post('/getServicePurchaseById', authorization, ServiceCtrl.getServicePurchaseById);
 router.post('/createServicePurchase',  authorization, ServiceCtrl.createServicePurchase);
 router.post('/confirmDirectPayment',   authorization, ServiceCtrl.confirmDirectPayment);
-router.post('/rejectDirectPayment',    authorization, ServiceCtrl.rejectDirectPayment);
 router.post('/cancelServicePurchase',  authorization, ServiceCtrl.cancelServicePurchase);
 router.post('/bookPurchaseSession',    authorization, ServiceCtrl.bookPurchaseSession);
 router.post('/getActivity',            authorization, ServiceCtrl.getActivity);

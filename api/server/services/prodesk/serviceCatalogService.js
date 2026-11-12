@@ -2,17 +2,19 @@ const db = require('../../../config/db');
 const Activity = require('./activityLogService');
 const { sanitizeHtml } = require('../../utils/safeHtml');
 
-// ─── Services + their session packages ───────────────────────────────────────
-// A service is what the therapist offers ("Therapy Session, ₹2,000, 60 min").
-// A package is a discounted bundle of that service ("4 sessions for ₹6,800, use within 60 days").
+// ─── Services ────────────────────────────────────────────────────────────────
+// One service = one thing the therapist sells, with one price.
+//   sessions_count = 1   → a single session at `price`
+//   sessions_count = 4   → a 4-session bundle at `price` (the total), usable within `validity_days` of payment
+// A "package" is simply a service with more than one session.
 
 const SESSION_MODES = ['online', 'in_person', 'both'];
 const STATUSES = ['draft', 'active', 'archived'];
-const CUTOFFS = [12, 24, 48, 72];
 const FORM_MODES = ['none', 'optional', 'required'];
+const PAY_METHODS = ['direct', 'razorpay'];
+const PAY_TIMINGS = ['prepaid', 'postpaid'];
 
 const bad = (message, code = 400) => ({ error: { status: false, code, message, data: null } });
-const bool = (v) => (v === true || v === 1 || v === '1' || v === 'true' ? 1 : 0);
 const money = (n) => Math.round(Number(n) * 100) / 100;
 
 // "2000.00" (from the DB) and 2000 (validated input) are the same value
@@ -23,12 +25,9 @@ const same = (a, b) => {
 };
 
 const SERVICE_FIELDS = [
-  'name', 'description', 'session_mode', 'duration_min', 'price', 'accept_direct', 'accept_razorpay',
-  'allow_reschedule', 'reschedule_cutoff_hrs', 'allow_cancel', 'cancel_cutoff_hrs',
-  'intake_form_id', 'intake_form_mode', 'status', 'expires_at',
+  'name', 'description', 'session_mode', 'duration_min', 'sessions_count', 'validity_days', 'price',
+  'payment_method', 'payment_timing', 'intake_form_id', 'intake_form_mode', 'consent_form_id', 'status', 'expires_at',
 ];
-
-// ─── Validation ──────────────────────────────────────────────────────────────
 
 const razorpayIsActive = async (therapist_id) => {
   const [rows] = await db.query("SELECT 1 FROM therapist_razorpay_accounts WHERE therapist_id = ? AND status = 'active'", [therapist_id]);
@@ -46,27 +45,28 @@ const validateService = async (s, therapist_id) => {
   if (!SESSION_MODES.includes(s.session_mode)) return bad(`session_mode must be one of ${SESSION_MODES.join(', ')}`);
   const duration = Number(s.duration_min);
   if (!Number.isInteger(duration) || duration < 5 || duration > 480) return bad('Duration must be a whole number of minutes between 5 and 480');
+
+  const sessions_count = Number(s.sessions_count ?? 1);
+  if (!Number.isInteger(sessions_count) || sessions_count < 1 || sessions_count > 52) return bad('Number of sessions must be between 1 and 52');
+  let validity_days = null;
+  if (sessions_count > 1) {
+    validity_days = Number(s.validity_days);
+    if (!Number.isInteger(validity_days) || validity_days < 1 || validity_days > 730) return bad('Validity must be between 1 and 730 days when a service has more than one session');
+  }
+
   const price = money(s.price);
-  if (!Number.isFinite(price) || price <= 0 || price > 10000000) return bad('Price per session must be greater than 0');
+  if (!Number.isFinite(price) || price <= 0 || price > 10000000) return bad('Price must be greater than 0');
 
-  const accept_direct = bool(s.accept_direct);
-  const accept_razorpay = bool(s.accept_razorpay);
-  if (!accept_direct && !accept_razorpay) return bad('At least one payment method must be enabled');
-  if (accept_razorpay && !(await razorpayIsActive(therapist_id))) {
-    return bad('Connect Razorpay in Payment integration before enabling Online Payment', 422);
+  // One payment method per service: direct (UPI / bank / cash) or online through the therapist's Razorpay
+  const payment_method = s.payment_method;
+  if (!PAY_METHODS.includes(payment_method)) return bad(`payment_method must be one of ${PAY_METHODS.join(', ')}`);
+  if (payment_method === 'razorpay' && !(await razorpayIsActive(therapist_id))) {
+    return bad('Connect Razorpay in Payment integration before choosing online payment', 422);
   }
 
-  const allow_reschedule = bool(s.allow_reschedule);
-  const allow_cancel = bool(s.allow_cancel);
-  let reschedule_cutoff_hrs = null, cancel_cutoff_hrs = null;
-  if (allow_reschedule) {
-    reschedule_cutoff_hrs = Number(s.reschedule_cutoff_hrs);
-    if (!CUTOFFS.includes(reschedule_cutoff_hrs)) return bad(`Reschedule cutoff must be one of ${CUTOFFS.join(', ')} hours`);
-  }
-  if (allow_cancel) {
-    cancel_cutoff_hrs = Number(s.cancel_cutoff_hrs);
-    if (!CUTOFFS.includes(cancel_cutoff_hrs)) return bad(`Cancellation cutoff must be one of ${CUTOFFS.join(', ')} hours`);
-  }
+  // Prepaid: the client pays before the request reaches you. Postpaid: the request comes first, the invoice follows when you approve.
+  const payment_timing = s.payment_timing || 'postpaid';
+  if (!PAY_TIMINGS.includes(payment_timing)) return bad(`payment_timing must be one of ${PAY_TIMINGS.join(', ')}`);
 
   const intake_form_mode = s.intake_form_mode || 'none';
   if (!FORM_MODES.includes(intake_form_mode)) return bad(`intake_form_mode must be one of ${FORM_MODES.join(', ')}`);
@@ -76,6 +76,13 @@ const validateService = async (s, therapist_id) => {
     const [f] = await db.query("SELECT id FROM prodesk_intake_forms WHERE id = ? AND therapist_id = ? AND status = 'active'", [s.intake_form_id, therapist_id]);
     if (!f || !f.length) return bad('Intake form not found', 404);
     intake_form_id = Number(s.intake_form_id);
+  }
+
+  let consent_form_id = null;
+  if (s.consent_form_id) {
+    const [c] = await db.query("SELECT id FROM prodesk_consent_forms WHERE id = ? AND therapist_id = ? AND status = 'active'", [s.consent_form_id, therapist_id]);
+    if (!c || !c.length) return bad('Consent form not found', 404);
+    consent_form_id = Number(s.consent_form_id);
   }
 
   if (!STATUSES.includes(s.status)) return bad(`status must be one of ${STATUSES.join(', ')}`);
@@ -89,62 +96,70 @@ const validateService = async (s, therapist_id) => {
 
   return {
     value: {
-      name, description, session_mode: s.session_mode, duration_min: duration, price,
-      accept_direct, accept_razorpay, allow_reschedule, reschedule_cutoff_hrs, allow_cancel, cancel_cutoff_hrs,
-      intake_form_id, intake_form_mode, status: s.status, expires_at,
+      name, description, session_mode: s.session_mode, duration_min: duration, sessions_count, validity_days, price,
+      payment_method, payment_timing, intake_form_id, intake_form_mode, consent_form_id, status: s.status, expires_at,
     },
   };
 };
 
-// Package input: [{ sessions_count, discount_percent?, total_price?, validity_days }]
-// The therapist edits EITHER discount or total. Total wins if both are sent, the other is derived.
-const normalisePackages = (list, price) => {
-  if (!Array.isArray(list)) return bad('packages must be a list');
-  if (list.length > 20) return bad('Too many packages (max 20)');
+// ─── Special prices for existing clients ─────────────────────────────────────
+// [{ client_id, price }] replaces the whole list. The stored value is the final price the client pays.
+
+const normaliseClientPrices = async (list, therapist_id) => {
+  if (!Array.isArray(list)) return bad('client_prices must be a list');
+  if (list.length > 200) return bad('Too many client prices');
   const seen = new Set();
   const out = [];
-  for (const p of list) {
-    const count = Number(p.sessions_count);
-    if (!Number.isInteger(count) || count < 2 || count > 52) return bad('A package needs between 2 and 52 sessions');
-    if (seen.has(count)) return bad(`Two packages have ${count} sessions`);
-    seen.add(count);
-
-    const validity = Number(p.validity_days);
-    if (!Number.isInteger(validity) || validity < 1 || validity > 730) return bad(`Package of ${count}: validity must be 1 to 730 days`);
-
-    const base = money(price * count);
-    let total, discount;
-    if (p.total_price !== undefined && p.total_price !== null && p.total_price !== '') {
-      total = money(p.total_price);
-      if (!Number.isFinite(total) || total <= 0) return bad(`Package of ${count}: total must be greater than 0`);
-      if (total > base) return bad(`Package of ${count}: total cannot be more than ${count} × the session price (${base})`);
-      discount = money((1 - total / base) * 100);
-    } else {
-      discount = money(p.discount_percent || 0);
-      if (!Number.isFinite(discount) || discount < 0 || discount >= 100) return bad(`Package of ${count}: discount must be 0 to under 100`);
-      total = money(base * (1 - discount / 100));
-    }
-    out.push({ sessions_count: count, discount_percent: discount, total_price: total, validity_days: validity });
+  for (const row of list) {
+    const client_id = Number(row.client_id);
+    const price = money(row.price);
+    if (!client_id) return bad('Each special price needs a client');
+    if (seen.has(client_id)) return bad('A client appears twice in the special prices');
+    seen.add(client_id);
+    if (!Number.isFinite(price) || price <= 0 || price > 10000000) return bad('A special price must be greater than 0');
+    out.push({ client_id, price });
   }
-  return { value: out.sort((a, b) => a.sessions_count - b.sessions_count) };
+  if (out.length) {
+    const [ok] = await db.query('SELECT id FROM prodesk_clients WHERE therapist_id = ? AND id IN (?)', [therapist_id, out.map((o) => o.client_id)]);
+    if (ok.length !== out.length) return bad('One of the clients was not found', 404);
+  }
+  return { value: out };
+};
+
+const writeClientPrices = async (service_id, prices) => {
+  await db.query('DELETE FROM prodesk_service_client_prices WHERE service_id = ?', [service_id]);
+  for (const p of prices) await db.query('INSERT INTO prodesk_service_client_prices (service_id, client_id, price) VALUES (?, ?, ?)', [service_id, p.client_id, p.price]);
+};
+
+// What this client pays for this service: their special price if they have one, else the normal price.
+const resolvePrice = async (service_id, client_id) => {
+  const [[svc]] = await db.query('SELECT price FROM prodesk_services WHERE id = ?', [service_id]);
+  if (!svc) return null;
+  if (client_id) {
+    const [[cp]] = await db.query('SELECT price FROM prodesk_service_client_prices WHERE service_id = ? AND client_id = ?', [service_id, client_id]);
+    if (cp) return { price: Number(cp.price), special: true, regular_price: Number(svc.price) };
+  }
+  return { price: Number(svc.price), special: false, regular_price: Number(svc.price) };
 };
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
 
-const decorate = (svc, packages, sold = 0) => ({
+const decorate = (svc, sold = 0, client_prices = []) => ({
   ...svc,
-  accept_direct: !!svc.accept_direct, accept_razorpay: !!svc.accept_razorpay,
-  allow_reschedule: !!svc.allow_reschedule, allow_cancel: !!svc.allow_cancel,
+  client_prices,
+  per_session_price: money(Number(svc.price) / svc.sessions_count),
   sold_count: Number(sold) || 0,
-  packages: packages.map((p) => ({ ...p, is_active: !!p.is_active, original_total: money(svc.price * p.sessions_count) })),
 });
 
 const loadService = async (id, therapist_id) => {
   const [rows] = await db.query('SELECT * FROM prodesk_services WHERE id = ? AND therapist_id = ?', [id, therapist_id]);
   if (!rows || !rows.length) return null;
-  const [pk] = await db.query('SELECT * FROM prodesk_service_packages WHERE service_id = ? AND is_active = 1 ORDER BY sessions_count', [id]);
   const [[{ n }]] = await db.query('SELECT COUNT(*) AS n FROM prodesk_service_purchases WHERE service_id = ?', [id]);
-  return decorate(rows[0], pk, n);
+  const [cp] = await db.query(
+    `SELECT cp.client_id, cp.price, CONCAT(u.first_name, ' ', u.last_name) AS client_name
+     FROM prodesk_service_client_prices cp JOIN prodesk_clients pc ON pc.id = cp.client_id JOIN users u ON u.user_id = pc.user_id
+     WHERE cp.service_id = ? ORDER BY client_name`, [id]);
+  return decorate(rows[0], n, cp);
 };
 
 const getServicesService = async ({ therapist_id, include_archived = false, status }) => {
@@ -156,12 +171,11 @@ const getServicesService = async ({ therapist_id, include_archived = false, stat
     const [rows] = await db.query(`SELECT * FROM prodesk_services WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC`, params);
     if (!rows.length) return { status: true, code: 200, message: 'Services fetched', data: [] };
 
-    const ids = rows.map((r) => r.id);
-    const [pk] = await db.query('SELECT * FROM prodesk_service_packages WHERE is_active = 1 AND service_id IN (?) ORDER BY sessions_count', [ids]);
-    const [sold] = await db.query('SELECT service_id, COUNT(*) AS n FROM prodesk_service_purchases WHERE service_id IN (?) GROUP BY service_id', [ids]);
+    const [sold] = await db.query('SELECT service_id, COUNT(*) AS n FROM prodesk_service_purchases WHERE service_id IN (?) GROUP BY service_id', [rows.map((r) => r.id)]);
     const soldBy = Object.fromEntries(sold.map((s) => [s.service_id, s.n]));
-    const data = rows.map((r) => decorate(r, pk.filter((p) => p.service_id === r.id), soldBy[r.id] || 0));
-    return { status: true, code: 200, message: 'Services fetched', data };
+    const [cpc] = await db.query('SELECT service_id, COUNT(*) AS n FROM prodesk_service_client_prices WHERE service_id IN (?) GROUP BY service_id', [rows.map((r) => r.id)]);
+    const cpBy = Object.fromEntries(cpc.map((c) => [c.service_id, c.n]));
+    return { status: true, code: 200, message: 'Services fetched', data: rows.map((r) => ({ ...decorate(r, soldBy[r.id] || 0), special_price_count: cpBy[r.id] || 0 })) };
   } catch (error) {
     console.log('Error in getServicesService::>>', error);
     return null;
@@ -181,85 +195,41 @@ const getServiceByIdService = async ({ therapist_id, service_id }) => {
 
 // ─── Writing ─────────────────────────────────────────────────────────────────
 
-// Make the stored packages equal `wanted`. A package that already has purchases is switched off, never deleted.
-const syncPackages = async (conn, service_id, wanted) => {
-  const [existing] = await conn.query('SELECT * FROM prodesk_service_packages WHERE service_id = ?', [service_id]);
-  const byCount = new Map(existing.map((p) => [p.sessions_count, p]));
-  const keep = new Set(wanted.map((w) => w.sessions_count));
-
-  for (const w of wanted) {
-    const cur = byCount.get(w.sessions_count);
-    if (cur) {
-      await conn.query(
-        'UPDATE prodesk_service_packages SET discount_percent = ?, total_price = ?, validity_days = ?, is_active = 1 WHERE id = ?',
-        [w.discount_percent, w.total_price, w.validity_days, cur.id]
-      );
-    } else {
-      await conn.query(
-        'INSERT INTO prodesk_service_packages (service_id, sessions_count, discount_percent, total_price, validity_days) VALUES (?, ?, ?, ?, ?)',
-        [service_id, w.sessions_count, w.discount_percent, w.total_price, w.validity_days]
-      );
-    }
-  }
-  for (const cur of existing) {
-    if (keep.has(cur.sessions_count)) continue;
-    const [[{ n }]] = await conn.query('SELECT COUNT(*) AS n FROM prodesk_service_purchases WHERE package_id = ?', [cur.id]);
-    if (n > 0) await conn.query('UPDATE prodesk_service_packages SET is_active = 0 WHERE id = ?', [cur.id]);
-    else await conn.query('DELETE FROM prodesk_service_packages WHERE id = ?', [cur.id]);
-  }
-};
+const COLS = 'name, description, session_mode, duration_min, sessions_count, validity_days, price, payment_method, payment_timing, intake_form_id, intake_form_mode, consent_form_id, status, expires_at';
+const valuesOf = (s) => [s.name, s.description, s.session_mode, s.duration_min, s.sessions_count, s.validity_days, s.price, s.payment_method, s.payment_timing, s.intake_form_id, s.intake_form_mode, s.consent_form_id, s.status, s.expires_at];
 
 const createServiceService = async (payload) => {
   const { therapist_id, actor_user_id } = payload;
-  let conn;
   try {
-    const merged = {
-      session_mode: 'online', duration_min: 60, accept_direct: 1, accept_razorpay: 0,
-      allow_reschedule: 0, allow_cancel: 0, intake_form_mode: 'none', status: 'draft',
-    };
+    const merged = { session_mode: 'online', duration_min: 60, sessions_count: 1, payment_method: 'direct', payment_timing: 'postpaid', intake_form_mode: 'none', status: 'draft' };
     for (const f of SERVICE_FIELDS) if (payload[f] !== undefined) merged[f] = payload[f];
 
     const v = await validateService(merged, therapist_id);
     if (v.error) return v.error;
-    let pkgs = [];
-    if (payload.packages !== undefined) {
-      const np = normalisePackages(payload.packages, v.value.price);
-      if (np.error) return np.error;
-      pkgs = np.value;
-    }
     if (v.value.status === 'archived') return { status: false, code: 400, message: 'A new service cannot be created as archived', data: null };
+    let prices = null;
+    if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
 
-    conn = await db.getConnection();
-    await conn.beginTransaction();
     const s = v.value;
-    const [r] = await conn.query(
-      `INSERT INTO prodesk_services (therapist_id, name, description, session_mode, duration_min, price, accept_direct, accept_razorpay,
-         allow_reschedule, reschedule_cutoff_hrs, allow_cancel, cancel_cutoff_hrs, intake_form_id, intake_form_mode, status, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [therapist_id, s.name, s.description, s.session_mode, s.duration_min, s.price, s.accept_direct, s.accept_razorpay,
-        s.allow_reschedule, s.reschedule_cutoff_hrs, s.allow_cancel, s.cancel_cutoff_hrs, s.intake_form_id, s.intake_form_mode, s.status, s.expires_at]
+    const [r] = await db.query(
+      `INSERT INTO prodesk_services (therapist_id, ${COLS}) VALUES (?, ${COLS.split(',').map(() => '?').join(', ')})`,
+      [therapist_id, ...valuesOf(s)]
     );
-    await syncPackages(conn, r.insertId, pkgs);
-    await conn.commit();
-
+    if (prices && prices.length) await writeClientPrices(r.insertId, prices);
     await Activity.record({
       actor_user_id, module_name: 'service', action: 'created',
       description: `Created service "${s.name}" (${s.status})`,
-      meta: { therapist_id, service_id: r.insertId, name: s.name, price: s.price, status: s.status, packages: pkgs.map((p) => p.sessions_count) },
+      meta: { therapist_id, service_id: r.insertId, name: s.name, price: s.price, sessions_count: s.sessions_count, status: s.status, special_prices: prices ? prices.length : 0 },
     });
     return { status: true, code: 201, message: 'Service created', data: await loadService(r.insertId, therapist_id) };
   } catch (error) {
-    if (conn) await conn.rollback().catch(() => {});
     console.log('Error in createServiceService::>>', error);
     return null;
-  } finally {
-    if (conn) conn.release();
   }
 };
 
 const updateServiceService = async (payload) => {
   const { therapist_id, actor_user_id, service_id } = payload;
-  let conn;
   try {
     const [rows] = await db.query('SELECT * FROM prodesk_services WHERE id = ? AND therapist_id = ?', [service_id, therapist_id]);
     if (!rows || !rows.length) return { status: false, code: 404, message: 'Service not found', data: null };
@@ -270,57 +240,32 @@ const updateServiceService = async (payload) => {
 
     const merged = { ...current };
     for (const f of SERVICE_FIELDS) if (payload[f] !== undefined) merged[f] = payload[f];
-
     const v = await validateService(merged, therapist_id);
     if (v.error) return v.error;
-
-    let pkgs;
-    if (payload.packages !== undefined) {
-      const np = normalisePackages(payload.packages, v.value.price);
-      if (np.error) return np.error;
-      pkgs = np.value;
-    } else if (Number(current.price) !== v.value.price) {
-      // Price changed but packages were not re-sent: keep their discount %, recompute totals so they stay consistent
-      const [old] = await db.query('SELECT sessions_count, discount_percent, validity_days FROM prodesk_service_packages WHERE service_id = ? AND is_active = 1', [service_id]);
-      const np = normalisePackages(old.map((o) => ({ sessions_count: o.sessions_count, discount_percent: o.discount_percent, validity_days: o.validity_days })), v.value.price);
-      if (np.error) return np.error;
-      pkgs = np.value;
-    }
-
     const s = v.value;
+    let prices = null;
+    if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
+
     const changes = {};
-    for (const f of SERVICE_FIELDS) {
-      const from = current[f], to = s[f];
-      if (!same(from, to)) changes[f] = { from: from ?? null, to: to ?? null };
+    for (const f of SERVICE_FIELDS) if (!same(current[f], s[f])) changes[f] = { from: current[f] ?? null, to: s[f] ?? null };
+
+    await db.query(`UPDATE prodesk_services SET ${COLS.split(', ').map((c) => `${c} = ?`).join(', ')} WHERE id = ?`, [...valuesOf(s), service_id]);
+
+    if (prices) {
+      const [before] = await db.query('SELECT client_id, price FROM prodesk_service_client_prices WHERE service_id = ?', [service_id]);
+      const sameList = before.length === prices.length && prices.every((p) => before.some((b) => b.client_id === p.client_id && Number(b.price) === p.price));
+      if (!sameList) { await writeClientPrices(service_id, prices); changes.special_prices = { from: before.length, to: prices.length }; }
     }
-
-    conn = await db.getConnection();
-    await conn.beginTransaction();
-    await conn.query(
-      `UPDATE prodesk_services SET name = ?, description = ?, session_mode = ?, duration_min = ?, price = ?, accept_direct = ?, accept_razorpay = ?,
-         allow_reschedule = ?, reschedule_cutoff_hrs = ?, allow_cancel = ?, cancel_cutoff_hrs = ?, intake_form_id = ?, intake_form_mode = ?, status = ?, expires_at = ?
-       WHERE id = ?`,
-      [s.name, s.description, s.session_mode, s.duration_min, s.price, s.accept_direct, s.accept_razorpay,
-        s.allow_reschedule, s.reschedule_cutoff_hrs, s.allow_cancel, s.cancel_cutoff_hrs, s.intake_form_id, s.intake_form_mode, s.status, s.expires_at, service_id]
-    );
-    if (pkgs) await syncPackages(conn, service_id, pkgs);
-    await conn.commit();
-
-    const pkgChanged = !!pkgs;
-    if (Object.keys(changes).length || pkgChanged) {
+    if (Object.keys(changes).length) {
       await Activity.record({
-        actor_user_id, module_name: 'service', action: 'updated',
-        description: `Updated service "${s.name}"`,
-        meta: { therapist_id, service_id: Number(service_id), changes, ...(pkgChanged ? { packages: pkgs.map((p) => ({ sessions: p.sessions_count, total: p.total_price })) } : {}) },
+        actor_user_id, module_name: 'service', action: 'updated', description: `Updated service "${s.name}"`,
+        meta: { therapist_id, service_id: Number(service_id), changes },
       });
     }
     return { status: true, code: 200, message: 'Service updated', data: await loadService(service_id, therapist_id) };
   } catch (error) {
-    if (conn) await conn.rollback().catch(() => {});
     console.log('Error in updateServiceService::>>', error);
     return null;
-  } finally {
-    if (conn) conn.release();
   }
 };
 
@@ -335,16 +280,14 @@ const deleteServiceService = async ({ therapist_id, actor_user_id, service_id })
     if (purchases || sessions) {
       await db.query("UPDATE prodesk_services SET status = 'archived' WHERE id = ?", [service_id]);
       await Activity.record({
-        actor_user_id, module_name: 'service', action: 'archived',
-        description: `Archived service "${rows[0].name}" (it has bookings)`,
+        actor_user_id, module_name: 'service', action: 'archived', description: `Archived service "${rows[0].name}" (it has bookings)`,
         meta: { therapist_id, service_id: Number(service_id), purchases, sessions },
       });
       return { status: true, code: 200, message: 'Service has bookings, so it was archived instead of deleted', data: { deleted: false, archived: true } };
     }
     await db.query('DELETE FROM prodesk_services WHERE id = ?', [service_id]);
     await Activity.record({
-      actor_user_id, module_name: 'service', action: 'deleted',
-      description: `Deleted service "${rows[0].name}"`,
+      actor_user_id, module_name: 'service', action: 'deleted', description: `Deleted service "${rows[0].name}"`,
       meta: { therapist_id, service_id: Number(service_id), name: rows[0].name },
     });
     return { status: true, code: 200, message: 'Service deleted', data: { deleted: true, archived: false } };
@@ -354,6 +297,4 @@ const deleteServiceService = async ({ therapist_id, actor_user_id, service_id })
   }
 };
 
-module.exports = {
-  getServicesService, getServiceByIdService, createServiceService, updateServiceService, deleteServiceService, loadService,
-};
+module.exports = { getServicesService, getServiceByIdService, createServiceService, updateServiceService, deleteServiceService, loadService, resolvePrice };

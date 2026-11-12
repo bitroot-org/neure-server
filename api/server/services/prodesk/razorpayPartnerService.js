@@ -19,9 +19,11 @@ const getPartnerConfig = async () => {
     clientId: rows[0].key_id,
     clientSecret: rows[0].secret,
     mode: meta.mode === 'live' ? 'live' : 'test',
-    redirectUri: meta.redirect_uri,
+    // The partner row is shared by every environment on this database. A developer machine can point links at itself
+    // with these two variables, so pay links and the OAuth return do not land on the deployed staging site.
+    redirectUri: process.env.RAZORPAY_REDIRECT_URI_OVERRIDE || meta.redirect_uri,
     webhookSecret: meta.webhook_secret,
-    frontendReturnUrl: meta.frontend_return_url,
+    frontendReturnUrl: process.env.FRONTEND_RETURN_URL_OVERRIDE || meta.frontend_return_url,
   };
 };
 

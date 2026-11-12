@@ -24,6 +24,7 @@ const TERMS = `
 `;
 
 const MSG91_INVOICE_TEMPLATE = 'neure_invoice1';
+const MSG91_INVOICE_PAY_TEMPLATE = 'neure_invoice_pay';   // same message with a "Pay now" button
 
 const BREVO_SENDER = { name: 'Prodesk Invoice', email: 'prodesk@neure.co.in' };
 
@@ -68,9 +69,12 @@ const buildPaymentSection = (opts) => {
     <div>
       <div style="font-size:12px;color:#555;margin-bottom:8px;">${opts.pay_url ? 'Or pay directly:' : 'Pay directly using:'}</div>
       <table style="border-collapse:collapse;"><tbody>
+        ${opts.amount != null ? row('Amount', '₹' + formatINR(opts.amount)) : ''}
+        ${opts.invoice_number ? row('Payment note', 'Invoice ' + opts.invoice_number) : ''}
         ${d.upi_id ? row('UPI ID', d.upi_id) : ''}
         ${d.account_number ? row('Bank', d.bank_name || '') + row('Account holder', d.account_holder || '') + row('Account number', d.account_number) + row('IFSC', d.ifsc_code || '') : ''}
       </tbody></table>
+      ${opts.upi_link ? `<div style="margin-top:12px;"><a href="${esc(opts.upi_link)}" style="display:inline-block;background:#5EA89A;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:10px 22px;border-radius:8px;">Pay ₹${formatINR(opts.amount)} with your UPI app</a><div style="font-size:11px;color:#888;margin-top:6px;">Opens your UPI app with the amount and invoice number already filled in (on your phone).</div></div>` : ''}
       ${d.qr_url ? `<img src="${esc(d.qr_url)}" alt="Payment QR" style="width:130px;height:130px;object-fit:contain;margin-top:10px;border:1px solid #eee;border-radius:8px;" />` : ''}
       <div style="font-size:11px;color:#888;margin-top:8px;">After paying, please share the transaction reference (UTR) with your therapist.</div>
     </div>` : '';
@@ -358,18 +362,33 @@ const sendInvoiceWhatsApp = async ({ invoice, client, therapist, pdfUrl }) => {
 
   const shortUrl = getInvoiceShortUrl(invoice.invoice_number);
 
+  // "Pay now" button: the template has a URL button ending in {{1}} = the pay-page token
+  const pageUrl = invoice.payment_options && invoice.payment_options.page_url;
+  const payToken = pageUrl && pageUrl.includes('/pay/') ? pageUrl.split('/pay/')[1] : null;
+  const withButton = !!(payToken && invoice.status !== 'paid');
+
+  const clinicName = (therapist && therapist.therapist_name) || (therapist && therapist.brand_name) || 'Neure';
+  const meta = { invoice_id: invoice.id, invoice_number: invoice.invoice_number };
+
+  if (withButton) {
+    // The pay template is numbered in reading order: name, clinic, invoice no., amount, due date, PDF link.
+    const sent = await NotificationService.sendWhatsAppNotification({
+      to,
+      templateName: MSG91_INVOICE_PAY_TEMPLATE,
+      buttonUrlSuffix: payToken,
+      variables: [client.first_name, clinicName, invoice.invoice_number, formatINR(invoice.total), dueDate, shortUrl],
+      meta,
+    });
+    if (sent) return;
+    console.log('Pay-now invoice template was not sent (not approved yet?) - sending the plain invoice WhatsApp instead');
+  }
+
+  // neure_invoice1 order: name, invoice no., amount, due date, PDF link, clinic.
   await NotificationService.sendWhatsAppNotification({
     to,
     templateName: MSG91_INVOICE_TEMPLATE,
-    variables: [
-      client.first_name,
-      invoice.invoice_number,
-      formatINR(invoice.total),
-      dueDate,
-      shortUrl,
-      (therapist && therapist.therapist_name) || (therapist && therapist.brand_name) || 'Neure'
-    ],
-    meta: { invoice_id: invoice.id, invoice_number: invoice.invoice_number }
+    variables: [client.first_name, invoice.invoice_number, formatINR(invoice.total), dueDate, shortUrl, clinicName],
+    meta,
   });
 };
 
@@ -415,4 +434,4 @@ const sendPaidInvoice = async ({ invoice, client, therapist, notify = true }) =>
   return pdfUrl;
 };
 
-module.exports = { sendCustomInvoice, sendPaidInvoice, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };
+module.exports = { sendCustomInvoice, sendPaidInvoice, sendInvoiceWhatsApp, buildInvoiceHTML, generatePDF, uploadPDFToS3, getBrevoApiKey };
