@@ -7,6 +7,8 @@ const {
   getBookingSlotsService,
   lookupBookingClientService,
   createBookingSessionService,
+  getPublicServicesService,
+  getPublicBookingRequirementsService,
   sendBookingParentOtpService,
   verifyBookingParentOtpService
 } = require('../../services/prodesk/bookingService');
@@ -90,6 +92,23 @@ class ProdeskBookingController {
     }
   }
 
+  static async getPublicServices(req, res) {
+    try {
+      return respond(res, await getPublicServicesService({ slug: req.body.slug }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async getPublicBookingRequirements(req, res) {
+    try {
+      const { slug, service_id, email } = req.body;
+      return respond(res, await getPublicBookingRequirementsService({ slug, service_id, email }));
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async lookupBookingClient(req, res) {
     try {
       const { slug, email } = req.body;
@@ -123,12 +142,12 @@ class ProdeskBookingController {
 
   static async createBookingSession(req, res) {
     try {
-      const { slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id } = req.body;
+      const { slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, service_id, intake_answers } = req.body;
       if (!slug || !date || !time || !modality || !email) {
         return res.status(400).json({ status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null });
       }
       const result = await createBookingSessionService({
-        slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id,
+        slug, date, time, duration_min, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, service_id, intake_answers,
         ip_address: req.ip,
         user_agent: req.headers['user-agent']
       });

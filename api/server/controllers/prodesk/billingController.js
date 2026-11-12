@@ -177,10 +177,21 @@ class ProdeskBillingController {
   }
 
   // Public pay page (no login): the signed token in the link is the credential
+  // Public, from the invoice email: sends the phone to the UPI app with amount + invoice number prefilled
+  static async payUpiRedirect(req, res) {
+    try {
+      const { getUpiDeepLinkService } = require('../../services/prodesk/invoicePayService');
+      const result = await getUpiDeepLinkService({ token: req.params.token });
+      if (!result) return res.status(500).send('Something went wrong. Please try again.');
+      if (!result.status) return res.status(result.code).send(result.message);
+      return res.redirect(302, result.data.url);
+    } catch (e) { return res.status(500).send('Something went wrong. Please try again.'); }
+  }
+
   static async getInvoicePayInfo(req, res) {
     try {
       const { getPayInfoService } = require('../../services/prodesk/invoicePayService');
-      const result = await getPayInfoService({ token: req.body?.token });
+      const result = await getPayInfoService({ token: req.body?.token, peek: req.body?.peek === true });
       if (!result) return res.status(500).json({ status: false, code: 500, message: 'Internal server error', data: null });
       return res.status(result.code).json(result);
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }

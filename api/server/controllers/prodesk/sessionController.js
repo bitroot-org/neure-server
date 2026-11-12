@@ -16,6 +16,7 @@ const {
   getSlotsService,
   deleteSessionService,
   approveBookingRequestService,
+  rescheduleBookingRequestService,
   declineBookingRequestService
 } = require('../../services/prodesk/sessionService');
 const { getReminderSettingService, updateReminderSettingService } = require('../../services/prodesk/clientReminderService');
@@ -235,6 +236,19 @@ class ProdeskSessionController {
       const { session_id } = req.body;
       if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
       const result = await approveBookingRequestService({ therapist_id: req.user.therapist_id, session_id });
+      if (result && result.status) await logSession(req, 'request_approved', 'Booking request approved', await sessionRow(session_id, req.user.therapist_id));
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async rescheduleBookingRequest(req, res) {
+    try {
+      const { session_id, starts_at } = req.body;
+      if (!session_id || !starts_at) return res.status(400).json({ status: false, code: 400, message: 'session_id and starts_at required', data: null });
+      const result = await rescheduleBookingRequestService({ therapist_id: req.user.therapist_id, session_id, starts_at });
+      if (result && result.status) await logSession(req, 'rescheduled', `Request moved to ${starts_at} and confirmed`, await sessionRow(session_id, req.user.therapist_id), { to: starts_at });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
@@ -246,6 +260,7 @@ class ProdeskSessionController {
       const { session_id } = req.body;
       if (!session_id) return res.status(400).json({ status: false, code: 400, message: 'session_id required', data: null });
       const result = await declineBookingRequestService({ therapist_id: req.user.therapist_id, ...req.body });
+      if (result && result.status) await logSession(req, 'request_declined', `Booking request declined${result.data && result.data.refund && result.data.refund !== 'none' ? ` (refund: ${result.data.refund})` : ''}`, await sessionRow(session_id, req.user.therapist_id), { refund: result.data ? result.data.refund : null, reason: req.body.reason || null });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

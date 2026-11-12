@@ -16,7 +16,7 @@ const record = async ({ actor_user_id = null, performed_by = 'therapist', module
   }
 };
 
-const ENTITY_KEYS = ['service_id', 'purchase_id', 'session_id', 'payment_id', 'form_id'];
+const ENTITY_KEYS = ['service_id', 'purchase_id', 'session_id', 'payment_id', 'form_id', 'consent_id'];
 
 // History for one entity of this therapist, newest first.
 const getActivityService = async ({ therapist_id, entity, id, limit = 50 }) => {

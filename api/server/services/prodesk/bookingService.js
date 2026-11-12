@@ -9,6 +9,12 @@ const { recordConsentService } = require('./consentService');
 const { modesForModality } = require('../../utils/availabilityMode');
 const { touchClient } = require('./clientActivity');
 const planGuard = require('./planGuard');
+const Intake = require('./intakeFormService');
+const Consent = require('./consentFormService');
+const Catalog = require('./serviceCatalogService');
+const Purchases = require('./servicePurchaseService');
+const InvoicePay = require('./invoicePayService');
+const Activity = require('./activityLogService');
 
 const HOLD_MINUTES = 8;
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -48,8 +54,8 @@ const getPublicProfileService = async (payload) => {
     const [rows] = await db.query(
       `SELECT t.id, t.booking_slug, t.about_me, t.specialization, t.rating,
               t.experience_years, t.registration_number, t.booking_preview_url,
-              u.first_name, u.last_name, u.profile_url,
-              b.brand_name, b.theme, b.accent, b.background_type, b.background_preset,
+              u.first_name, u.last_name, u.profile_url, u.age,
+              b.brand_name, b.clinic_address, b.theme, b.accent, b.background_type, b.background_preset,
               b.logo_url, b.wallpaper_id, b.wallpaper_url
        FROM therapists t
        JOIN users u ON u.user_id = t.user_id
@@ -68,6 +74,9 @@ const getPublicProfileService = async (payload) => {
       [t.id]
     );
 
+    const [gal] = await db.query('SELECT image_url FROM therapist_gallery WHERE therapist_id = ? ORDER BY sort_order, id', [t.id]);
+    const [rev] = await db.query('SELECT reviewer_name AS name, body AS text, rating FROM therapist_reviews WHERE therapist_id = ? AND is_visible = 1 ORDER BY id DESC LIMIT 30', [t.id]);
+
     return {
       status: true, code: 200, message: 'Public profile fetched',
       data: {
@@ -79,6 +88,11 @@ const getPublicProfileService = async (payload) => {
         rating: t.rating,
         profile_url: t.profile_url,
         preview_image_url: t.booking_preview_url || null,
+        address: t.clinic_address || null,
+        age: t.age || null,
+        gallery: gal.map((g) => g.image_url),
+        testimonials: rev,
+        review_count: rev.length,
         branding: {
           brand_name: t.brand_name, theme: t.theme, accent: t.accent,
           background_type: t.background_type, background_preset: t.background_preset,
@@ -424,15 +438,18 @@ const verifyBookingPaymentService = async (payload) => {
 
 // ─── Public direct-booking APIs ──────────────────────────────────────────────
 
+const MAX_BOOKING_AHEAD_DAYS = 60;
+
 const getBookingSlotsService = async ({ slug, date, session_duration, modality }) => {
   try {
     if (!slug || !date || !session_duration) {
       return { status: false, code: 400, message: 'slug, date and session_duration are required', data: null };
     }
 
+    // Any length a service can have (the service form allows 5 to 480 minutes), not just a fixed list
     const duration = parseInt(session_duration);
-    if (![30, 45, 60, 90, 120].includes(duration)) {
-      return { status: false, code: 400, message: 'session_duration must be 30, 45, 60, 90 or 120', data: null };
+    if (!Number.isInteger(duration) || duration < 5 || duration > 480) {
+      return { status: false, code: 400, message: 'session_duration must be between 5 and 480 minutes', data: null };
     }
 
     const [[therapist]] = await db.query(
@@ -535,6 +552,7 @@ const getBookingSlotsService = async ({ slug, date, session_duration, modality }
 
 const lookupBookingClientService = async ({ slug, email }) => {
   try {
+    email = String(email || '').trim().toLowerCase();
     if (!slug || !email) return { status: false, code: 400, message: 'slug and email are required', data: null };
 
     const [[therapist]] = await db.query(
@@ -551,17 +569,74 @@ const lookupBookingClientService = async ({ slug, email }) => {
       [user.user_id, therapist.therapist_id]
     );
 
+    // The prices special to this client, so the booking page can show them straight away
+    let prices = {};
+    if (client) {
+      const [cp] = await db.query(
+        `SELECT cp.service_id, cp.price FROM prodesk_service_client_prices cp JOIN prodesk_services s ON s.id = cp.service_id
+         WHERE cp.client_id = ? AND s.therapist_id = ? AND s.status = 'active'`, [client.id, therapist.therapist_id]);
+      prices = Object.fromEntries(cp.map((r) => [r.service_id, Number(r.price)]));
+    }
+
     return {
       status: true, code: 200, message: 'Client found',
       data: {
         found: true,
         already_client: !!client,
         name: `${user.first_name} ${user.last_name}`.trim(),
-        phone: user.phone || ''
+        phone: user.phone || '',
+        prices
       }
     };
   } catch (error) {
     console.log('Error in lookupBookingClientService::>>', error);
+    return null;
+  }
+};
+
+// Public: the services a therapist offers on the booking link, and how the client may pay
+const getPublicServicesService = async ({ slug }) => {
+  try {
+    if (!slug) return { status: false, code: 400, message: 'slug is required', data: null };
+    const [[t]] = await db.query(
+      `SELECT t.id FROM therapists t JOIN users u ON u.user_id = t.user_id
+       WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1`, [slug]);
+    if (!t) return { status: false, code: 404, message: 'Therapist not found', data: null };
+
+    const [rows] = await db.query(
+      `SELECT id, name, description, session_mode, duration_min, sessions_count, validity_days, price, payment_method, payment_timing,
+              (intake_form_mode <> 'none') AS has_intake, (consent_form_id IS NOT NULL) AS has_consent
+       FROM prodesk_services WHERE therapist_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
+       ORDER BY sessions_count, price, id`, [t.id]);
+
+    const ready = { razorpay: !(await Purchases.paymentMethodReady(t.id, 'razorpay')), direct: !(await Purchases.paymentMethodReady(t.id, 'direct')) };
+    const services = rows.map((r) => ({ ...r, price: Number(r.price), has_intake: !!r.has_intake, has_consent: !!r.has_consent, pay_now_available: !!ready[r.payment_method] }));
+    return { status: true, code: 200, message: 'Services', data: { services } };
+  } catch (error) {
+    console.log('Error in getPublicServicesService::>>', error);
+    return null;
+  }
+};
+
+// Public: what this person must still do to book this service (price, intake form, agreement)
+const getPublicBookingRequirementsService = async ({ slug, service_id, email }) => {
+  try {
+    email = String(email || '').trim().toLowerCase();
+    if (!slug || !service_id) return { status: false, code: 400, message: 'slug and service_id are required', data: null };
+    const [[t]] = await db.query('SELECT t.id FROM therapists t JOIN users u ON u.user_id = t.user_id WHERE t.booking_slug = ? AND t.is_active = 1 AND u.is_active = 1', [slug]);
+    if (!t) return { status: false, code: 404, message: 'Therapist not found', data: null };
+    let client_id;
+    if (email) {
+      const [[c]] = await db.query(
+        'SELECT pc.id FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE u.email = ? AND pc.therapist_id = ? AND pc.deleted_at IS NULL', [email, t.id]);
+      client_id = c ? c.id : undefined;
+    }
+    const r = await Purchases.getRequirementsService({ therapist_id: t.id, service_id, client_id });
+    if (!r || !r.status) return r;
+    const { price, intake, consent } = r.data;
+    return { status: true, code: 200, message: 'Requirements', data: { price, intake, consent } };
+  } catch (error) {
+    console.log('Error in getPublicBookingRequirementsService::>>', error);
     return null;
   }
 };
@@ -584,11 +659,17 @@ const verifyBookingParentOtpService = async ({ slug, consent_id, otp }) => {
   return parentConsent.verifyParentOtpService({ therapist_id, consent_id, otp });
 };
 
-const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, ip_address = null, user_agent = null }) => {
+// A price special to a client only applies to someone who was already this therapist's client before this request
+const existingClientId = (clientRow) => (clientRow && clientRow.existed ? clientRow.id : null);
+
+const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, ip_address = null, user_agent = null, service_id = null, intake_answers = null }) => {
   try {
+    email = String(email || '').trim().toLowerCase();
     if (!slug || !date || !time || !modality || !email) {
       return { status: false, code: 400, message: 'slug, date, time, modality and email are required', data: null };
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { status: false, code: 400, message: 'Enter a valid email address', data: null };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !/^\d{2}:\d{2}$/.test(String(time))) return { status: false, code: 400, message: 'date must be YYYY-MM-DD and time HH:MM', data: null };
     if (!consent_accepted) {
       return { status: false, code: 400, message: 'You must agree to the consent form to request a session', data: null };
     }
@@ -608,11 +689,52 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
     if (!therapistRow) return { status: false, code: 404, message: 'Therapist not found', data: null };
 
     const { therapist_id, therapist_name, therapist_email, therapist_phone, clinic_name } = therapistRow;
-    const fee = 0;
+    let fee = 0;
+
+    // ── A service was chosen: its own length, mode, price, agreement, intake form and payment rules apply ──
+    let svc = null, choice = null, reqs = null;
+    if (service_id) {
+      const [[sv]] = await db.query("SELECT * FROM prodesk_services WHERE id = ? AND therapist_id = ? AND status = 'active'", [service_id, therapist_id]);
+      if (!sv) return { status: false, code: 404, message: 'That service is not available', data: null };
+      if (sv.expires_at && new Date(String(sv.expires_at).replace(' ', 'T') + 'Z') < new Date()) return { status: false, code: 409, message: 'That service is no longer available', data: null };
+      const allowedModes = { online: ['video'], in_person: ['in_person'], both: ['video', 'in_person'] }[sv.session_mode] || [];
+      if (!allowedModes.includes(modality)) return { status: false, code: 422, message: `This service is ${sv.session_mode === 'online' ? 'online only' : 'in person only'}`, data: null };
+      svc = sv;
+      duration_min = sv.duration_min;
+
+      // The service decides: prepaid = pay now and request, postpaid = request first and pay when approved
+      choice = sv.payment_timing === 'prepaid' ? 'now' : 'later';
+      if (choice === 'now') { const notReady = await Purchases.paymentMethodReady(therapist_id, sv.payment_method); if (notReady) return notReady; }
+
+      // Intake form: a new person answers it, an existing client (or one who already did) skips it
+      const [[u0]] = await db.query('SELECT user_id FROM users WHERE email = ?', [email]);
+      let known = null;
+      if (u0) { const [[c0]] = await db.query('SELECT id FROM prodesk_clients WHERE user_id = ? AND therapist_id = ? AND deleted_at IS NULL', [u0.user_id, therapist_id]); known = c0 ? c0.id : null; }
+      const rq = await Purchases.getRequirementsService({ therapist_id, service_id, client_id: known || undefined });
+      if (!rq || !rq.status) return rq || { status: false, code: 500, message: 'Could not check the booking requirements', data: null };
+      reqs = rq.data;
+      if (reqs.intake.needed) {
+        if (reqs.intake.required && !Array.isArray(intake_answers)) return { status: false, code: 422, message: 'Please fill in the intake form', data: null };
+        if (Array.isArray(intake_answers)) {
+          const form = await Intake.loadForm(reqs.intake.form_id, therapist_id);
+          const v = Intake.validateAnswers(form, intake_answers);
+          if (v.error) return v.error;
+        }
+      }
+    }
     const starts_at = `${date}T${time}:00`;
 
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
+    }
+    // Only a time the therapist actually offers: inside their hours, for this length and mode, not already taken, and within the booking window
+    if (new Date(starts_at) > new Date(Date.now() + MAX_BOOKING_AHEAD_DAYS * 86400000)) {
+      return { status: false, code: 422, message: `Sessions can only be booked up to ${MAX_BOOKING_AHEAD_DAYS} days ahead`, data: null };
+    }
+    {
+      const offered = await getBookingSlotsService({ slug, date, session_duration: duration_min, modality });
+      const times = offered && offered.status ? offered.data.available_slots.map((x) => x.time) : [];
+      if (!times.includes(time)) return { status: false, code: 409, message: 'That time is no longer available. Please pick another slot.', data: null };
     }
 
     // Blocked by this therapist (same email, or same mobile number): no request is created, and the message does not say "blocked"
@@ -685,6 +807,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
         'SELECT id, deleted_at, purged_at FROM prodesk_clients WHERE user_id = ? AND therapist_id = ?',
         [userId, therapist_id]
       );
+      if (clientRow) clientRow.existed = true;
       // Someone the therapist deleted (still in the 30-day backup) books again: they come back as a NEW request to approve
       if (clientRow && clientRow.deleted_at && !clientRow.purged_at) {
         await conn.query("UPDATE prodesk_clients SET deleted_at = NULL, is_confirmed = 0, status = 'active' WHERE id = ?", [clientRow.id]);
@@ -703,25 +826,64 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
            VALUES (?, ?, ?, ?, ?, ?, CURDATE(), 0)`,
           [userId, therapist_id, ageNum, concern || null, fee || 0, color]
         );
-        clientRow = { id: cRes.insertId };
+        clientRow = { id: cRes.insertId, existed: false };
         if (ageNum < 18) await parentConsent.attachParentConsent(parent_consent_id, cRes.insertId);
       }
 
       const client_id = clientRow.id;
+      let priceInfo = null;
+      if (svc) {
+        priceInfo = await Catalog.resolvePrice(service_id, existingClientId(clientRow));
+        fee = Math.round((priceInfo.price / svc.sessions_count) * 100) / 100;   // fee of ONE session
+      }
 
       // Session number
       const [[{ cnt }]] = await conn.query('SELECT COUNT(*) AS cnt FROM prodesk_sessions WHERE client_id = ?', [client_id]);
       const sessionNum = cnt + 1;
 
+      let purchase_id = null;
+      if (svc) {
+        const [pRes] = await conn.query(
+          `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending_payment')`,
+          [therapist_id, client_id, service_id, svc.sessions_count, priceInfo.price, svc.validity_days]
+        );
+        purchase_id = pRes.insertId;
+      }
       const [sessRes] = await conn.query(
-        `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-        [therapist_id, client_id, sessionNum, `Session ${sessionNum}`, starts_at, duration_min, modality, fee || 0]
+        `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status, service_id, purchase_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        [therapist_id, client_id, sessionNum, svc ? svc.name : `Session ${sessionNum}`, starts_at, duration_min, modality, fee || 0, svc ? service_id : null, purchase_id]
       );
       const session_id = sessRes.insertId;
 
       await conn.commit();
       touchClient(client_id); // new booking request: client moves to the top of the Clients list
+
+      // Service booking: save the intake answers and the agreement, and open the invoice for "pay now"
+      let pay_url = null, payment_error = null, pay_fallback = null;
+      if (svc) {
+        if (reqs.intake.needed && Array.isArray(intake_answers)) {
+          await Intake.submitResponseService({ therapist_id, form_id: reqs.intake.form_id, client_id, purchase_id, answers: intake_answers });
+        }
+        if (reqs.consent.needed) {
+          await Consent.recordAcceptance({ therapist_id, performed_by: 'client', consent_form_id: reqs.consent.consent_form_id, client_id, purchase_id, ip_address });
+        }
+        if (choice === 'now') {
+          // A person the therapist's plan cannot take yet cannot be invoiced (same rule as everywhere): the request still goes
+          // through, and the invoice follows when the therapist approves it.
+          const gate = await planGuard.checkUseClient(therapist_id, client_id);
+          if (!gate.ok) {
+            choice = 'later';
+            pay_fallback = 'The therapist has to approve your request first. Your invoice follows once they do.';
+          } else {
+            const inv = await Purchases.openInvoiceForPurchase({ therapist_id, client_id, session_id, purchase_id, svc, price: priceInfo.price, notify: false });
+            if (inv && inv.status) {
+              pay_url = await InvoicePay.payUrl(inv.data.id);
+            } else payment_error = (inv && inv.message) || 'Could not open the payment';
+          }
+        }
+      }
       planGuard.notifyPlanFullRequest(therapist_id, client_id); // background: nudge the therapist if their plan is full
 
       // Log the client's consent to the booking form (same audit trail the
@@ -780,6 +942,17 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
         } catch (e) { console.log('Therapist WhatsApp (non-blocking):', e.message); }
       }
 
+      // Everything done on the public booking page is on record
+      if (svc) {
+        await Activity.record({
+          actor_user_id: null, performed_by: 'client', module_name: 'booking_request', action: 'created',
+          description: `Booking request from ${clientName} for "${svc.name}" (${choice === 'now' ? 'prepaid' : 'postpaid'}${pay_url ? ', payment link opened' : ''})`,
+          meta: { therapist_id, session_id, purchase_id, service_id: Number(service_id), client_id, price: priceInfo.price, special_price: priceInfo.special,
+                  payment_timing: choice === 'now' ? 'prepaid' : 'postpaid', modality, starts_at, intake_filled: !!(reqs && reqs.intake && reqs.intake.needed && Array.isArray(intake_answers)),
+                  invoice_opened: !!pay_url, pay_fallback: pay_fallback || null, payment_error: payment_error || null },
+        });
+      }
+
       return {
         status: true, code: 200, message: 'Booking request sent',
         data: {
@@ -790,7 +963,8 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           duration_min,
           modality,
           status: 'pending',
-          formatted_time: formattedTime
+          formatted_time: formattedTime,
+          ...(svc ? { purchase_id, price: priceInfo.price, special_price: priceInfo.special, payment_timing: choice === 'now' ? 'prepaid' : 'postpaid', pay_url, payment_error, pay_fallback } : {})
         }
       };
     } catch (e) {
@@ -814,6 +988,8 @@ module.exports = {
   getBookingSlotsService,
   lookupBookingClientService,
   createBookingSessionService,
+  getPublicServicesService,
+  getPublicBookingRequirementsService,
   sendBookingParentOtpService,
   verifyBookingParentOtpService
 };

@@ -84,7 +84,7 @@ const getInvoiceByIdService = async (payload) => {
 const createInvoiceService = async (payload) => {
   try {
     console.log('Payload in createInvoiceService::>>', payload);
-    const { therapist_id, client_id, session_id, due_date, line_items, tax_percent = 18, notes, action = 'draft' } = payload;
+    const { therapist_id, client_id, session_id, due_date, line_items, tax_percent = 18, notes, action = 'draft', notify = true } = payload;
 
     if (!client_id || !line_items || !line_items.length) {
       return { status: false, code: 400, message: 'client_id and line_items are required', data: null };
@@ -126,7 +126,7 @@ const createInvoiceService = async (payload) => {
     await db.query('UPDATE prodesk_invoices SET invoice_number = ? WHERE id = ?', [invoiceNumber, result.insertId]);
 
     if (action === 'send') {
-      return sendInvoiceService({ therapist_id, invoice_id: result.insertId });
+      return sendInvoiceService({ therapist_id, invoice_id: result.insertId, notify });
     }
 
     return getInvoiceByIdService({ therapist_id, invoice_id: result.insertId });
@@ -164,6 +164,15 @@ const fetchTherapistInfo = async (therapistId) => {
 // with the PAID stamp, saves it as the invoice's PDF, and emails the paid copy to the client.
 // Never throws — a PDF/email problem must not undo a recorded payment.
 
+// Whatever else hangs on an invoice (a service booking) reacts once it is paid. Never blocks the payment itself.
+const onInvoicePaid = async (invoice_id) => {
+  try {
+    await require('./servicePurchaseService').activateForInvoice(invoice_id);   // lazy: servicePurchaseService uses this file
+  } catch (e) {
+    console.log('onInvoicePaid failed (non-fatal)::>>', e.message);
+  }
+};
+
 const finalizePaidInvoice = async (invoice_id) => {
   try {
     if (RAZORPAY_INVOICE_ENABLED) return;
@@ -192,13 +201,15 @@ const finalizePaidInvoice = async (invoice_id) => {
 const isPaymentLinkId = (id) => typeof id === 'string' && id.startsWith('plink_');
 
 const buildPaymentOptions = async ({ therapist_id, invoice, client }) => {
-  const options = { pay_url: null, direct: null };
+  // For a booked service only the service's own method is offered (one way to pay). Other invoices offer both.
+  const method = await InvoicePay.methodForInvoice(invoice.id).catch(() => null);
+  const options = { method, pay_url: null, direct: null, page_url: null, upi_link: null, amount: invoice.total, invoice_number: invoice.invoice_number };
 
   try {
     const [conn] = await db.query(
       "SELECT 1 FROM therapist_razorpay_accounts WHERE therapist_id = ? AND status = 'active'", [therapist_id]
     );
-    if (conn && conn.length) options.pay_url = await InvoicePay.payUrl(invoice.id);   // our pay page (Razorpay Checkout)
+    if (method !== 'direct' && conn && conn.length) options.pay_url = await InvoicePay.payUrl(invoice.id);   // our pay page (Razorpay Checkout)
   } catch (e) {
     console.log('Pay page link failed (invoice still sent)::>>', e.message);
   }
@@ -209,10 +220,16 @@ const buildPaymentOptions = async ({ therapist_id, invoice, client }) => {
       [therapist_id]
     );
     const b = rows && rows[0];
-    if (b && (b.upi_id || b.qr_url || b.account_number)) options.direct = b;
+    if (method !== 'razorpay' && b && (b.upi_id || b.qr_url || b.account_number)) options.direct = b;
+    if (options.direct && options.direct.upi_id) options.upi_link = await InvoicePay.upiLinkUrl(invoice.id).catch(() => null);
   } catch (e) {
     console.log('Direct payment details lookup failed::>>', e.message);
   }
+
+  // The pay page is the one link behind every "Pay now" button (email, WhatsApp). For direct payment it opens the prefilled UPI payment.
+  try {
+    if (options.pay_url || options.direct) options.page_url = options.pay_url || await InvoicePay.payUrl(invoice.id);
+  } catch (e) { console.log('Pay page link failed::>>', e.message); }
 
   return options;
 };
@@ -242,6 +259,7 @@ const markInvoicePaidByRazorpay = async ({ invoiceId, paymentId, accountId, meta
       status: 'captured', eventType: 'payment.captured', source: meta ? 'webhook' : 'client', meta,
     });
   }
+  await onInvoicePaid(invoiceId);
   finalizePaidInvoice(invoiceId);                                // PAID stamp + email, non-blocking
   return { updated: true };
 };
@@ -323,7 +341,7 @@ const handlePartnerPaymentEvent = async ({ event, accountId }) => {
 const sendInvoiceService = async (payload) => {
   try {
     console.log('Payload in sendInvoiceService::>>', payload);
-    const { therapist_id, invoice_id } = payload;
+    const { therapist_id, invoice_id, notify = true } = payload;
 
     const inv = await getInvoiceByIdService({ therapist_id, invoice_id });
     if (!inv || !inv.status) return inv;
@@ -347,7 +365,8 @@ const sendInvoiceService = async (payload) => {
       let pdfUrl = null;
       try {
         invoice.payment_options = await buildPaymentOptions({ therapist_id, invoice, client });
-        pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
+        // notify:false = the client is already on the pay page (or is told another way): open the invoice for payment without emailing it
+        if (notify) pdfUrl = await InvoiceEmailService.sendCustomInvoice({ invoice, client, therapist });
       } catch (e) {
         console.log('Custom invoice send error::>>', e.message);
         return { status: false, code: 502, message: `Invoice delivery failed: ${e.message}`, data: null };
@@ -644,7 +663,7 @@ const cancelInvoiceService = async (payload) => {
 const markInvoicePaidService = async (payload) => {
   try {
     console.log('Payload in markInvoicePaidService::>>', payload);
-    const { therapist_id, invoice_id, method, paid_at } = payload;
+    const { therapist_id, invoice_id, method, paid_at, reference } = payload;
 
     const inv = await getInvoiceByIdService({ therapist_id, invoice_id });
     if (!inv || !inv.status) return inv;
@@ -658,9 +677,9 @@ const markInvoicePaidService = async (payload) => {
     const [client] = await db.query('SELECT user_id FROM prodesk_clients WHERE id = ?', [inv.data.client_id]);
     const [payResult] = await db.query(
       `INSERT INTO prodesk_payment
-       (user_id, therapist_id, invoice_id, payment_type, provider, amount, currency, status, method)
-       VALUES (?, ?, ?, 'invoice', 'offline', ?, 'INR', 'captured', 'offline')`,
-      [client[0]?.user_id, therapist_id, invoice_id, inv.data.total]
+       (user_id, therapist_id, invoice_id, payment_type, provider, amount, currency, status, method, payment_mode, payer_reference)
+       VALUES (?, ?, ?, 'invoice', 'offline', ?, 'INR', 'captured', 'offline', ?, ?)`,
+      [client[0]?.user_id, therapist_id, invoice_id, inv.data.total, method || null, reference ? String(reference).slice(0, 100) : null]
     );
 
     await writePaymentLog({
@@ -669,9 +688,10 @@ const markInvoicePaidService = async (payload) => {
       status: 'captured',
       eventType: 'manual.marked_paid',
       source: 'therapist',
-      meta: { method: method || 'offline', paid_at: paidDate }
+      meta: { method: method || 'offline', paid_at: paidDate, reference: reference || null }
     });
 
+    await onInvoicePaid(invoice_id);
     await finalizePaidInvoice(invoice_id);
 
     return getInvoiceByIdService({ therapist_id, invoice_id });

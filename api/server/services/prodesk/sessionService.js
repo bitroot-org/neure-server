@@ -141,7 +141,7 @@ const blockedClientResponse = async (client_id) => {
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
-    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl, skip_notifications = false } = payload;
+    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl, skip_notifications = false, service_id = null, purchase_id = null } = payload;
 
     if (!client_id || !starts_at || !modality) {
       return { status: false, code: 400, message: 'client_id, starts_at and modality are required', data: null };
@@ -201,9 +201,9 @@ const createSessionService = async (payload) => {
 
     const [result] = await db.query(
       `INSERT INTO prodesk_sessions
-       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, location)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null]
+       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, location, service_id, purchase_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null, service_id, purchase_id]
     );
     touchClient(client_id); // client moves to the top of the Clients list
 
@@ -501,9 +501,30 @@ const approveBookingRequestService = async (payload) => {
       console.log('Approval notification (non-blocking):', e.message);
     }
 
+    // A service booking: a pay-later request gets its invoice now (existing invoice functions)
+    await require('./servicePurchaseService').onRequestApproved(session_id);
+
     return getSessionByIdService({ therapist_id, session_id });
   } catch (error) {
     console.log('Error in approveBookingRequestService::>>', error);
+    return null;
+  }
+};
+
+// The therapist cannot do the requested time: pick another one. The request is moved (existing reschedule) and
+// confirmed (existing approve) in one go, so the client gets ONE message with the confirmed new time.
+const rescheduleBookingRequestService = async (payload) => {
+  try {
+    const { therapist_id, session_id, starts_at } = payload;
+    if (!starts_at) return { status: false, code: 400, message: 'starts_at is required', data: null };
+    const [[s]] = await db.query('SELECT status FROM prodesk_sessions WHERE id = ? AND therapist_id = ?', [session_id, therapist_id]);
+    if (!s) return { status: false, code: 404, message: 'Session not found', data: null };
+    if (s.status !== 'pending') return { status: false, code: 409, message: 'This request has already been actioned', data: null };
+    const moved = await rescheduleSessionService({ therapist_id, session_id, starts_at, notify: false });
+    if (!moved || !moved.status) return moved;
+    return approveBookingRequestService({ therapist_id, session_id });
+  } catch (error) {
+    console.log('Error in rescheduleBookingRequestService::>>', error);
     return null;
   }
 };
@@ -530,6 +551,9 @@ const declineBookingRequestService = async (payload) => {
     }
 
     await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE id = ?", [session_id]);
+
+    // A service booking: its invoice is cancelled, or refunded in full if the client already paid
+    const refund = await require('./servicePurchaseService').onRequestDeclined(session_id);
 
     try {
       const [[clientRow]] = await db.query(
@@ -561,7 +585,9 @@ const declineBookingRequestService = async (payload) => {
       }
     } catch (_) {}
 
-    return getSessionByIdService({ therapist_id, session_id });
+    const declined = await getSessionByIdService({ therapist_id, session_id });
+    if (declined && declined.data) declined.data = { ...declined.data, refund };   // 'initiated' (Razorpay, automatic) | 'manual' (paid directly) | 'none' | 'failed'
+    return declined;
   } catch (error) {
     console.log('Error in declineBookingRequestService::>>', error);
     return null;
@@ -571,7 +597,7 @@ const declineBookingRequestService = async (payload) => {
 const getSessionsService = async (payload) => {
   try {
     console.log('Payload in getSessionsService::>>', payload);
-    const { therapist_id, client_id, status, from, to, search = '', sort = 'date', order = 'desc', page = 1, limit = 20 } = payload;
+    const { therapist_id, client_id, status, exclude_status, from, to, search = '', sort = 'date', order = 'desc', page = 1, limit = 20 } = payload;
 
     const offset = (page - 1) * limit;
     const conditions = ['ps.therapist_id = ?'];
@@ -579,6 +605,7 @@ const getSessionsService = async (payload) => {
 
     if (client_id) { conditions.push('ps.client_id = ?'); vals.push(client_id); }
     if (status)    { conditions.push('ps.status = ?'); vals.push(status); }
+    if (exclude_status) { conditions.push('ps.status <> ?'); vals.push(exclude_status); }
     if (from)      { conditions.push('ps.starts_at >= ?'); vals.push(from); }
     if (to)        { conditions.push('ps.starts_at <= ?'); vals.push(to); }
     if (search) {
@@ -612,8 +639,17 @@ const getSessionsService = async (payload) => {
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
               CONCAT(u.first_name,' ',u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
-              CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials
+              CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials,
+              ps.service_id, ps.purchase_id, sv.name AS service_name, sv.payment_method, sv.payment_timing,
+              inv.invoice_number, inv.status AS invoice_status, inv.total AS invoice_total,
+              CASE WHEN ps.purchase_id IS NULL THEN NULL
+                   WHEN inv.status = 'paid' THEN 'received'
+                   WHEN inv.id IS NULL THEN 'after_approval'
+                   ELSE 'pending' END AS request_payment
        FROM prodesk_sessions ps ${joins}
+       LEFT JOIN prodesk_service_purchases sp ON sp.id = ps.purchase_id
+       LEFT JOIN prodesk_services sv ON sv.id = ps.service_id
+       LEFT JOIN prodesk_invoices inv ON inv.id = sp.invoice_id
        WHERE ${where}
        ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`,
       [...vals, parseInt(limit), offset]
@@ -664,7 +700,7 @@ const updateSessionService = async (payload) => {
 const rescheduleSessionService = async (payload) => {
   try {
     console.log('Payload in rescheduleSessionService::>>', payload);
-    const { therapist_id, session_id, starts_at, duration_min } = payload;
+    const { therapist_id, session_id, starts_at, duration_min, notify = true } = payload;
 
     const [[session]] = await db.query(
       `SELECT ps.id, ps.status, ps.duration_min AS cur_dur, ps.client_id, ps.title,
@@ -709,8 +745,8 @@ const rescheduleSessionService = async (payload) => {
     await db.query('DELETE FROM prodesk_session_reminders WHERE session_id = ?', [session_id]);
     touchClientBySession(session_id);
 
-    // Send email + in-app notification to client
-    try {
+    // Send email + in-app notification to client (skipped when a request is rescheduled and approved together: approval tells the client)
+    if (notify) try {
       const [[clientRow]] = await db.query(
         `SELECT u.email, u.first_name, u.user_id, u.phone
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
@@ -1257,5 +1293,6 @@ module.exports = {
   getSlotsService,
   deleteSessionService,
   approveBookingRequestService,
+  rescheduleBookingRequestService,
   declineBookingRequestService
 };
