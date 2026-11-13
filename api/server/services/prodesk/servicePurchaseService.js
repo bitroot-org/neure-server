@@ -325,16 +325,19 @@ const confirmDirectPaymentService = async ({ therapist_id, actor_user_id, purcha
 // A Razorpay payment is refunded through the existing refund function. A direct payment cannot be pulled back by us,
 // so the result says "manual": the therapist returns the money themselves.
 
-const cancelPurchaseCore = async ({ therapist_id, actor_user_id, purchase, reason }) => {
+const cancelPurchaseCore = async ({ therapist_id, actor_user_id, purchase, reason, notifyRefund = true }) => {
   const [[inv]] = purchase.invoice_id ? await db.query('SELECT status FROM prodesk_invoices WHERE id = ?', [purchase.invoice_id]) : [[null]];
   let refund = 'none';
   if (inv && inv.status === 'paid') {
     const [[pay]] = await db.query("SELECT method FROM prodesk_payment WHERE invoice_id = ? AND status = 'captured' ORDER BY id DESC LIMIT 1", [purchase.invoice_id]);
     if (pay && pay.method === 'razorpay') {
-      const r = await Billing.initiateRefundService({ therapist_id, invoice_id: purchase.invoice_id });
+      const r = await Billing.initiateRefundService({ therapist_id, invoice_id: purchase.invoice_id, notify: notifyRefund });
       if (!r || !r.status) return { error: r || bad(502, 'The refund could not be started') };
       refund = 'initiated';
-    } else refund = 'manual';
+    } else {
+      refund = 'manual';
+      if (notifyRefund) require('./refundNotifyService').notifyRefund({ invoice_id: purchase.invoice_id, stage: 'manual' });   // paid directly: the client is told the therapist returns it
+    }
   } else if (inv && inv.status !== 'cancelled') {
     await Billing.cancelInvoiceService({ therapist_id, invoice_id: purchase.invoice_id });
   }
@@ -390,7 +393,7 @@ const onRequestDeclined = async (session_id, actor_user_id = null) => {
   try {
     const p = await purchaseOfSession(session_id);
     if (!p || p.status === 'cancelled') return 'none';
-    const r = await cancelPurchaseCore({ therapist_id: p.therapist_id, actor_user_id, purchase: p, reason: 'Booking request declined' });
+    const r = await cancelPurchaseCore({ therapist_id: p.therapist_id, actor_user_id, purchase: p, reason: 'Booking request declined', notifyRefund: false });   // the declined email says it
     return r.error ? 'failed' : r.refund;          // 'initiated' | 'manual' | 'none' | 'failed'
   } catch (e) { console.log('onRequestDeclined failed (non-fatal)::>>', e.message); return 'failed'; }
 };

@@ -686,6 +686,16 @@ const declineBookingRequestService = async (payload) => {
     // A service booking: its invoice is cancelled, or refunded in full if the client already paid
     const refund = await require('./servicePurchaseService').onRequestDeclined(session_id);
 
+    // If money is coming back, the declined message says so (one message, not two)
+    let refundLine = '';
+    if ((refund === 'initiated' || refund === 'manual') && session.purchase_id) {
+      const [[pp]] = await db.query('SELECT price_paid FROM prodesk_service_purchases WHERE id = ?', [session.purchase_id]);
+      const money = `₹${Number(pp ? pp.price_paid : 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+      refundLine = refund === 'initiated'
+        ? ` Your payment of ${money} is being refunded in full to the payment method you used. It usually reaches you in 5 to 7 working days.`
+        : ` You paid ${money} directly, so ${session.therapist_name} will return it to you.`;
+    }
+
     try {
       const [[clientRow]] = await db.query(
         `SELECT u.email, u.first_name, u.user_id
@@ -703,13 +713,13 @@ const declineBookingRequestService = async (payload) => {
             client_name: clientRow.first_name,
             therapist_name: session.therapist_name,
             session_time: sessionTime,
-            reason: reason || `${session.therapist_name} is unable to confirm this booking request. Please choose another time.`,
+            reason: (reason || `${session.therapist_name} is unable to confirm this booking request. Please choose another time.`) + refundLine,
             clinic_name: session.clinic_name || 'ProDesk'
           }
         });
         await NotificationService.createNotification({
           title: 'Booking Request Declined',
-          content: reason || `Your requested session with ${session.therapist_name} could not be confirmed.`,
+          content: (reason || `Your requested session with ${session.therapist_name} could not be confirmed.`) + refundLine,
           type: 'SESSION_CANCELLED',
           user_id: clientRow.user_id
         });
@@ -891,7 +901,7 @@ const rescheduleSessionService = async (payload) => {
     }
 
     await db.query(
-      'UPDATE prodesk_sessions SET starts_at = ?, duration_min = ? WHERE id = ?',
+      'UPDATE prodesk_sessions SET starts_at = ?, duration_min = ?, therapist_reminder_sent_at = NULL WHERE id = ?',   // the new time is reminded again (client and therapist)
       [starts_at, dur, session_id]
     );
     // New time = fresh reminders (the ones already sent were for the old time)

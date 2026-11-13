@@ -4,7 +4,7 @@ const NotificationService = require('../server/services/notificationsAndAnnounce
 const { formatISTWallClock } = require('../server/utils/dateHelper');
 
 // Runs every minute — reminds therapists ~15 minutes before their next
-// session via email + WhatsApp. `therapist_reminder_sent_at` dedupes so a
+// session via email + WhatsApp (the first minute a session is 15 minutes away or less, and not later than 5 minutes before). `therapist_reminder_sent_at` dedupes so a
 // session already reminded (or caught in an earlier/overlapping tick) is
 // never reminded twice.
 const sendTherapistSessionReminders = async () => {
@@ -23,7 +23,7 @@ const sendTherapistSessionReminders = async () => {
        LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
        WHERE ps.status = 'scheduled'
          AND ps.therapist_reminder_sent_at IS NULL
-         AND TIMESTAMPDIFF(MINUTE, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE), ps.starts_at) BETWEEN 14 AND 15`,
+         AND TIMESTAMPDIFF(MINUTE, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE), ps.starts_at) BETWEEN 5 AND 15`,   // a 10-minute window, like the client reminder: a busy moment or a restart cannot make it skip one
       []
     );
 
@@ -77,3 +77,4 @@ const initProdeskTherapistReminder = () => {
 };
 
 module.exports = initProdeskTherapistReminder;
+module.exports.run = sendTherapistSessionReminders; // exposed for tests

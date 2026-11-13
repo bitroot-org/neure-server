@@ -706,7 +706,7 @@ const markInvoicePaidService = async (payload) => {
 const initiateRefundService = async (payload) => {
   try {
     console.log('Payload in initiateRefundService::>>', payload);
-    const { therapist_id, invoice_id, amount } = payload;
+    const { therapist_id, invoice_id, amount, notify = true } = payload;
 
     const inv = await getInvoiceByIdService({ therapist_id, invoice_id });
     if (!inv || !inv.status) return inv;
@@ -754,6 +754,7 @@ const initiateRefundService = async (payload) => {
       meta: refundData
     });
 
+    if (notify) require('./refundNotifyService').notifyRefund({ invoice_id, amount: refundData.amount / 100, stage: 'started', refund_id: refundData.id });   // background: the client is told
     return {
       status: true, code: 200, message: 'Refund initiated successfully',
       data: { refund_id: refundData.id, amount: refundData.amount / 100, status: refundData.status }
@@ -1207,10 +1208,11 @@ const handleRazorpayWebhookService = async (payload) => {
 
       if (paymentId) {
         const [payRows] = await db.query(
-          "SELECT id, invoice_id FROM prodesk_payment WHERE razorpay_ref_id = ? LIMIT 1",
+          "SELECT id, invoice_id, status FROM prodesk_payment WHERE razorpay_ref_id = ? LIMIT 1",
           [paymentId]
         );
         if (payRows && payRows.length) {
+          const alreadyRefunded = payRows[0].status === 'refunded';   // Razorpay can send the same event twice: tell the client once
           await db.query(
             "UPDATE prodesk_payment SET status = 'refunded', razorpay_refund_id = ? WHERE id = ?",
             [refundEntity?.id, payRows[0].id]
@@ -1229,6 +1231,7 @@ const handleRazorpayWebhookService = async (payload) => {
             source: 'webhook',
             meta: event
           });
+          if (!alreadyRefunded) require('./refundNotifyService').notifyRefund({ invoice_id: payRows[0].invoice_id, amount: refundEntity?.amount ? refundEntity.amount / 100 : undefined, stage: 'processed', refund_id: refundEntity?.id });
         }
       }
     }
