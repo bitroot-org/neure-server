@@ -1521,6 +1521,34 @@ class NotificationService {
       `);
     }
 
+    else if (template === 'prodesk_session_refund') {
+      // stage: 'started' (Razorpay is returning it) | 'processed' (Razorpay has finished) | 'manual' (paid directly: the therapist returns it)
+      const stage = data.stage || 'started';
+      subject = stage === 'processed' ? `Your refund of ${data.amount} has been processed`
+        : stage === 'manual' ? `Your booking with ${data.therapist_name} was cancelled`
+        : `Your refund of ${data.amount} has been started`;
+      const lead = stage === 'processed' ? 'Your refund has been processed.' : stage === 'manual' ? 'Your booking has been cancelled.' : 'Your refund has been started.';
+      const body = stage === 'processed'
+        ? `the refund of <strong>${data.amount}</strong> for <strong>${data.service_name}</strong> has been processed. The money goes back to the payment method you used, and your bank usually shows it within 5 to 7 working days.`
+        : stage === 'manual'
+        ? `your booking for <strong>${data.service_name}</strong> with <strong>${data.therapist_name}</strong> has been cancelled. You paid <strong>${data.amount}</strong> directly, so ${data.therapist_name} will return that amount to you directly.`
+        : `your payment of <strong>${data.amount}</strong> for <strong>${data.service_name}</strong> is being refunded in full. The money goes back to the payment method you used, and it usually reaches your account within 5 to 7 working days.`;
+      htmlContent = shell('Refund', `
+        ${heading('Refund', lead, stage === 'processed' ? '#5EA89A' : '#C89364')}
+        <p style="margin:0 0 24px;font-size:15px;color:#4B5563;line-height:1.8;">
+          Hi <strong style="color:#0F1C2E;">${data.client_name}</strong>, ${body}
+        </p>
+        ${infoBox([
+          ['Therapist', data.therapist_name],
+          ['Booking', data.service_name],
+          ['Amount', data.amount],
+          ...(data.refund_id ? [['Refund reference', data.refund_id]] : []),
+          ['Status', stage === 'processed' ? 'Processed' : stage === 'manual' ? 'To be returned by your therapist' : 'In progress'],
+        ])}
+        ${note(stage === 'manual' ? `If you have questions about the refund, please contact ${data.therapist_name} directly.` : 'If the money has not arrived after 7 working days, show your bank the refund reference above.')}
+      `);
+    }
+
     else if (template === 'prodesk_subscription_cancelled') {
       subject = 'Your ProDesk subscription has been cancelled';
       htmlContent = shell('Subscription Cancelled', `
