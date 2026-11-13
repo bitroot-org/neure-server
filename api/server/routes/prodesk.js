@@ -231,6 +231,7 @@ router.post('/createIntakeForm',       authorization, ServiceCtrl.createIntakeFo
 router.post('/updateIntakeForm',       authorization, ServiceCtrl.updateIntakeForm);
 router.post('/deleteIntakeForm',       authorization, ServiceCtrl.deleteIntakeForm);
 router.post('/getIntakeResponses',     authorization, ServiceCtrl.getIntakeResponses);
+router.post('/getClientForms',         authorization, ServiceCtrl.getClientForms);
 router.post('/getConsentForms',        authorization, ServiceCtrl.getConsentForms);
 router.post('/getConsentFormById',     authorization, ServiceCtrl.getConsentFormById);
 router.post('/createConsentForm',      authorization, ServiceCtrl.createConsentForm);
@@ -249,6 +250,9 @@ router.post('/createServicePurchase',  authorization, ServiceCtrl.createServiceP
 router.post('/confirmDirectPayment',   authorization, ServiceCtrl.confirmDirectPayment);
 router.post('/cancelServicePurchase',  authorization, ServiceCtrl.cancelServicePurchase);
 router.post('/bookPurchaseSession',    authorization, ServiceCtrl.bookPurchaseSession);
+router.post('/createServiceSession',   authorization, ServiceCtrl.createServiceSession);
+router.post('/setClientPrice',        authorization, ServiceCtrl.setClientPrice);
+router.post('/removeClientPrice',     authorization, ServiceCtrl.removeClientPrice);
 router.post('/getActivity',            authorization, ServiceCtrl.getActivity);
 
 router.post('/createBookingSession',  BookingCtrl.createBookingSession);

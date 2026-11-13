@@ -6,6 +6,7 @@ const Catalog = require('./serviceCatalogService');
 const Billing = require('./billingService');
 const planGuard = require('./planGuard');
 const { createSessionService } = require('./sessionService');
+const { formatISTWallClock } = require('../../utils/dateHelper');
 
 // ─── Purchases: what a client bought (one session or a bundle) ───────────────
 // The MONEY lives on the invoice (existing invoice, payment and refund functions). A purchase only says
@@ -45,11 +46,15 @@ const BASE_SELECT = `
 
 const shape = (r) => {
   const used = Number(r.sessions_used), total = Number(r.sessions_total);
-  const remaining = Math.max(total - used, 0);
+  const remaining = r.status === 'cancelled' ? 0 : Math.max(total - used, 0);   // a cancelled booking has nothing left to use
   let payment_status = 'unpaid';
-  if (r.status === 'cancelled' || r.invoice_status === 'cancelled') payment_status = 'cancelled';
+  // Money first: a booking that was paid and then cancelled says what happened to the money, not just "cancelled"
+  if (r.pay_status === 'refunded') payment_status = 'refunded';
+  else if (r.pay_status === 'refund_initiated') payment_status = 'refund_initiated';            // Razorpay is returning it
+  else if (r.status === 'cancelled' && r.invoice_status === 'paid') payment_status = 'refund_due';   // paid directly: the therapist returns it themselves
+  else if (r.status === 'cancelled' || r.invoice_status === 'cancelled') payment_status = 'cancelled';
+  else if (!r.invoice_id && Number(r.price_paid) === 0) payment_status = 'free';   // a free service: nothing to pay
   else if (!r.invoice_id) payment_status = 'not_invoiced';                       // a pay-later request that is not approved yet
-  else if (['refund_initiated', 'refunded'].includes(r.pay_status)) payment_status = 'refunded';
   else if (r.invoice_status === 'paid') payment_status = 'paid';
 
   let state = r.status;                                         // pending_payment | cancelled | active
@@ -158,11 +163,11 @@ const getRequirementsService = async ({ therapist_id, service_id, client_id }) =
 
 // Creates and opens the invoice for a purchase: one line, the price this client pays, no extra tax.
 // notify:false opens it for payment without emailing it (the client is on the pay page already, or it is a test).
-const openInvoiceForPurchase = async ({ therapist_id, client_id, session_id = null, purchase_id, svc, price, notify = true }) => {
+const openInvoiceForPurchase = async ({ therapist_id, client_id, session_id = null, purchase_id, svc, price, notify = true, notes = null }) => {
   const created = await Billing.createInvoiceService({
     therapist_id, client_id, session_id,
     line_items: [{ description: svc.name, qty: 1, rate: price }],
-    tax_percent: 0, notes: null, action: 'draft',
+    tax_percent: 0, notes, action: 'draft',
   });
   if (!created || !created.status) return created;
   // linked first, so the invoice (email, WhatsApp, pay page) knows which single payment method to offer
@@ -199,7 +204,8 @@ const createPurchaseService = async (payload) => {
     if (svc.status !== 'active') return bad(409, 'This service is not active, so it cannot be sold');
     if (svc.expires_at && new Date(String(svc.expires_at).replace(' ', 'T') + 'Z') < new Date()) return bad(409, 'This service has expired');
 
-    const paid = await paymentMethodReady(therapist_id, svc.payment_method);
+    const isFree = svc.payment_timing === 'free';
+    const paid = isFree ? null : await paymentMethodReady(therapist_id, svc.payment_method);
     if (paid) return paid;
 
     // Intake form and agreement, only what this client still needs
@@ -219,27 +225,31 @@ const createPurchaseService = async (payload) => {
 
     const { price } = await Catalog.resolvePrice(service_id, client_id);   // the client's special price, else the normal one
     const [pr] = await db.query(
-      `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending_payment')`,
-      [therapist_id, client_id, service_id, svc.sessions_count, price, svc.validity_days]
+      `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status${isFree ? ', activated_at' : ''})
+       VALUES (?, ?, ?, ?, ?, ?, ?${isFree ? ', UTC_TIMESTAMP()' : ''})`,
+      [therapist_id, client_id, service_id, svc.sessions_count, price, svc.validity_days, isFree ? 'active' : 'pending_payment']
     );
     purchaseId = pr.insertId;
     if (responseId) await db.query('UPDATE prodesk_intake_responses SET purchase_id = ? WHERE id = ?', [purchaseId, responseId]);
 
-    const inv = await openInvoiceForPurchase({ therapist_id, client_id, purchase_id: purchaseId, svc, price, notify });
-    if (!inv || !inv.status) {
-      await db.query('DELETE FROM prodesk_service_purchases WHERE id = ?', [purchaseId]);   // nothing half-made is left behind
-      purchaseId = null;
-      return inv || bad(500, 'Could not create the invoice');
+    // A free service has no invoice and nothing to pay: it is active straight away
+    let inv = { status: true, data: { id: null, invoice_number: null } };
+    if (!isFree) {
+      inv = await openInvoiceForPurchase({ therapist_id, client_id, purchase_id: purchaseId, svc, price, notify });
+      if (!inv || !inv.status) {
+        await db.query('DELETE FROM prodesk_service_purchases WHERE id = ?', [purchaseId]);   // nothing half-made is left behind
+        purchaseId = null;
+        return inv || bad(500, 'Could not create the invoice');
+      }
     }
 
     if (consent.needed) await Consent.recordAcceptance({ therapist_id, actor_user_id, consent_form_id: consent.consent_form_id, client_id, purchase_id: purchaseId, ip_address });
     await Activity.record({
       actor_user_id, module_name: 'purchase', action: 'created',
-      description: `Sold "${svc.name}"${svc.sessions_count > 1 ? ` (${svc.sessions_count} sessions)` : ' (single session)'} for ₹${price}, invoice ${inv.data.invoice_number}`,
+      description: isFree ? `Booked the free service "${svc.name}"` : `Sold "${svc.name}"${svc.sessions_count > 1 ? ` (${svc.sessions_count} sessions)` : ' (single session)'} for ₹${price}, invoice ${inv.data.invoice_number}`,
       meta: { therapist_id, purchase_id: purchaseId, service_id: Number(service_id), client_id: Number(client_id), invoice_id: inv.data.id, amount: price, special_price: price !== Number(svc.price) },
     });
-    return { status: true, code: 201, message: 'Booking created, invoice sent', data: (await getPurchaseByIdService({ therapist_id, purchase_id: purchaseId })).data };
+    return { status: true, code: 201, message: isFree ? 'Booking created' : 'Booking created, invoice sent', data: (await getPurchaseByIdService({ therapist_id, purchase_id: purchaseId })).data };
   } catch (error) {
     console.log('Error in createPurchaseService::>>', error);
     if (purchaseId) await db.query('DELETE FROM prodesk_service_purchases WHERE id = ? AND invoice_id IS NULL', [purchaseId]).catch(() => {});
@@ -272,6 +282,14 @@ const activateForInvoice = async (invoice_id) => {
       actor_user_id: null, performed_by: 'system', module_name: 'payment', action: 'purchase_paid', description: 'Invoice paid, booking is now active',
       meta: { therapist_id: p.therapist_id, purchase_id: p.id, service_id: p.service_id, client_id: p.client_id, invoice_id: Number(invoice_id) },
     });
+    // The session(s) the therapist created and is holding for this payment confirm themselves now (all of a package, with one message)
+    const confirmed = await require('./sessionService').confirmHeldSessionsService(p.id);
+    for (const sid of confirmed) {
+      await Activity.record({
+        actor_user_id: null, performed_by: 'system', module_name: 'session', action: 'confirmed_on_payment', description: 'The session was confirmed because the client paid',
+        meta: { therapist_id: p.therapist_id, purchase_id: p.id, session_id: sid, client_id: p.client_id, invoice_id: Number(invoice_id) },
+      });
+    }
   }
 };
 
@@ -388,7 +406,7 @@ const expireUnpaidRequests = async ({ razorpayMinutes = 60, directHours = 24 } =
        JOIN prodesk_service_purchases p ON p.id = ps.purchase_id
        JOIN prodesk_services s ON s.id = p.service_id
        JOIN prodesk_invoices i ON i.id = p.invoice_id
-       WHERE ps.status = 'pending' AND p.status = 'pending_payment' AND s.payment_timing = 'prepaid' AND i.status IN ('sent', 'overdue')
+       WHERE ps.status = 'pending' AND p.status = 'pending_payment' AND (s.payment_timing = 'prepaid' OR ps.requested_by = 'therapist') AND i.status IN ('sent', 'overdue')
          AND ps.created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL IF(s.payment_method = 'razorpay', ?, ?) MINUTE)
        LIMIT 200`, [razorpayMinutes, directHours * 60]);
     for (const r of rows) {
@@ -397,11 +415,12 @@ const expireUnpaidRequests = async ({ razorpayMinutes = 60, directHours = 24 } =
         const [[inv]] = await db.query('SELECT status FROM prodesk_invoices WHERE id = ?', [r.invoice_id]);
         if (!inv || !['sent', 'overdue'].includes(inv.status)) continue;
         const [[p]] = await db.query('SELECT * FROM prodesk_service_purchases WHERE id = ?', [r.purchase_id]);
-        const [u] = await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE id = ? AND status = 'pending'", [r.session_id]);
+        // every held session of this purchase (a package holds several), not just the first
+        const [u] = await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE purchase_id = ? AND status = 'pending'", [r.purchase_id]);
         if (!u.affectedRows) continue;
         await cancelPurchaseCore({ therapist_id: r.therapist_id, actor_user_id: null, purchase: p, reason: 'Payment was not completed in time' });
         await Activity.record({
-          actor_user_id: null, performed_by: 'system', module_name: 'booking_request', action: 'expired', description: 'A booking request was released because it was not paid in time',
+          actor_user_id: null, performed_by: 'system', module_name: 'booking_request', action: 'expired', description: 'A booking was released because it was not paid in time',
           meta: { therapist_id: r.therapist_id, session_id: r.session_id, purchase_id: r.purchase_id, service_id: r.service_id, client_id: r.client_id, invoice_id: r.invoice_id, payment_method: r.payment_method },
         });
         out.released++;
@@ -409,6 +428,105 @@ const expireUnpaidRequests = async ({ razorpayMinutes = 60, directHours = 24 } =
     }
   } catch (e) { console.log('expireUnpaidRequests failed (non-fatal)::>>', e.message); }
   return out;
+};
+
+// ─── The therapist adds a session for a client, with a service (+ Add Session) ───
+// Prepaid:  the time is held (the calendar is blocked) and the client gets the invoice with the payment link. Paying confirms the
+//           session by itself; if it is not paid in time the time is released again (see expireUnpaidRequests).
+// Postpaid: the session is confirmed now and the invoice, with its payment link, goes to the client.
+// Free:     the session is confirmed now. No invoice and nothing to pay.
+const createServiceSessionService = async ({ therapist_id, actor_user_id, client_id, service_id, starts_at, starts_at_list, modality, pay_timing, meet_url, ip_address = null }) => {
+  let purchaseId = null, sessionId = null, createdIds = [];
+  try {
+    if (!client_id || !service_id || !(starts_at || (Array.isArray(starts_at_list) && starts_at_list.length)) || !modality) return bad(400, 'client_id, service_id, starts_at and modality are required');
+
+    const [[cl]] = await db.query('SELECT id, is_blocked FROM prodesk_clients WHERE id = ? AND therapist_id = ? AND deleted_at IS NULL', [client_id, therapist_id]);
+    if (!cl) return bad(404, 'Client not found');
+    if (cl.is_blocked) return bad(403, 'This client is blocked. Unblock them to book sessions.');
+    const gate = await planGuard.checkUseClient(therapist_id, client_id);
+    if (!gate.ok) return gate.response;
+
+    const [[svc]] = await db.query('SELECT * FROM prodesk_services WHERE id = ? AND therapist_id = ?', [service_id, therapist_id]);
+    if (!svc) return bad(404, 'Service not found');
+    if (svc.status !== 'active') return bad(409, 'This service is not active, so it cannot be booked');
+    if (svc.expires_at && new Date(String(svc.expires_at).replace(' ', 'T') + 'Z') < new Date()) return bad(409, 'This service has expired');
+    if (!(MODALITIES[svc.session_mode] || []).includes(modality)) {
+      return bad(422, `This service is ${svc.session_mode.replace('_', '-')}; allowed: ${MODALITIES[svc.session_mode].join(', ')}`);
+    }
+
+    // A package: all of its sessions are booked now, so every time is asked for up front
+    const times = Array.isArray(starts_at_list) && starts_at_list.length ? starts_at_list : [starts_at];
+    if (times.length !== Number(svc.sessions_count)) {
+      return bad(422, Number(svc.sessions_count) > 1 ? `This package has ${svc.sessions_count} sessions. Pick all ${svc.sessions_count} times.` : 'Pick one time for this session');
+    }
+    starts_at = times[0];
+    const multi = times.length > 1;
+
+    const isFree = svc.payment_timing === 'free';
+    const timing = isFree ? 'free' : (pay_timing || svc.payment_timing);
+    if (!['prepaid', 'postpaid', 'free'].includes(timing)) return bad(400, 'pay_timing must be prepaid or postpaid');
+    if (!isFree) { const notReady = await paymentMethodReady(therapist_id, svc.payment_method); if (notReady) return notReady; }
+
+    const { price } = await Catalog.resolvePrice(service_id, client_id);   // the client's special price, else the normal one
+    const fee = Math.round((price / svc.sessions_count) * 100) / 100;      // fee of ONE session
+
+    const [pr] = await db.query(
+      `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status${isFree ? ', activated_at' : ''})
+       VALUES (?, ?, ?, ?, ?, ?, ?${isFree ? ', UTC_TIMESTAMP()' : ''})`,
+      [therapist_id, client_id, service_id, svc.sessions_count, price, svc.validity_days, isFree ? 'active' : 'pending_payment']);
+    purchaseId = pr.insertId;
+
+    // one session per time: held until paid (prepaid) or confirmed now (postpaid, free). A package sends ONE message instead of one per session.
+    const createdRows = [];
+    for (let i = 0; i < times.length; i++) {
+      const r1 = await createSessionService({
+        therapist_id, client_id, starts_at: times[i], duration_min: svc.duration_min, modality, fee, title: svc.name, meet_url,
+        service_id: Number(service_id), purchase_id: purchaseId, hold: timing === 'prepaid', skip_notifications: multi,
+      });
+      if (!r1 || !r1.status) {
+        if (createdIds.length) await db.query('DELETE FROM prodesk_sessions WHERE id IN (?)', [createdIds]);
+        createdIds = [];
+        await db.query('DELETE FROM prodesk_service_purchases WHERE id = ?', [purchaseId]); purchaseId = null;
+        return r1 && r1.message ? { ...r1, message: multi ? `Session ${i + 1}: ${r1.message}. Nothing was booked.` : r1.message } : r1;
+      }
+      createdIds.push(r1.data.id); createdRows.push(r1.data);
+    }
+    const created = { status: true, data: createdRows[0] };
+    sessionId = created.data.id;
+    if (multi && timing !== 'prepaid') {
+      await require('./sessionService').sendMultipleScheduledMessages({ therapist_id, client_id, sessions: createdRows.map((c) => ({ id: c.id, starts_at: c.starts_at, duration_min: c.duration_min, meet_url: c.meet_url, modality: c.modality })) });
+    }
+
+    let invoice = null;
+    if (timing !== 'free') {
+      const holdText = svc.payment_method === 'razorpay' ? '1 hour' : '24 hours';
+      const notes = timing === 'prepaid' ? (multi ? `Your ${times.length} sessions (${times.map((x) => formatISTWallClock(x)).join('; ')}) are held for you. Please pay within ${holdText} to confirm them.` : `Your session on ${formatISTWallClock(starts_at)} is held for you. Please pay within ${holdText} to confirm it.`) : null;
+      const inv = await openInvoiceForPurchase({ therapist_id, client_id, session_id: sessionId, purchase_id: purchaseId, svc, price, notify: true, notes });
+      if (!inv || !inv.status) {
+        // nothing half-made is left behind: no held time, no purchase
+        await db.query('DELETE FROM prodesk_sessions WHERE id IN (?)', [createdIds]); sessionId = null; createdIds = [];
+        await db.query('DELETE FROM prodesk_service_purchases WHERE id = ?', [purchaseId]); purchaseId = null;
+        return inv || bad(500, 'Could not create the invoice');
+      }
+      invoice = { id: inv.data.id, invoice_number: inv.data.invoice_number, pay_url: await require('./invoicePayService').payUrl(inv.data.id) };
+    }
+
+    await Activity.record({
+      actor_user_id, module_name: 'session', action: 'created_with_service',
+      description: `Added a ${timing} session for "${svc.name}"${timing === 'free' ? '' : ` (₹${price})`}${timing === 'prepaid' ? ', held until the client pays' : ''}`,
+      meta: { therapist_id, session_id: sessionId, purchase_id: purchaseId, service_id: Number(service_id), client_id: Number(client_id), price, payment_timing: timing, starts_at, modality, invoice_id: invoice ? invoice.id : null },
+    });
+    return {
+      status: true, code: 201,
+      message: timing === 'prepaid' ? 'Session held. The client has the invoice with the payment link' : timing === 'postpaid' ? 'Session booked. The client has the invoice' : 'Free session booked',
+      data: { ...created.data, ...(multi ? { session_ids: createdIds, sessions_count: createdIds.length } : {}), purchase_id: purchaseId, service_id: Number(service_id), payment_timing: timing, price, invoice },
+    };
+  } catch (error) {
+    console.log('Error in createServiceSessionService::>>', error);
+    if (createdIds.length) await db.query('DELETE FROM prodesk_sessions WHERE id IN (?)', [createdIds]).catch(() => {});
+    if (purchaseId) await db.query('DELETE FROM prodesk_service_purchases WHERE id = ? AND invoice_id IS NULL', [purchaseId]).catch(() => {});
+    return null;
+  }
 };
 
 // ─── Book a session against a purchase ───────────────────────────────────────
@@ -470,6 +588,6 @@ const bookPurchaseSessionService = async ({ therapist_id, actor_user_id, purchas
 
 module.exports = {
   getPurchasesService, getPurchaseByIdService, createPurchaseService, getRequirementsService,
-  confirmDirectPaymentService, cancelPurchaseService, bookPurchaseSessionService,
+  confirmDirectPaymentService, cancelPurchaseService, bookPurchaseSessionService, createServiceSessionService,
   activateForInvoice, expireUnpaidRequests, onRequestApproved, onRequestDeclined, openInvoiceForPurchase, paymentMethodReady,
 };

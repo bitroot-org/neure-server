@@ -86,7 +86,7 @@ const waitingRequests = async (therapist_id) => {
   const [[r]] = await db.query(
     `SELECT COUNT(DISTINCT ps.client_id) AS n
      FROM prodesk_sessions ps JOIN prodesk_clients pc ON pc.id = ps.client_id
-     WHERE ps.therapist_id = ? AND ps.status = 'pending' AND pc.deleted_at IS NULL
+     WHERE ps.therapist_id = ? AND ps.status = 'pending' AND ps.requested_by = 'client' AND pc.deleted_at IS NULL
        AND NOT (pc.is_confirmed = 1 AND pc.starter_active = 1)`,
     [therapist_id]
   );

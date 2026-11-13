@@ -33,6 +33,8 @@ class ServiceController {
   static createService = handler(Catalog.createServiceService);
   static updateService = handler(Catalog.updateServiceService);
   static deleteService = handler(Catalog.deleteServiceService);
+  static setClientPrice = handler(Catalog.setClientPriceService);
+  static removeClientPrice = handler(Catalog.removeClientPriceService);
 
   // Intake forms
   static getIntakeForms = handler(Intake.getFormsService);
@@ -40,6 +42,7 @@ class ServiceController {
   static createIntakeForm = handler(Intake.createFormService);
   static updateIntakeForm = handler(Intake.updateFormService);
   static deleteIntakeForm = handler(Intake.deleteFormService);
+  static getClientForms = handler(Intake.getClientFormsService);
   static getIntakeResponses = handler(Intake.getResponsesService);
 
   // Consent (agreement) forms
@@ -76,6 +79,7 @@ class ServiceController {
   static confirmDirectPayment = handler(Purchase.confirmDirectPaymentService);
   static cancelServicePurchase = handler(Purchase.cancelPurchaseService);
   static bookPurchaseSession = handler(Purchase.bookPurchaseSessionService);
+  static createServiceSession = handler(Purchase.createServiceSessionService);
 
   // History
   static getActivity = handler(getActivityService);

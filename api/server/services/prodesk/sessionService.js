@@ -31,7 +31,7 @@ const getSessionByIdService = async (payload) => {
     const [rows] = await db.query(
       `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
               ps.starts_at AS starts_at,
-              ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
+              ps.duration_min, ps.modality, ps.fee, ps.status, ps.requested_by, ps.meet_url, ps.location,
               ps.note_id,
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
@@ -133,6 +133,60 @@ const sendSessionScheduledMessages = async ({ therapist_id, client_id, session_i
 
 
 // A blocked client cannot be given new sessions until the therapist unblocks them
+// ONE message to the client for several sessions at once (a package): email + WhatsApp + in-app, all best-effort.
+// sessions: [{ id, starts_at, duration_min, meet_url, modality }]
+const sendMultipleScheduledMessages = async ({ therapist_id, client_id, sessions }) => {
+  try {
+    const [clientRow] = await db.query(
+      `SELECT u.phone, u.email, u.user_id AS client_user_id,
+              CONCAT(u.first_name, ' ', u.last_name) AS client_name,
+              CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
+              COALESCE(tb.brand_name, CONCAT(tu.first_name, ' ', tu.last_name)) AS clinic_name
+       FROM prodesk_clients pc
+       JOIN users u ON u.user_id = pc.user_id
+       JOIN therapists t ON t.id = ?
+       JOIN users tu ON tu.user_id = t.user_id
+       LEFT JOIN therapist_branding tb ON tb.therapist_id = t.id
+       WHERE pc.id = ?`, [therapist_id, client_id]);
+    if (!clientRow || !clientRow.length) return;
+    await applyParentContact(client_id, clientRow[0]);
+    const { phone, email, client_user_id, client_name, therapist_name, clinic_name } = clientRow[0];
+    const list = sessions.map((c) => ({
+      sessionTime: formatISTWallClock(c.starts_at), startISO: c.starts_at, durationMin: c.duration_min || 60, meetUrl: c.meet_url || null, modality: c.modality,
+    }));
+    const notifMeta = { client_id, session_ids: sessions.map((c) => c.id) };
+    if (client_user_id) {
+      await NotificationService.createNotification({
+        user_id: client_user_id, type: 'SESSION_SCHEDULED', title: 'Booking Confirmed',
+        content: `Your ${list.length} sessions with ${therapist_name} are confirmed, starting ${list[0].sessionTime}.`, meta: notifMeta,
+      });
+    }
+    if (email) {
+      await NotificationService.sendMultipleSessionsScheduledEmail({ toEmail: email, toName: client_name, therapistName: therapist_name, clinicName: clinic_name, sessions: list, meta: notifMeta });
+    }
+    if (phone) {
+      const digits = phone.replace(/\D/g, '');
+      const phone_e164 = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      const sameLink = list.every((x) => x.meetUrl && x.meetUrl === list[0].meetUrl);
+      const linkText = sameLink ? list[0].meetUrl : (list.some((x) => x.meetUrl) ? 'Shared before each session' : 'Not applicable (in person)');
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const compact = (iso) => {
+        const m = String(iso).replace('T', ' ').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+        if (!m) return String(iso);
+        const dow = DAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+        const h = +m[4];
+        return `${dow} ${+m[3]} ${MONTHS[+m[2] - 1]}, ${h % 12 || 12}:${m[5]} ${h >= 12 ? 'PM' : 'AM'}`;
+      };
+      await NotificationService.sendWhatsAppNotification({
+        to: phone_e164, templateName: 'multiple_sessions_scheduled',
+        variables: [client_name, String(list.length), therapist_name, list.map((x, i) => `${i + 1}) ${compact(x.startISO)}`).join(' | '), linkText],
+        meta: notifMeta,
+      });
+    }
+  } catch (e) { console.log('Multi-session message (non-blocking):', e.message); }
+};
+
 const blockedClientResponse = async (client_id) => {
   const [[b]] = await db.query('SELECT is_blocked FROM prodesk_clients WHERE id = ?', [client_id]);
   return b && b.is_blocked ? { status: false, code: 403, message: 'This client is blocked. Unblock them to schedule new sessions.', data: null } : null;
@@ -141,7 +195,7 @@ const blockedClientResponse = async (client_id) => {
 const createSessionService = async (payload) => {
   try {
     console.log('Payload in createSessionService::>>', payload);
-    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl, skip_notifications = false, service_id = null, purchase_id = null } = payload;
+    const { therapist_id, client_id, starts_at, duration_min = 60, modality, fee, title, location, meet_url: manualMeetUrl, skip_notifications = false, service_id = null, purchase_id = null, hold = false } = payload;
 
     if (!client_id || !starts_at || !modality) {
       return { status: false, code: 400, message: 'client_id, starts_at and modality are required', data: null };
@@ -201,15 +255,16 @@ const createSessionService = async (payload) => {
 
     const [result] = await db.query(
       `INSERT INTO prodesk_sessions
-       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, location, service_id, purchase_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null, service_id, purchase_id]
+       (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, location, service_id, purchase_id, status, requested_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [therapist_id, client_id, sessionNum, sessionTitle, starts_at, duration_min, modality, fee || 0, location || null, service_id, purchase_id,
+       hold ? 'pending' : 'scheduled', hold ? 'therapist' : 'client']
     );
     touchClient(client_id); // client moves to the top of the Clients list
 
     // For video sessions — use manually provided URL first, else auto-generate via Google Meet.
     let meetUrl = null;
-    if (modality === 'video') {
+    if (modality === 'video' && !hold) {
       if (manualMeetUrl) {
         meetUrl = manualMeetUrl;
         await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, result.insertId]);
@@ -224,7 +279,7 @@ const createSessionService = async (payload) => {
     }
 
     // Multi-session bookings skip this and send ONE combined message instead.
-    if (!skip_notifications) {
+    if (!skip_notifications && !hold) {
       await sendSessionScheduledMessages({ therapist_id, client_id, session_id: result.insertId, starts_at, duration_min: duration_min || 60, meetUrl });
     }
 
@@ -420,7 +475,7 @@ const approveBookingRequestService = async (payload) => {
     const { therapist_id, session_id } = payload;
 
     const [[session]] = await db.query(
-      `SELECT ps.id, ps.status, ps.starts_at, ps.duration_min, ps.modality, ps.client_id,
+      `SELECT ps.id, ps.status, ps.starts_at, ps.duration_min, ps.modality, ps.client_id, ps.purchase_id,
               u.phone, u.email, u.user_id AS client_user_id,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               CONCAT(tu.first_name, ' ', tu.last_name) AS therapist_name,
@@ -442,6 +497,31 @@ const approveBookingRequestService = async (payload) => {
     // Plan limit: a new person needs a free place; on a full Starter plan the therapist must upgrade first
     const gate = await planGuard.checkApprove(therapist_id, session.client_id);
     if (!gate.ok) return gate.response;
+
+    // A package request holds several sessions (one per time the client picked): approving it confirms all of them, and the client gets ONE message
+    if (session.purchase_id) {
+      const [group] = await db.query(
+        "SELECT id, starts_at, duration_min, modality FROM prodesk_sessions WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'client' ORDER BY starts_at, id", [session.purchase_id]);
+      if (group.length > 1) {
+        await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'client'", [session.purchase_id]);
+        await planGuard.confirmClientOnApproval(therapist_id, session.client_id, gate.access);
+        touchClient(session.client_id);
+        const confirmed = [];
+        for (const g of group) {
+          let meetUrl = null;
+          if (g.modality === 'video') {
+            try { meetUrl = await createMeetingSpace(therapist_id); await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, g.id]); }
+            catch (e) { console.log('Meet create (non-blocking):', e.message); }
+          }
+          confirmed.push({ ...g, meet_url: meetUrl });
+        }
+        await sendMultipleScheduledMessages({ therapist_id, client_id: session.client_id, sessions: confirmed });
+        await require('./servicePurchaseService').onRequestApproved(group[0].id);
+        const first = await getSessionByIdService({ therapist_id, session_id: group[0].id });
+        if (first && first.data) first.data = { ...first.data, approved_sessions: group.length };
+        return first;
+      }
+    }
 
     await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE id = ?", [session_id]);
     await planGuard.confirmClientOnApproval(therapist_id, session.client_id, gate.access);
@@ -511,6 +591,48 @@ const approveBookingRequestService = async (payload) => {
   }
 };
 
+// A session the therapist created and the client had to pay for first (it is held, status "pending"): once the invoice is paid it
+// confirms itself. Same as an approval, but the therapist already said yes, so there is nothing to approve.
+const confirmHeldSessionService = async (session_id) => {
+  try {
+    const [[s]] = await db.query(
+      "SELECT id, therapist_id, client_id, starts_at, duration_min, modality, meet_url FROM prodesk_sessions WHERE id = ? AND status = 'pending' AND requested_by = 'therapist'", [session_id]);
+    if (!s) return false;
+    await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE id = ? AND status = 'pending'", [session_id]);
+    touchClient(s.client_id);
+    let meetUrl = s.meet_url || null;
+    if (s.modality === 'video' && !meetUrl) {
+      try { meetUrl = await createMeetingSpace(s.therapist_id); await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, session_id]); }
+      catch (e) { console.log('Meet create (non-blocking):', e.message); }
+    }
+    await sendSessionScheduledMessages({ therapist_id: s.therapist_id, client_id: s.client_id, session_id, starts_at: s.starts_at, duration_min: s.duration_min || 60, meetUrl });
+    return true;
+  } catch (e) { console.log('confirmHeldSession failed (non-fatal)::>>', e.message); return false; }
+};
+
+// Every held session of a purchase confirms when it is paid. One session: as above. A package: all of them, and ONE message to the client.
+const confirmHeldSessionsService = async (purchase_id) => {
+  try {
+    const [held] = await db.query(
+      "SELECT id, therapist_id, client_id, starts_at, duration_min, modality, meet_url FROM prodesk_sessions WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'therapist' ORDER BY starts_at, id", [purchase_id]);
+    if (!held.length) return [];
+    if (held.length === 1) return (await confirmHeldSessionService(held[0].id)) ? [held[0].id] : [];
+    await db.query("UPDATE prodesk_sessions SET status = 'scheduled' WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'therapist'", [purchase_id]);
+    touchClient(held[0].client_id);
+    const confirmed = [];
+    for (const h of held) {
+      let meetUrl = h.meet_url || null;
+      if (h.modality === 'video' && !meetUrl) {
+        try { meetUrl = await createMeetingSpace(h.therapist_id); await db.query('UPDATE prodesk_sessions SET meet_url = ? WHERE id = ?', [meetUrl, h.id]); }
+        catch (e) { console.log('Meet create (non-blocking):', e.message); }
+      }
+      confirmed.push({ ...h, meet_url: meetUrl });
+    }
+    await sendMultipleScheduledMessages({ therapist_id: held[0].therapist_id, client_id: held[0].client_id, sessions: confirmed });
+    return held.map((h) => h.id);
+  } catch (e) { console.log('confirmHeldSessions failed (non-fatal)::>>', e.message); return []; }
+};
+
 // The therapist cannot do the requested time: pick another one. The request is moved (existing reschedule) and
 // confirmed (existing approve) in one go, so the client gets ONE message with the confirmed new time.
 const rescheduleBookingRequestService = async (payload) => {
@@ -535,7 +657,7 @@ const declineBookingRequestService = async (payload) => {
     const { therapist_id, session_id, reason } = payload;
 
     const [[session]] = await db.query(
-      `SELECT ps.id, ps.status, ps.starts_at, ps.client_id,
+      `SELECT ps.id, ps.status, ps.starts_at, ps.client_id, ps.purchase_id,
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               tb.brand_name AS clinic_name
        FROM prodesk_sessions ps
@@ -550,6 +672,15 @@ const declineBookingRequestService = async (payload) => {
       return { status: false, code: 409, message: 'This request has already been actioned', data: null };
     }
 
+    // A package request holds several sessions: declining it cancels all of them (and refunds once, below)
+    let declinedTimes = [formatISTWallClock(session.starts_at)];
+    if (session.purchase_id) {
+      const [group] = await db.query("SELECT id, starts_at FROM prodesk_sessions WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'client' ORDER BY starts_at, id", [session.purchase_id]);
+      if (group.length > 1) {
+        await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE purchase_id = ? AND status = 'pending' AND requested_by = 'client'", [session.purchase_id]);
+        declinedTimes = group.map((g) => formatISTWallClock(g.starts_at));
+      }
+    }
     await db.query("UPDATE prodesk_sessions SET status = 'cancelled' WHERE id = ?", [session_id]);
 
     // A service booking: its invoice is cancelled, or refunded in full if the client already paid
@@ -563,7 +694,7 @@ const declineBookingRequestService = async (payload) => {
       );
       await applyParentContact(session.client_id, clientRow);
       if (clientRow && clientRow.email) { // clients may have no email — then nothing is sent
-        const sessionTime = formatISTWallClock(session.starts_at);
+        const sessionTime = declinedTimes.join(', ');
         await NotificationService.sendEmail({
           toEmail: clientRow.email,
           toName: clientRow.first_name,
@@ -604,8 +735,17 @@ const getSessionsService = async (payload) => {
     const vals = [therapist_id];
 
     if (client_id) { conditions.push('ps.client_id = ?'); vals.push(client_id); }
-    if (status)    { conditions.push('ps.status = ?'); vals.push(status); }
-    if (exclude_status) { conditions.push('ps.status <> ?'); vals.push(exclude_status); }
+    // "pending" means a request a client made on the booking page, waiting for the therapist. A session the therapist created and is
+    // holding for the client to pay (also "pending" underneath) is an ordinary session of the therapist's, so it is not a request.
+    if (status === 'pending') {
+      // one card per request: the sessions of a package request are listed under its first session
+      conditions.push("ps.status = 'pending' AND ps.requested_by = 'client'");
+      conditions.push("(ps.purchase_id IS NULL OR ps.id = (SELECT MIN(x.id) FROM prodesk_sessions x WHERE x.purchase_id = ps.purchase_id AND x.status = 'pending' AND x.requested_by = 'client'))");
+    }
+    else if (status === 'booked') conditions.push("(ps.status = 'scheduled' OR (ps.status = 'pending' AND ps.requested_by = 'therapist'))");   // confirmed, or held until the client pays
+    else if (status) { conditions.push('ps.status = ?'); vals.push(status); }
+    if (exclude_status === 'pending') conditions.push("NOT (ps.status = 'pending' AND ps.requested_by = 'client')");
+    else if (exclude_status) { conditions.push('ps.status <> ?'); vals.push(exclude_status); }
     if (from)      { conditions.push('ps.starts_at >= ?'); vals.push(from); }
     if (to)        { conditions.push('ps.starts_at <= ?'); vals.push(to); }
     if (search) {
@@ -633,7 +773,7 @@ const getSessionsService = async (payload) => {
     const [rows] = await db.query(
       `SELECT ps.id, ps.therapist_id, ps.client_id, ps.session_number, ps.title,
               ps.starts_at AS starts_at,
-              ps.duration_min, ps.modality, ps.fee, ps.status, ps.meet_url, ps.location,
+              ps.duration_min, ps.modality, ps.fee, ps.status, ps.requested_by, ps.meet_url, ps.location,
               ps.note_id,
               DATE_ADD(DATE_ADD(ps.created_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS created_at,
               DATE_ADD(DATE_ADD(ps.updated_at, INTERVAL 5 HOUR), INTERVAL 30 MINUTE) AS updated_at,
@@ -641,8 +781,12 @@ const getSessionsService = async (payload) => {
               pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
               CONCAT(UPPER(LEFT(u.first_name,1)),UPPER(LEFT(u.last_name,1))) AS client_initials,
               ps.service_id, ps.purchase_id, sv.name AS service_name, sv.payment_method, sv.payment_timing,
+              (SELECT COUNT(*) FROM prodesk_sessions x WHERE ps.purchase_id IS NOT NULL AND x.purchase_id = ps.purchase_id AND x.status = 'pending' AND x.requested_by = 'client') AS group_count,
+              (SELECT GROUP_CONCAT(x.starts_at ORDER BY x.starts_at SEPARATOR '|') FROM prodesk_sessions x WHERE ps.purchase_id IS NOT NULL AND x.purchase_id = ps.purchase_id AND x.status = 'pending' AND x.requested_by = 'client') AS group_times,
+              (SELECT GROUP_CONCAT(x.id ORDER BY x.starts_at SEPARATOR '|') FROM prodesk_sessions x WHERE ps.purchase_id IS NOT NULL AND x.purchase_id = ps.purchase_id AND x.status = 'pending' AND x.requested_by = 'client') AS group_ids,
               inv.invoice_number, inv.status AS invoice_status, inv.total AS invoice_total,
               CASE WHEN ps.purchase_id IS NULL THEN NULL
+                   WHEN sv.payment_timing = 'free' THEN 'free'
                    WHEN inv.status = 'paid' THEN 'received'
                    WHEN inv.id IS NULL THEN 'after_approval'
                    ELSE 'pending' END AS request_payment
@@ -703,7 +847,7 @@ const rescheduleSessionService = async (payload) => {
     const { therapist_id, session_id, starts_at, duration_min, notify = true } = payload;
 
     const [[session]] = await db.query(
-      `SELECT ps.id, ps.status, ps.duration_min AS cur_dur, ps.client_id, ps.title,
+      `SELECT ps.id, ps.status, ps.duration_min AS cur_dur, ps.client_id, ps.title, ps.purchase_id,
               ps.modality, ps.meet_url,
               CONCAT(tu.first_name,' ',tu.last_name) AS therapist_name,
               tb.brand_name AS clinic_name
@@ -720,6 +864,15 @@ const rescheduleSessionService = async (payload) => {
     }
     if (new Date(starts_at) < new Date()) {
       return { status: false, code: 422, message: 'New time cannot be in the past', data: null };
+    }
+
+    // A session of a package cannot move past the date the package is valid till (starts_at is IST wall-clock, valid_until is UTC)
+    if (session.purchase_id) {
+      const [[pv]] = await db.query('SELECT valid_until FROM prodesk_service_purchases WHERE id = ?', [session.purchase_id]);
+      if (pv && pv.valid_until) {
+        const [[{ ok }]] = await db.query('SELECT (? <= DATE_ADD(?, INTERVAL 330 MINUTE)) AS ok', [starts_at, pv.valid_until]);
+        if (!ok) return { status: false, code: 422, message: 'This date is after the package validity ends. Pick an earlier date.', data: null };
+      }
     }
 
     const dur = duration_min || session.cur_dur;
@@ -746,7 +899,8 @@ const rescheduleSessionService = async (payload) => {
     touchClientBySession(session_id);
 
     // Send email + in-app notification to client (skipped when a request is rescheduled and approved together: approval tells the client)
-    if (notify) try {
+    // a request that is not approved yet has not been confirmed to the client, so moving one of its times sends nothing: the approval tells them
+    if (notify && session.status !== 'pending') try {
       const [[clientRow]] = await db.query(
         `SELECT u.email, u.first_name, u.user_id, u.phone
          FROM prodesk_clients pc JOIN users u ON pc.user_id = u.user_id
@@ -892,7 +1046,7 @@ const getCalendarSessionsService = async (payload) => {
     const [rows] = await db.query(
       `SELECT ps.id,
               ps.starts_at AS starts_at,
-              ps.duration_min, ps.modality, ps.status, ps.title,
+              ps.duration_min, ps.modality, ps.status, ps.requested_by, ps.title,
               ps.meet_url, ps.session_number,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               pc.avatar_color AS client_avatar_color, pc.profile_url AS client_profile_url,
@@ -1293,6 +1447,9 @@ module.exports = {
   getSlotsService,
   deleteSessionService,
   approveBookingRequestService,
+  confirmHeldSessionService,
+  confirmHeldSessionsService,
+  sendMultipleScheduledMessages,
   rescheduleBookingRequestService,
   declineBookingRequestService
 };
