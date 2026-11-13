@@ -256,7 +256,43 @@ const getResponsesService = async ({ therapist_id, form_id, client_id, purchase_
   }
 };
 
+// What this client has filled in and agreed to, for the client's profile: their intake form answers and the agreements they accepted.
+const getClientFormsService = async ({ therapist_id, client_id }) => {
+  try {
+    const [[c]] = await db.query('SELECT id FROM prodesk_clients WHERE id = ? AND therapist_id = ?', [client_id, therapist_id]);
+    if (!c) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    const [intake] = await db.query(
+      `SELECT r.id, r.form_id, f.title AS form_title, r.answers, r.submitted_at, r.purchase_id, sv.name AS service_name
+       FROM prodesk_intake_responses r
+       JOIN prodesk_intake_forms f ON f.id = r.form_id AND f.therapist_id = ?
+       LEFT JOIN prodesk_service_purchases p ON p.id = r.purchase_id
+       LEFT JOIN prodesk_services sv ON sv.id = p.service_id
+       WHERE r.client_id = ? ORDER BY r.id DESC LIMIT 50`, [therapist_id, client_id]);
+    const [consents] = await db.query(
+      `SELECT a.id, a.accepted_at, a.purchase_id, v.version_no, v.body, v.file_url, cf.title AS form_title, sv.name AS service_name
+       FROM prodesk_consent_acceptances a
+       JOIN prodesk_consent_versions v ON v.id = a.version_id
+       JOIN prodesk_consent_forms cf ON cf.id = v.consent_form_id AND cf.therapist_id = ?
+       LEFT JOIN prodesk_service_purchases p ON p.id = a.purchase_id
+       LEFT JOIN prodesk_services sv ON sv.id = p.service_id
+       WHERE a.client_id = ? ORDER BY a.id DESC LIMIT 50`, [therapist_id, client_id]);
+
+    return {
+      status: true, code: 200, message: 'Forms fetched',
+      data: {
+        intake: intake.map((r) => ({ ...r, answers: typeof r.answers === 'string' ? JSON.parse(r.answers) : (r.answers || []) })),
+        consents,
+      },
+    };
+  } catch (error) {
+    console.log('Error in getClientFormsService::>>', error);
+    return null;
+  }
+};
+
 module.exports = {
+  getClientFormsService,
   getFormsService, getFormByIdService, createFormService, updateFormService, deleteFormService,
   submitResponseService, getResponsesService, loadForm, validateAnswers,
 };

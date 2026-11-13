@@ -610,7 +610,8 @@ const getPublicServicesService = async ({ slug }) => {
        ORDER BY sessions_count, price, id`, [t.id]);
 
     const ready = { razorpay: !(await Purchases.paymentMethodReady(t.id, 'razorpay')), direct: !(await Purchases.paymentMethodReady(t.id, 'direct')) };
-    const services = rows.map((r) => ({ ...r, price: Number(r.price), has_intake: !!r.has_intake, has_consent: !!r.has_consent, pay_now_available: !!ready[r.payment_method] }));
+    // a prepaid service whose payment cannot be taken right now cannot be booked online; postpaid and free ones can (nothing is paid at booking)
+    const services = rows.map((r) => ({ ...r, price: Number(r.price), has_intake: !!r.has_intake, has_consent: !!r.has_consent, pay_now_available: !!ready[r.payment_method], bookable: r.payment_timing !== 'prepaid' || !!ready[r.payment_method] }));
     return { status: true, code: 200, message: 'Services', data: { services } };
   } catch (error) {
     console.log('Error in getPublicServicesService::>>', error);
@@ -662,7 +663,7 @@ const verifyBookingParentOtpService = async ({ slug, consent_id, otp }) => {
 // A price special to a client only applies to someone who was already this therapist's client before this request
 const existingClientId = (clientRow) => (clientRow && clientRow.existed ? clientRow.id : null);
 
-const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, ip_address = null, user_agent = null, service_id = null, intake_answers = null }) => {
+const createBookingSessionService = async ({ slug, date, time, duration_min = 60, modality, email, name, phone, concern, consent_accepted, age, parent_consent_id, ip_address = null, user_agent = null, service_id = null, intake_answers = null, slots = null }) => {
   try {
     email = String(email || '').trim().toLowerCase();
     if (!slug || !date || !time || !modality || !email) {
@@ -703,8 +704,9 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       duration_min = sv.duration_min;
 
       // The service decides: prepaid = pay now and request, postpaid = request first and pay when approved
-      choice = sv.payment_timing === 'prepaid' ? 'now' : 'later';
-      if (choice === 'now') { const notReady = await Purchases.paymentMethodReady(therapist_id, sv.payment_method); if (notReady) return notReady; }
+      choice = sv.payment_timing === 'free' ? 'free' : sv.payment_timing === 'prepaid' ? 'now' : 'later';   // free: nothing to pay, ever
+      // a client must never see the therapist's setup instructions: if this service's payment cannot be taken right now, say so plainly
+      if (choice === 'now') { const notReady = await Purchases.paymentMethodReady(therapist_id, sv.payment_method); if (notReady) return { status: false, code: 409, message: `This service can't be booked online right now. Please contact ${therapist_name} directly.`, data: null }; }
 
       // Intake form: a new person answers it, an existing client (or one who already did) skips it
       const [[u0]] = await db.query('SELECT user_id FROM users WHERE email = ?', [email]);
@@ -722,20 +724,17 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
         }
       }
     }
+    // The sessions asked for: one for a normal service; for a package, every session of it (the client picks all their times up front)
+    const bundle = !!svc && Number(svc.sessions_count) > 1;
+    let slotList = [{ date, time }];
+    if (bundle) {
+      const want = Number(svc.sessions_count);
+      if (!Array.isArray(slots) || slots.length !== want) return { status: false, code: 422, message: `Please pick all ${want} session times for this package`, data: null };
+      slotList = slots.map((x) => ({ date: String((x && x.date) || ''), time: String((x && x.time) || '') }));
+      if (slotList.some((x) => !/^\d{4}-\d{2}-\d{2}$/.test(x.date) || !/^\d{2}:\d{2}$/.test(x.time))) return { status: false, code: 400, message: 'Each session needs a date (YYYY-MM-DD) and a time (HH:MM)', data: null };
+      date = slotList[0].date; time = slotList[0].time;
+    }
     const starts_at = `${date}T${time}:00`;
-
-    if (new Date(starts_at) < new Date()) {
-      return { status: false, code: 422, message: 'Session time cannot be in the past', data: null };
-    }
-    // Only a time the therapist actually offers: inside their hours, for this length and mode, not already taken, and within the booking window
-    if (new Date(starts_at) > new Date(Date.now() + MAX_BOOKING_AHEAD_DAYS * 86400000)) {
-      return { status: false, code: 422, message: `Sessions can only be booked up to ${MAX_BOOKING_AHEAD_DAYS} days ahead`, data: null };
-    }
-    {
-      const offered = await getBookingSlotsService({ slug, date, session_duration: duration_min, modality });
-      const times = offered && offered.status ? offered.data.available_slots.map((x) => x.time) : [];
-      if (!times.includes(time)) return { status: false, code: 409, message: 'That time is no longer available. Please pick another slot.', data: null };
-    }
 
     // Blocked by this therapist (same email, or same mobile number): no request is created, and the message does not say "blocked"
     {
@@ -752,30 +751,55 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       }
     }
 
-    // Overlap check
-    const [overlap] = await db.query(
-      `SELECT id FROM prodesk_sessions
-       WHERE therapist_id = ? AND status NOT IN ('cancelled')
-       AND starts_at < DATE_ADD(?, INTERVAL ? MINUTE)
-       AND DATE_ADD(starts_at, INTERVAL duration_min MINUTE) > ?
-       LIMIT 1`,
-      [therapist_id, starts_at, duration_min, starts_at]
-    );
-    if (overlap && overlap.length) return { status: false, code: 409, message: 'That slot was just taken. Please pick another.', data: null };
-
-    // The chosen time must not sit inside a slot reserved for the other format
-    // (e.g. an Online-only slot can't be booked as an in-person session).
-    {
-      const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const dayName = DAY_NAMES[new Date(`${date}T00:00:00`).getDay()];
+    // Every session must be a time the therapist really offers: inside their hours, for this length and mode, not taken, within the booking window
+    // (and, for a package, inside the days the package stays valid). The same check for one session or for all of a package.
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const checkSlot = async (d, t, n) => {
+      const pre = bundle ? `Session ${n}: ` : '';
+      const at = `${d}T${t}:00`;
+      if (new Date(at) < new Date()) return { status: false, code: 422, message: `${pre}Session time cannot be in the past`, data: null };
+      if (new Date(at) > new Date(Date.now() + MAX_BOOKING_AHEAD_DAYS * 86400000)) {
+        return { status: false, code: 422, message: `${pre}Sessions can only be booked up to ${MAX_BOOKING_AHEAD_DAYS} days ahead`, data: null };
+      }
+      if (bundle && svc.validity_days && new Date(at) > new Date(Date.now() + Number(svc.validity_days) * 86400000)) {
+        return { status: false, code: 422, message: `${pre}This package is valid for ${svc.validity_days} days. Pick an earlier date.`, data: null };
+      }
+      const offered = await getBookingSlotsService({ slug, date: d, session_duration: duration_min, modality });
+      const times = offered && offered.status ? offered.data.available_slots.map((x) => x.time) : [];
+      if (!times.includes(t)) return { status: false, code: 409, message: `${pre}That time is no longer available. Please pick another slot.`, data: null };
+      const [overlap] = await db.query(
+        `SELECT id FROM prodesk_sessions
+         WHERE therapist_id = ? AND status NOT IN ('cancelled')
+         AND starts_at < DATE_ADD(?, INTERVAL ? MINUTE)
+         AND DATE_ADD(starts_at, INTERVAL duration_min MINUTE) > ?
+         LIMIT 1`,
+        [therapist_id, at, duration_min, at]
+      );
+      if (overlap && overlap.length) return { status: false, code: 409, message: `${pre}That slot was just taken. Please pick another.`, data: null };
+      // The chosen time must not sit inside a slot reserved for the other format (e.g. an Online-only slot can't be booked as in-person).
+      const dayName = DAY_NAMES[new Date(`${d}T00:00:00`).getDay()];
       const [coveringBlocks] = await db.query(
         `SELECT mode FROM therapist_availability_blocks
          WHERE therapist_id = ? AND day = ? AND from_time <= ? AND to_time >= SEC_TO_TIME(TIME_TO_SEC(?) + ? * 60)`,
-        [therapist_id, dayName, `${time}:00`, `${time}:00`, duration_min]
+        [therapist_id, dayName, `${t}:00`, `${t}:00`, duration_min]
       );
       const allowed = modesForModality(modality);
       if (coveringBlocks && coveringBlocks.length && allowed && !coveringBlocks.some(b => allowed.includes(b.mode))) {
-        return { status: false, code: 422, message: `That time isn't available for ${modality === 'in_person' ? 'in-person' : 'video'} sessions. Please pick another slot.`, data: null };
+        return { status: false, code: 422, message: `${pre}That time isn't available for ${modality === 'in_person' ? 'in-person' : 'video'} sessions. Please pick another slot.`, data: null };
+      }
+      return null;
+    };
+    for (let i = 0; i < slotList.length; i++) {
+      const bad = await checkSlot(slotList[i].date, slotList[i].time, i + 1);
+      if (bad) return bad;
+    }
+    // the sessions of one package cannot overlap each other (or be the same time twice)
+    for (let i = 0; i < slotList.length; i++) {
+      for (let j = i + 1; j < slotList.length; j++) {
+        const a1 = Date.parse(`${slotList[i].date}T${slotList[i].time}:00Z`), a2 = Date.parse(`${slotList[j].date}T${slotList[j].time}:00Z`);
+        if (a1 < a2 + duration_min * 60000 && a2 < a1 + duration_min * 60000) {
+          return { status: false, code: 409, message: `Sessions ${i + 1} and ${j + 1} overlap each other. Pick different times.`, data: null };
+        }
       }
     }
 
@@ -843,19 +867,26 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
 
       let purchase_id = null;
       if (svc) {
+        const isFree = choice === 'free';
         const [pRes] = await conn.query(
-          `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending_payment')`,
-          [therapist_id, client_id, service_id, svc.sessions_count, priceInfo.price, svc.validity_days]
+          `INSERT INTO prodesk_service_purchases (therapist_id, client_id, service_id, sessions_total, price_paid, validity_days, status${isFree ? ', activated_at' : ''})
+           VALUES (?, ?, ?, ?, ?, ?, ?${isFree ? ', UTC_TIMESTAMP()' : ''})`,
+          [therapist_id, client_id, service_id, svc.sessions_count, priceInfo.price, svc.validity_days, isFree ? 'active' : 'pending_payment']
         );
         purchase_id = pRes.insertId;
       }
-      const [sessRes] = await conn.query(
-        `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status, service_id, purchase_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-        [therapist_id, client_id, sessionNum, svc ? svc.name : `Session ${sessionNum}`, starts_at, duration_min, modality, fee || 0, svc ? service_id : null, purchase_id]
-      );
-      const session_id = sessRes.insertId;
+      // One row per session: one for a normal service, every session of a package (all held together as one request)
+      const session_ids = [];
+      for (let i = 0; i < slotList.length; i++) {
+        const num = sessionNum + i;
+        const [sessRes] = await conn.query(
+          `INSERT INTO prodesk_sessions (therapist_id, client_id, session_number, title, starts_at, duration_min, modality, fee, status, service_id, purchase_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          [therapist_id, client_id, num, svc ? svc.name : `Session ${num}`, `${slotList[i].date}T${slotList[i].time}:00`, duration_min, modality, fee || 0, svc ? service_id : null, purchase_id]
+        );
+        session_ids.push(sessRes.insertId);
+      }
+      const session_id = session_ids[0];
 
       await conn.commit();
       touchClient(client_id); // new booking request: client moves to the top of the Clients list
@@ -901,7 +932,8 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       } catch (e) { console.log('Consent log (non-blocking):', e.message); }
 
       // Formatted time for notifications
-      const formattedTime = formatISTWallClock(starts_at);
+      const formattedTime = bundle ? `${formatISTWallClock(starts_at)} (+${slotList.length - 1} more session${slotList.length > 2 ? 's' : ''})` : formatISTWallClock(starts_at);
+      const sessionTimes = slotList.map((x) => formatISTWallClock(`${x.date}T${x.time}:00`));
 
       // No Meet link and no client confirmation yet — this is a request,
       // not a confirmed booking. Both happen once the therapist approves.
@@ -946,9 +978,9 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
       if (svc) {
         await Activity.record({
           actor_user_id: null, performed_by: 'client', module_name: 'booking_request', action: 'created',
-          description: `Booking request from ${clientName} for "${svc.name}" (${choice === 'now' ? 'prepaid' : 'postpaid'}${pay_url ? ', payment link opened' : ''})`,
+          description: `Booking request from ${clientName} for "${svc.name}" (${choice === 'now' ? 'prepaid' : choice === 'free' ? 'free' : 'postpaid'}${pay_url ? ', payment link opened' : ''})`,
           meta: { therapist_id, session_id, purchase_id, service_id: Number(service_id), client_id, price: priceInfo.price, special_price: priceInfo.special,
-                  payment_timing: choice === 'now' ? 'prepaid' : 'postpaid', modality, starts_at, intake_filled: !!(reqs && reqs.intake && reqs.intake.needed && Array.isArray(intake_answers)),
+                  payment_timing: choice === 'now' ? 'prepaid' : choice === 'free' ? 'free' : 'postpaid', modality, starts_at, intake_filled: !!(reqs && reqs.intake && reqs.intake.needed && Array.isArray(intake_answers)),
                   invoice_opened: !!pay_url, pay_fallback: pay_fallback || null, payment_error: payment_error || null },
         });
       }
@@ -957,6 +989,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
         status: true, code: 200, message: 'Booking request sent',
         data: {
           session_id,
+          ...(bundle ? { session_ids, sessions_count: slotList.length, session_times: sessionTimes } : {}),
           therapist_name,
           client_name: clientName,
           starts_at,
@@ -964,7 +997,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           modality,
           status: 'pending',
           formatted_time: formattedTime,
-          ...(svc ? { purchase_id, price: priceInfo.price, special_price: priceInfo.special, payment_timing: choice === 'now' ? 'prepaid' : 'postpaid', pay_url, payment_error, pay_fallback } : {})
+          ...(svc ? { purchase_id, price: priceInfo.price, special_price: priceInfo.special, payment_timing: choice === 'now' ? 'prepaid' : choice === 'free' ? 'free' : 'postpaid', pay_url, payment_error, pay_fallback } : {})
         }
       };
     } catch (e) {

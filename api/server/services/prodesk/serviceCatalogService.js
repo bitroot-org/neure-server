@@ -12,7 +12,7 @@ const SESSION_MODES = ['online', 'in_person', 'both'];
 const STATUSES = ['draft', 'active', 'archived'];
 const FORM_MODES = ['none', 'optional', 'required'];
 const PAY_METHODS = ['direct', 'razorpay'];
-const PAY_TIMINGS = ['prepaid', 'postpaid'];
+const PAY_TIMINGS = ['prepaid', 'postpaid', 'free'];
 
 const bad = (message, code = 400) => ({ error: { status: false, code, message, data: null } });
 const money = (n) => Math.round(Number(n) * 100) / 100;
@@ -54,19 +54,22 @@ const validateService = async (s, therapist_id) => {
     if (!Number.isInteger(validity_days) || validity_days < 1 || validity_days > 730) return bad('Validity must be between 1 and 730 days when a service has more than one session');
   }
 
-  const price = money(s.price);
-  if (!Number.isFinite(price) || price <= 0 || price > 10000000) return bad('Price must be greater than 0');
-
-  // One payment method per service: direct (UPI / bank / cash) or online through the therapist's Razorpay
-  const payment_method = s.payment_method;
-  if (!PAY_METHODS.includes(payment_method)) return bad(`payment_method must be one of ${PAY_METHODS.join(', ')}`);
-  if (payment_method === 'razorpay' && !(await razorpayIsActive(therapist_id))) {
-    return bad('Connect Razorpay in Payment integration before choosing online payment', 422);
-  }
-
   // Prepaid: the client pays before the request reaches you. Postpaid: the request comes first, the invoice follows when you approve.
+  // Free: no invoice and no payment at all (e.g. a short consultation call), so it is always a single session.
   const payment_timing = s.payment_timing || 'postpaid';
   if (!PAY_TIMINGS.includes(payment_timing)) return bad(`payment_timing must be one of ${PAY_TIMINGS.join(', ')}`);
+  const isFree = payment_timing === 'free';
+  if (isFree && sessions_count !== 1) return bad('A free service is a single session');
+
+  const price = isFree ? 0 : money(s.price);
+  if (!isFree && (!Number.isFinite(price) || price <= 0 || price > 10000000)) return bad('Price must be greater than 0');
+
+  // One payment method per service: direct (UPI / bank / cash) or online through the therapist's Razorpay. A free service has none.
+  const payment_method = isFree ? 'direct' : s.payment_method;
+  if (!PAY_METHODS.includes(payment_method)) return bad(`payment_method must be one of ${PAY_METHODS.join(', ')}`);
+  if (!isFree && payment_method === 'razorpay' && !(await razorpayIsActive(therapist_id))) {
+    return bad('Connect Razorpay in Payment integration before choosing online payment', 422);
+  }
 
   const intake_form_mode = s.intake_form_mode || 'none';
   if (!FORM_MODES.includes(intake_form_mode)) return bad(`intake_form_mode must be one of ${FORM_MODES.join(', ')}`);
@@ -133,8 +136,9 @@ const writeClientPrices = async (service_id, prices) => {
 
 // What this client pays for this service: their special price if they have one, else the normal price.
 const resolvePrice = async (service_id, client_id) => {
-  const [[svc]] = await db.query('SELECT price FROM prodesk_services WHERE id = ?', [service_id]);
+  const [[svc]] = await db.query('SELECT price, payment_timing FROM prodesk_services WHERE id = ?', [service_id]);
   if (!svc) return null;
+  if (svc.payment_timing === 'free') return { price: 0, special: false, regular_price: 0 };   // a free service is free for everyone
   if (client_id) {
     const [[cp]] = await db.query('SELECT price FROM prodesk_service_client_prices WHERE service_id = ? AND client_id = ?', [service_id, client_id]);
     if (cp) return { price: Number(cp.price), special: true, regular_price: Number(svc.price) };
@@ -208,7 +212,8 @@ const createServiceService = async (payload) => {
     if (v.error) return v.error;
     if (v.value.status === 'archived') return { status: false, code: 400, message: 'A new service cannot be created as archived', data: null };
     let prices = null;
-    if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
+    if (v.value.payment_timing === 'free') prices = [];   // a free service has no special prices
+    else if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
 
     const s = v.value;
     const [r] = await db.query(
@@ -244,7 +249,8 @@ const updateServiceService = async (payload) => {
     if (v.error) return v.error;
     const s = v.value;
     let prices = null;
-    if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
+    if (v.value.payment_timing === 'free') prices = [];   // a free service has no special prices
+    else if (payload.client_prices !== undefined) { const np = await normaliseClientPrices(payload.client_prices, therapist_id); if (np.error) return np.error; prices = np.value; }
 
     const changes = {};
     for (const f of SERVICE_FIELDS) if (!same(current[f], s[f])) changes[f] = { from: current[f] ?? null, to: s[f] ?? null };
@@ -265,6 +271,52 @@ const updateServiceService = async (payload) => {
     return { status: true, code: 200, message: 'Service updated', data: await loadService(service_id, therapist_id) };
   } catch (error) {
     console.log('Error in updateServiceService::>>', error);
+    return null;
+  }
+};
+
+// ─── One special price, saved on its own (the form saves each change as it is made) ───
+// Same rules as the list above, but one client at a time, so choosing a client and a price needs no extra "save" step.
+
+const setClientPriceService = async ({ therapist_id, actor_user_id, service_id, client_id, price }) => {
+  try {
+    const [[svc]] = await db.query('SELECT id, name, price, payment_timing FROM prodesk_services WHERE id = ? AND therapist_id = ?', [service_id, therapist_id]);
+    if (!svc) return { status: false, code: 404, message: 'Service not found', data: null };
+    if (svc.payment_timing === 'free') return { status: false, code: 400, message: 'A free service has no special prices', data: null };
+    const p = money(price);
+    if (!Number.isFinite(p) || p <= 0 || p > 10000000) return { status: false, code: 400, message: 'A special price must be greater than 0', data: null };
+    const [[cl]] = await db.query('SELECT pc.id, CONCAT(u.first_name, \' \', u.last_name) AS name FROM prodesk_clients pc JOIN users u ON u.user_id = pc.user_id WHERE pc.id = ? AND pc.therapist_id = ? AND pc.deleted_at IS NULL', [client_id, therapist_id]);
+    if (!cl) return { status: false, code: 404, message: 'Client not found', data: null };
+
+    const [[before]] = await db.query('SELECT price FROM prodesk_service_client_prices WHERE service_id = ? AND client_id = ?', [service_id, client_id]);
+    if (before && Number(before.price) === p) return { status: true, code: 200, message: 'Saved', data: { client_id: Number(client_id), price: p } };
+    if (before) await db.query('UPDATE prodesk_service_client_prices SET price = ? WHERE service_id = ? AND client_id = ?', [p, service_id, client_id]);
+    else await db.query('INSERT INTO prodesk_service_client_prices (service_id, client_id, price) VALUES (?, ?, ?)', [service_id, client_id, p]);
+    await Activity.record({
+      actor_user_id, module_name: 'service', action: 'special_price_set', description: `Set a special price of ₹${p} on "${svc.name}" for ${cl.name}`,
+      meta: { therapist_id, service_id: Number(service_id), client_id: Number(client_id), price: p, previous_price: before ? Number(before.price) : null },
+    });
+    return { status: true, code: 200, message: 'Saved', data: { client_id: Number(client_id), price: p } };
+  } catch (error) {
+    console.log('Error in setClientPriceService::>>', error);
+    return null;
+  }
+};
+
+const removeClientPriceService = async ({ therapist_id, actor_user_id, service_id, client_id }) => {
+  try {
+    const [[svc]] = await db.query('SELECT id, name FROM prodesk_services WHERE id = ? AND therapist_id = ?', [service_id, therapist_id]);
+    if (!svc) return { status: false, code: 404, message: 'Service not found', data: null };
+    const [r] = await db.query('DELETE FROM prodesk_service_client_prices WHERE service_id = ? AND client_id = ?', [service_id, client_id]);
+    if (r.affectedRows) {
+      await Activity.record({
+        actor_user_id, module_name: 'service', action: 'special_price_removed', description: `Removed a special price on "${svc.name}"`,
+        meta: { therapist_id, service_id: Number(service_id), client_id: Number(client_id) },
+      });
+    }
+    return { status: true, code: 200, message: 'Removed', data: { client_id: Number(client_id) } };
+  } catch (error) {
+    console.log('Error in removeClientPriceService::>>', error);
     return null;
   }
 };
@@ -297,4 +349,4 @@ const deleteServiceService = async ({ therapist_id, actor_user_id, service_id })
   }
 };
 
-module.exports = { getServicesService, getServiceByIdService, createServiceService, updateServiceService, deleteServiceService, loadService, resolvePrice };
+module.exports = { getServicesService, getServiceByIdService, createServiceService, updateServiceService, deleteServiceService, setClientPriceService, removeClientPriceService, loadService, resolvePrice };
