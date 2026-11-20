@@ -92,6 +92,7 @@ router.post('/revokeSession',   authorization, AuthCtrl.revokeSession);
 // PROFILE & SETTINGS
 // ──────────────────────────────────────────────────────────────
 router.post('/getProfile',          authorization, ProfileCtrl.getProfile);
+router.post('/setProfession',       authorization, ProfileCtrl.setProfession);
 router.post('/updateProfile',       authorization, imageUpload.single('file'), ProfileCtrl.updateProfile);
 router.post('/getAvailability',     authorization, ProfileCtrl.getAvailability);
 router.post('/updateAvailability',  authorization, ProfileCtrl.updateAvailability);
@@ -119,6 +120,7 @@ router.post('/recordConsent',         authorization, ProfileCtrl.recordConsent);
 router.post('/sendParentOtp',   authorization, ClientCtrl.sendParentOtp);
 router.post('/verifyParentOtp', authorization, ClientCtrl.verifyParentOtp);
 router.post('/createClient',    authorization, ClientCtrl.createClient);
+router.post('/importClients',   authorization, ClientCtrl.importClients);
 router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, accessLog('view_client', 'client', 'client_id'), ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, accessLog('edit_client', 'client', 'client_id'), ClientCtrl.updateClient);
@@ -348,6 +350,7 @@ router.post('/verifyIFSC',           authorization, BankAccountCtrl.verifyIFSC);
 router.post('/getRazorpayConnectUrl',   authorization, RazorpayPartnerCtrl.getConnectUrl);
 router.post('/getRazorpayConnection',   authorization, RazorpayPartnerCtrl.getConnectionStatus);
 router.post('/disconnectRazorpay',      authorization, RazorpayPartnerCtrl.disconnect);
+router.post('/confirmRazorpayActive',      authorization, RazorpayPartnerCtrl.confirmActive);
 router.get('/razorpayOAuthCallback',    RazorpayPartnerCtrl.oauthCallback);      // no auth — signed state
 router.post('/razorpayPartnerWebhook',  RazorpayPartnerCtrl.partnerWebhook);     // no auth — HMAC verified
 

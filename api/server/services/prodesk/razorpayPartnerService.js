@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const db = require('../../../config/db');
+const Activity = require('./activityLogService');
 
 const AUTH_BASE = 'https://auth.razorpay.com';
 const SCOPE = 'read_write';
@@ -268,6 +269,44 @@ const verifyPartnerWebhookSignature = async (rawBody, signature) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
+// Razorpay does NOT tell us an account's KYC status when someone connects: the token it returns has no status, and "account activated"
+// events only fire when the status CHANGES. So a therapist who already had an active account would show "Not reported yet" for ever.
+// Two ways it gets settled: the therapist says so (below), or a real payment is captured on the account (markActiveFromPayment).
+const BLOCKED_KYC = ['suspended', 'rejected'];
+
+const confirmAccountActiveService = async ({ therapist_id, actor_user_id = null }) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT id, razorpay_account_id, kyc_status FROM therapist_razorpay_accounts WHERE therapist_id = ? AND status = 'active' LIMIT 1", [therapist_id]);
+    if (!rows || !rows.length) return { status: false, code: 404, message: 'Connect Razorpay first', data: null };
+    const r = rows[0];
+    if (BLOCKED_KYC.includes(r.kyc_status)) {
+      return { status: false, code: 409, message: `Razorpay has marked this account as ${r.kyc_status}. Please sort that out in your Razorpay dashboard first.`, data: null };
+    }
+    if (r.kyc_status !== 'activated') {
+      await db.query("UPDATE therapist_razorpay_accounts SET kyc_status = 'activated' WHERE id = ?", [r.id]);
+      await Activity.record({
+        actor_user_id, module_name: 'razorpay', action: 'account_confirmed_active', description: 'Confirmed that the Razorpay account is already active',
+        meta: { therapist_id, razorpay_account_id: r.razorpay_account_id },
+      });
+    }
+    return { status: true, code: 200, message: 'Marked as active', data: { kyc_status: 'activated' } };
+  } catch (error) {
+    console.log('Error in confirmAccountActiveService::>>', error);
+    return null;
+  }
+};
+
+// A payment really went through this account, so it is active. Does not touch an account Razorpay reported as suspended or rejected.
+const markActiveFromPayment = async (accountId) => {
+  if (!accountId) return;
+  try {
+    await db.query(
+      "UPDATE therapist_razorpay_accounts SET kyc_status = 'activated' WHERE razorpay_account_id = ? AND (kyc_status IS NULL OR kyc_status = '' OR kyc_status IN ('under_review', 'needs_clarification'))",
+      [accountId]);
+  } catch (e) { console.log('markActiveFromPayment (non-fatal)::>>', e.message); }
+};
+
 const ACCOUNT_EVENTS = {
   'account.activated':          { kyc: 'activated' },
   'product.payment_gateway.activated': { kyc: 'activated' },
@@ -308,6 +347,8 @@ const handlePartnerWebhookService = async (event) => {
 };
 
 module.exports = {
+  confirmAccountActiveService,
+  markActiveFromPayment,
   getPartnerConfig,
   getConnectUrlService,
   handleOAuthCallbackService,

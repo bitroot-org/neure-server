@@ -30,7 +30,7 @@ const getProfileService = async (payload) => {
               t.id AS therapist_id, t.bio, t.specialization, t.years_of_experience,
               t.designation, t.qualification, t.booking_slug, t.about_me,
               t.experience_years, t.registration_number, t.rating, t.is_active,
-              t.onboarding_completed, t.onboarding_step
+              t.onboarding_completed, t.onboarding_step, t.profession
        FROM users u
        JOIN therapists t ON t.user_id = u.user_id
        WHERE t.id = ?`,
@@ -44,6 +44,20 @@ const getProfileService = async (payload) => {
     return { status: true, code: 200, message: 'Profile fetched', data: rows[0] };
   } catch (error) {
     console.log('Error in getProfileService::>>', error);
+    return null;
+  }
+};
+
+// Profession is chosen once (sign-up page, or the one-time popup for older accounts). After that only support can change it.
+const PROFESSIONS = ['psychologist', 'psychiatrist'];
+const setProfessionService = async ({ therapist_id, profession }) => {
+  try {
+    if (!PROFESSIONS.includes(profession)) return { status: false, code: 400, message: 'Please choose Psychologist or Psychiatrist', data: null };
+    const [r] = await db.query('UPDATE therapists SET profession = ? WHERE id = ? AND profession IS NULL', [profession, therapist_id]);
+    if (!r.affectedRows) return { status: false, code: 409, message: 'Your profession is already set. Please contact support to change it.', data: null };
+    return { status: true, code: 200, message: 'Profession saved', data: { profession } };
+  } catch (error) {
+    console.log('Error in setProfessionService::>>', error);
     return null;
   }
 };
@@ -551,6 +565,8 @@ const updateOnboardingStepService = async ({ therapist_id, step }) => {
 
 module.exports = {
   getProfileService,
+  setProfessionService,
+  PROFESSIONS,
   updateProfileService,
   getAvailabilityService,
   updateAvailabilityService,

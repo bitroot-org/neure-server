@@ -9,6 +9,7 @@ const { recordConsentService } = require('./consentService');
 const { modesForModality } = require('../../utils/availabilityMode');
 const { touchClient } = require('./clientActivity');
 const planGuard = require('./planGuard');
+const { assignClientCode } = require('./clientCode');
 const Intake = require('./intakeFormService');
 const Consent = require('./consentFormService');
 const Catalog = require('./serviceCatalogService');
@@ -300,6 +301,7 @@ const confirmBookingService = async (payload) => {
         [userId, hold.therapist_id, concern || null, avatarColor(name)]
       );
       clientId = cResult.insertId;
+      await assignClientCode(clientId, hold.therapist_id);
       await planGuard.markClientActive(hold.therapist_id, clientId, legacyGate.access);
     }
 
@@ -851,6 +853,7 @@ const createBookingSessionService = async ({ slug, date, time, duration_min = 60
           [userId, therapist_id, ageNum, concern || null, fee || 0, color]
         );
         clientRow = { id: cRes.insertId, existed: false };
+        await assignClientCode(cRes.insertId, therapist_id, conn);
         if (ageNum < 18) await parentConsent.attachParentConsent(parent_consent_id, cRes.insertId);
       }
 

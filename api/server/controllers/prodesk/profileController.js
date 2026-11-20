@@ -15,7 +15,8 @@ const {
   deleteDocumentService,
   getBookingLinkService,
   completeOnboardingService,
-  updateOnboardingStepService
+  updateOnboardingStepService,
+  setProfessionService
 } = require('../../services/prodesk/profileService');
 const { recordConsentService, getPolicyStatusService, acceptPolicyService } = require('../../services/prodesk/consentService');
 const { uploadImage } = require('../upload/UploadController');
@@ -27,6 +28,15 @@ const respond = (res, result) => {
 };
 
 class ProdeskProfileController {
+  static async setProfession(req, res) {
+    try {
+      const result = await setProfessionService({ therapist_id: req.user.therapist_id, profession: req.body && req.body.profession });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
   static async getProfile(req, res) {
     try {
       const result = await getProfileService({ therapist_id: req.user.therapist_id });

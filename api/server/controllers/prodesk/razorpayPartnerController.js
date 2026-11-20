@@ -3,6 +3,7 @@ const {
   handleOAuthCallbackService,
   getConnectionStatusService,
   disconnectService,
+  confirmAccountActiveService,
   verifyPartnerWebhookSignature,
   handlePartnerWebhookService,
 } = require('../../services/prodesk/razorpayPartnerService');
@@ -24,6 +25,12 @@ class RazorpayPartnerController {
   static async getConnectionStatus(req, res) {
     try {
       return respond(res, await getConnectionStatusService({ therapist_id: req.user.therapist_id }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async confirmActive(req, res) {
+    try {
+      return respond(res, await confirmAccountActiveService({ therapist_id: req.user.therapist_id, actor_user_id: req.user.user_id }));
     } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
   }
 
