@@ -204,7 +204,7 @@ const generateReferralCode = (firstName, userId) => {
 const registerService = async (payload) => {
   try {
     console.log('Payload in registerService::>>', payload);
-    const { first_name, last_name = '', email, password, phone, referral_code, consent_accepted, ip_address = null, user_agent = null } = payload;
+    const { first_name, last_name = '', email, password, phone, referral_code, consent_accepted, profession = null, ip_address = null, user_agent = null } = payload;
 
     if (!first_name || !email || !password) {
       return { status: false, code: 400, message: 'first_name, email and password are required', data: null };
@@ -287,8 +287,8 @@ const registerService = async (payload) => {
       }
 
       const [therapistResult] = await conn.query(
-        'INSERT INTO therapists (user_id, booking_slug, referral_code) VALUES (?, ?, ?)',
-        [userId, slug, uniqueReferralCode]
+        'INSERT INTO therapists (user_id, booking_slug, referral_code, profession) VALUES (?, ?, ?, ?)',
+        [userId, slug, uniqueReferralCode, profession || null]
       );
       const therapistId = therapistResult.insertId;
 

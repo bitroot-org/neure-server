@@ -12,6 +12,7 @@ const {
 } = require('../../services/prodesk/clientService');
 const { uploadImage } = require('../upload/UploadController');
 const planGuard = require('../../services/prodesk/planGuard');
+const { importClientsService } = require('../../services/prodesk/clientImportService');
 const { buildAllDataZip } = require('../../services/prodesk/dataExportService');
 const { deleteClientService, getAccountDeletionStatusService, requestAccountDeletionService, cancelAccountDeletionService } = require('../../services/prodesk/privacyService');
 const { getAccessLogsService } = require('../../services/prodesk/accessLogService');
@@ -189,6 +190,16 @@ class ProdeskClientController {
   static async createClient(req, res) {
     try {
       const result = await createClientService({ therapist_id: req.user.therapist_id, ...req.body });
+      return respond(res, result);
+    } catch (e) {
+      return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
+    }
+  }
+
+  static async importClients(req, res) {
+    try {
+      const { rows, dry_run } = req.body || {};
+      const result = await importClientsService({ therapist_id: req.user.therapist_id, rows, dry_run: dry_run !== false });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });

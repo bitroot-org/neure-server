@@ -23,9 +23,10 @@ const respond = (res, result) => {
 class ProdeskAuthController {
   static async register(req, res) {
     try {
-      const { first_name, last_name, email, password, phone, referral_code, consent_accepted } = req.body;
+      const { first_name, last_name, email, password, phone, referral_code, consent_accepted, profession } = req.body;
+      if (profession && !['psychologist', 'psychiatrist'].includes(profession)) return res.status(400).json({ status: false, code: 400, message: 'Please choose Psychologist or Psychiatrist', data: null });
       if (!first_name || !email || !password) return res.status(400).json({ status: false, code: 400, message: 'first_name, email and password are required', data: null });
-      const result = await registerService({ first_name, last_name, email, password, phone, referral_code, consent_accepted, ip_address: req.ip, user_agent: req.headers['user-agent'] });
+      const result = await registerService({ first_name, last_name, email, password, phone, referral_code, consent_accepted, profession, ip_address: req.ip, user_agent: req.headers['user-agent'] });
       return respond(res, result);
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
