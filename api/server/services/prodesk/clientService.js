@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const db = require('../../../config/db');
 const parentConsent = require('./parentConsentService');
 const planGuard = require('./planGuard');
+const { assignClientCode } = require('./clientCode');
 const NotificationService = require('../notificationsAndAnnouncements/notificationService');
 
 const AVATAR_COLORS = ['#5EA89A', '#6E8FB5', '#8B7CB0', '#C89364', '#B87276', '#A87E6A'];
@@ -128,6 +129,7 @@ const createClientService = async (payload) => {
         ]
       );
 
+      await assignClientCode(clientResult.insertId, therapist_id, conn);
       await conn.commit();
       if (minor) await parentConsent.attachParentConsent(parent_consent_id, clientResult.insertId);
       await planGuard.markClientActive(therapist_id, clientResult.insertId, gate.access); // takes one of the active places on Starter

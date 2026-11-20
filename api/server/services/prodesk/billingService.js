@@ -53,7 +53,7 @@ const getInvoiceByIdService = async (payload) => {
     const { therapist_id, invoice_id } = payload;
 
     const [rows] = await db.query(
-      `SELECT pi.*,
+      `SELECT pi.*, pc.client_code,
               CONCAT(u.first_name, ' ', u.last_name) AS client_name,
               u.email AS client_email
        FROM prodesk_invoices pi
@@ -596,7 +596,7 @@ const getInvoicesService = async (payload) => {
     );
 
     const [rows] = await db.query(
-      `SELECT pi.*, CONCAT(u.first_name, ' ', u.last_name) AS client_name
+      `SELECT pi.*, pc.client_code, CONCAT(u.first_name, ' ', u.last_name) AS client_name
        FROM prodesk_invoices pi
        LEFT JOIN prodesk_clients pc ON pc.id = pi.client_id
        LEFT JOIN users u ON u.user_id = pc.user_id
