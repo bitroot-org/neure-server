@@ -47,6 +47,14 @@ const imageUpload = multer({
   }
 });
 
+// Multer — Record History files (type is checked by the service; 10 MB per file)
+const clientFileMulter = multer({ dest: 'temp/', limits: { fileSize: 10 * 1024 * 1024 } }).single('file');
+const clientFileUpload = (req, res, next) => clientFileMulter(req, res, (err) => {
+  if (!err) return next();
+  const big = err.code === 'LIMIT_FILE_SIZE';
+  return res.status(400).json({ status: false, code: 400, message: big ? 'File is too big. The limit is 10 MB per file.' : 'Could not read the file', data: null });
+});
+
 // Multer — gallery/resource uploads (PDF, audio, video, images)
 const resourceUpload = multer({
   dest: 'temp/',
@@ -121,6 +129,10 @@ router.post('/sendParentOtp',   authorization, ClientCtrl.sendParentOtp);
 router.post('/verifyParentOtp', authorization, ClientCtrl.verifyParentOtp);
 router.post('/createClient',    authorization, ClientCtrl.createClient);
 router.post('/importClients',   authorization, ClientCtrl.importClients);
+router.post('/listClientFiles',   authorization, ClientCtrl.listClientFiles);
+router.post('/uploadClientFile',  authorization, clientFileUpload, ClientCtrl.uploadClientFile);
+router.post('/getClientFileLink', authorization, ClientCtrl.getClientFileLink);
+router.post('/deleteClientFile',  authorization, ClientCtrl.deleteClientFile);
 router.post('/getClients',      authorization, ClientCtrl.getClients);
 router.post('/getClientById',   authorization, accessLog('view_client', 'client', 'client_id'), ClientCtrl.getClientById);
 router.post('/updateClient',    authorization, accessLog('edit_client', 'client', 'client_id'), ClientCtrl.updateClient);
