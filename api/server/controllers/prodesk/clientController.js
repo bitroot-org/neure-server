@@ -13,6 +13,7 @@ const {
 const { uploadImage } = require('../upload/UploadController');
 const planGuard = require('../../services/prodesk/planGuard');
 const { importClientsService } = require('../../services/prodesk/clientImportService');
+const { listClientFilesService, uploadClientFileService, getClientFileLinkService, deleteClientFileService } = require('../../services/prodesk/clientFileService');
 const { buildAllDataZip } = require('../../services/prodesk/dataExportService');
 const { deleteClientService, getAccountDeletionStatusService, requestAccountDeletionService, cancelAccountDeletionService } = require('../../services/prodesk/privacyService');
 const { getAccessLogsService } = require('../../services/prodesk/accessLogService');
@@ -194,6 +195,39 @@ class ProdeskClientController {
     } catch (e) {
       return res.status(500).json({ status: false, code: 500, message: e.message, data: null });
     }
+  }
+
+  // Record History files (private storage per client)
+  static async listClientFiles(req, res) {
+    try {
+      const client_id = parseInt(req.body?.client_id);
+      if (!client_id) return res.status(400).json({ status: false, code: 400, message: 'client_id is required', data: null });
+      return respond(res, await listClientFilesService({ therapist_id: req.user.therapist_id, client_id }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async uploadClientFile(req, res) {
+    try {
+      const client_id = parseInt(req.body?.client_id);
+      if (!client_id) { if (req.file) try { require('fs').unlinkSync(req.file.path); } catch (_) {} return res.status(400).json({ status: false, code: 400, message: 'client_id is required', data: null }); }
+      return respond(res, await uploadClientFileService({ therapist_id: req.user.therapist_id, client_id, file: req.file }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async getClientFileLink(req, res) {
+    try {
+      const file_id = parseInt(req.body?.file_id);
+      if (!file_id) return res.status(400).json({ status: false, code: 400, message: 'file_id is required', data: null });
+      return respond(res, await getClientFileLinkService({ therapist_id: req.user.therapist_id, file_id, inline: !!req.body?.inline }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
+  }
+
+  static async deleteClientFile(req, res) {
+    try {
+      const file_id = parseInt(req.body?.file_id);
+      if (!file_id) return res.status(400).json({ status: false, code: 400, message: 'file_id is required', data: null });
+      return respond(res, await deleteClientFileService({ therapist_id: req.user.therapist_id, file_id }));
+    } catch (e) { return res.status(500).json({ status: false, code: 500, message: e.message, data: null }); }
   }
 
   static async importClients(req, res) {
